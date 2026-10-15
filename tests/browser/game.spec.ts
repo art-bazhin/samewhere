@@ -1,9 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
-import { portalAngle, transformPoint, wallNormal, type SocketRef } from '../../src/world';
+import { portalAngle, portalDistance, transformPoint, WALL_THICKNESS, wallNormal, type SocketRef } from '../../src/world';
 
 declare global { interface Window { __samewhere: any } }
 async function ready(page: Page) {
   await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space && window.__samewhere.space.passes > 0);
+  await page.evaluate(() => window.__samewhere.space.ready);
 }
 async function pose(page: Page, x: number, z: number, yaw: number, pitch = 0, room = 'A') {
   await page.evaluate(({ x, z, yaw, pitch, room }) => {
@@ -115,6 +116,87 @@ test('native relative mouse input is applied once, preserves sensitivity, and se
   expect(await page.evaluate(() => ({ ...window.__samewhere.game.player }))).toEqual(settled);
 });
 
+test('textured architecture loads locally and paired wall halves form a 30 cm passage', async ({ page }) => {
+  const external: string[] = [];
+  page.on('request', request => { if (!request.url().startsWith('http://127.0.0.1:5173/')) external.push(request.url()); });
+  await ready(page);
+  const result = await page.evaluate(() => {
+    const space = window.__samewhere.space, depths: { open: number; solid: number }[] = [], ceilingBounds: { actual: number; expected: number }[] = [];
+    let lines = 0;
+    for (const id of ['A', 'B']) {
+      const room = space.rooms[id]; room.scene.updateMatrixWorld(true);
+      room.scene.traverse((object: any) => { if (object.isLine) lines++; });
+      room.walls.forEach((wall: any, side: number) => {
+        const angle = side * Math.PI * 2 / room.walls.length, nx = Math.sin(angle), nz = -Math.cos(angle);
+        const depth = (group: any) => {
+          let near = Infinity, far = -Infinity;
+          group.traverse((mesh: any) => {
+            if (!mesh.isMesh) return;
+            const vertices = mesh.geometry.attributes.position, point = space.camera.position.clone();
+            for (let i = 0; i < vertices.count; i++) {
+              point.fromBufferAttribute(vertices, i).applyMatrix4(mesh.matrixWorld);
+              const distance = point.x * nx + point.z * nz;
+              near = Math.min(near, distance); far = Math.max(far, distance);
+            }
+          }); return far - near;
+        };
+        depths.push({ open: depth(wall.open), solid: depth(wall.solid) });
+        const vertices = room.scene.getObjectByName('ceiling').geometry.attributes.position;
+        let bound = -Infinity;
+        for (let i = 0; i < vertices.count; i++) bound = Math.max(bound, vertices.getX(i) * nx + vertices.getZ(i) * nz);
+        ceilingBounds.push({ actual: bound, expected: room.portals[side].distance });
+      });
+    }
+    const materials = space.assets.materials;
+    const maps = ['wall', 'floor', 'ceiling'].flatMap(key => ['map', 'bumpMap'].map(map => {
+      const texture = materials[key][map]; return [texture.image.width, texture.image.height];
+    }));
+    space.render();
+    return { depths, ceilingBounds, maps, lines, shadows: space.rooms.A.shadowLight.shadow.map.width, glError: space.renderer.getContext().getError() };
+  });
+  for (const depth of result.depths) {
+    expect(depth.solid).toBeCloseTo(WALL_THICKNESS, 5);
+    expect(depth.open * 2).toBeCloseTo(WALL_THICKNESS, 5);
+  }
+  for (const bound of result.ceilingBounds) expect(bound.actual).toBeCloseTo(bound.expected, 5);
+  expect(result.maps).toHaveLength(6);
+  for (const [width, height] of result.maps) { expect(width).toBeGreaterThanOrEqual(1024); expect(height).toBeGreaterThanOrEqual(1024); }
+  expect(result.lines).toBe(0); expect(result.shadows).toBe(1024);
+  expect(result.glError).toBe(0); expect(external).toEqual([]);
+});
+
+test('distant saturated colors stay clear through a portal without a gray fog layer', async ({ page }) => {
+  await ready(page);
+  const result = await page.evaluate(async () => {
+    const modulePath = '/node_modules/three/build/three.module.js', THREE = await import(modulePath);
+    const app = window.__samewhere, space = app.space;
+    app.game.world.balls[0].socket = { room: 'A', side: 0 };
+    app.game.world.balls[1].socket = { room: 'B', side: 0 };
+    app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
+    // Isolate color transport from room lighting. At nearly 30 m the old scene
+    // fog washed this reference surface gray, even with an unlit material.
+    for (const room of Object.values(space.rooms) as any[]) room.scene.traverse((object: any) => { if (object.isMesh) object.visible = false; });
+    space.rooms.A.portals[0].mesh.visible = true;
+    const geometry = new THREE.PlaneGeometry(8, 8), material = new THREE.MeshBasicMaterial({ color: 0xff3500 });
+    const reference = new THREE.Mesh(geometry, material); reference.position.set(0, 1.65, 24); reference.rotation.y = Math.PI;
+    space.rooms.B.scene.add(reference);
+    const gl = space.renderer.getContext(), pixel = new Uint8Array(4);
+    const read = () => {
+      space.render(); gl.readPixels(Math.floor(gl.drawingBufferWidth / 2), Math.floor(gl.drawingBufferHeight / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      return Array.from(pixel);
+    };
+    try {
+      Object.assign(app.game.player, { room: 'A', x: 0, z: -4.5, yaw: 0, pitch: 0 });
+      const portal = read();
+      Object.assign(app.game.player, { room: 'B', z: -5.8, yaw: Math.PI });
+      return { portal, direct: read(), glError: gl.getError() };
+    } finally { space.rooms.B.scene.remove(reference); geometry.dispose(); material.dispose(); }
+  });
+  expect(result.direct[0]).toBe(255); expect(result.direct[1]).toBeCloseTo(53, 0); expect(result.direct[2]).toBe(0);
+  for (let i = 0; i < 4; i++) expect(Math.abs(result.portal[i] - result.direct[i])).toBeLessThanOrEqual(1);
+  expect(result.glError).toBe(0);
+});
+
 test('partition blocks the ray; control solution is traversable in the rendered world', async ({ page }) => {
   await ready(page); await page.locator('#play-button').click();
   await expect(page.locator('#overlay')).toBeHidden();
@@ -169,7 +251,7 @@ test('adjacent A portals, A–B and B self-loops render, with bounded GPU resour
   for (let i = 0; i < 4; i++) await pose(page, 0.3, 0, i * Math.PI / 2);
   const before = await page.evaluate(() => ({ ...window.__samewhere.space.renderer.info.memory }));
   for (let i = 0; i < 100; i++) {
-    await page.evaluate(() => { const app = window.__samewhere; app.game.move({ x: 0, z: -10 }); app.space.render(); });
+    await page.evaluate(distance => { const app = window.__samewhere; app.game.move({ x: 0, z: -distance }); app.space.render(); }, 2 * portalDistance('A'));
   }
   const after = await page.evaluate(() => { const app = window.__samewhere; return { memory: { ...app.space.renderer.info.memory }, targets: app.space.targets.length, passes: app.space.passes, transitions: app.game.transitions }; });
   expect(after.transitions).toBe(100); expect(after.targets).toBeLessThanOrEqual(23); expect(after.passes).toBeLessThanOrEqual(24);
@@ -193,7 +275,7 @@ test('rendered perspective remains continuous within 2 mm of every kind of seam'
       app.game.world.balls[0].socket = from; app.game.world.balls[1].socket = to;
       app.game.world.balls[2].socket = null; app.game.world.balls[3].socket = null; app.sync();
     }, { from, to });
-    const n = wallNormal(from.room, from.side), yaw = Math.atan2(-n.x, -n.z);
+    const n = wallNormal(from.room, from.side), yaw = Math.atan2(-n.x, -n.z), seam = portalDistance(from.room);
     async function sample(x: number, z: number, room: string, angle: number) {
       return page.evaluate(({ x, z, room, angle }) => {
         const app = window.__samewhere; Object.assign(app.game.player, { x, z, room, yaw: angle, pitch: -0.02 }); app.space.render();
@@ -202,15 +284,61 @@ test('rendered perspective remains continuous within 2 mm of every kind of seam'
         return Array.from(pixels);
       }, { x, z, room, angle });
     }
-    const before = await sample(n.x * 4.999 - n.z * 0.25, n.z * 4.999 + n.x * 0.25, from.room, yaw);
+    const before = await sample(n.x * (seam - 0.001) - n.z * 0.25, n.z * (seam - 0.001) + n.x * 0.25, from.room, yaw);
     await page.screenshot({ path: `test-results/seam-${from.room}${from.side}-before.png` });
-    const afterPoint = transformPoint({ x: n.x * 5.001 - n.z * 0.25, z: n.z * 5.001 + n.x * 0.25 }, from, to);
+    const afterPoint = transformPoint({ x: n.x * (seam + 0.001) - n.z * 0.25, z: n.z * (seam + 0.001) + n.x * 0.25 }, from, to);
     const after = await sample(afterPoint.x, afterPoint.z, to.room, yaw - portalAngle(from, to));
     await page.screenshot({ path: `test-results/seam-${from.room}${from.side}-after.png` });
     let difference = 0; for (let i = 0; i < before.length; i++) difference += Math.abs(before[i] - after[i]);
     const mean = difference / before.length;
     console.log(`Seam ${from.room}${from.side} → ${to.room}${to.side}: mean pixel difference ${mean.toFixed(3)}/255`);
     expect(mean).toBeLessThan(4);
+  }
+});
+
+test('the entire frame stays continuous at the eye plane, including angled and reverse crossings', async ({ page }) => {
+  await ready(page);
+  const results = await page.evaluate(async () => {
+    const modulePath = '/src/world.ts';
+    const { portalDistance, portalAngle, transformPoint, wallNormal } = await import(modulePath);
+    const app = window.__samewhere, space = app.space, gl = space.renderer.getContext();
+    const width = gl.drawingBufferWidth, height = gl.drawingBufferHeight;
+    const before = new Uint8Array(width * height * 4), after = new Uint8Array(before.length);
+    const routes = [
+      [{ room: 'A', side: 0 }, { room: 'A', side: 2 }],
+      [{ room: 'A', side: 0 }, { room: 'A', side: 1 }],
+      [{ room: 'A', side: 2 }, { room: 'B', side: 0 }],
+      [{ room: 'B', side: 0 }, { room: 'B', side: 2 }],
+    ];
+    const results = [];
+    const read = (point: any, room: string, yaw: number, pixels: Uint8Array) => {
+      Object.assign(app.game.player, { ...point, room, yaw, pitch: .12 }); space.render();
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    };
+    for (const route of routes) for (const [from, to] of [route, [...route].reverse()]) {
+      app.reset();
+      app.game.world.balls[0].socket = from; app.game.world.balls[1].socket = to;
+      app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
+      const n = wallNormal(from.room, from.side), seam = portalDistance(from.room);
+      for (const [lateral, angle] of [[0, 0], [.65, .45], [-.65, -.45], [.2, Math.PI]]) for (const epsilon of [.00001, 0]) {
+        const yaw = Math.atan2(-n.x, -n.z) + angle;
+        read({ x: n.x * (seam - epsilon) - n.z * lateral, z: n.z * (seam - epsilon) + n.x * lateral }, from.room, yaw, before);
+        const point = transformPoint({ x: n.x * (seam + epsilon) - n.z * lateral, z: n.z * (seam + epsilon) + n.x * lateral }, from, to);
+        read(point, to.room, yaw - portalAngle(from, to), after);
+        let difference = 0, changed = 0;
+        for (let i = 0; i < before.length; i++) {
+          const delta = Math.abs(before[i] - after[i]); difference += delta; if (delta > 20) changed++;
+        }
+        results.push({ route: `${from.room}${from.side}–${to.room}${to.side}`, lateral, angle, epsilon,
+          mean: difference / before.length, changedFraction: changed / before.length });
+      }
+    }
+    return results;
+  });
+  console.log('Eye-plane continuity, worst cases:', [...results].sort((a, b) => b.mean - a.mean).slice(0, 5));
+  for (const result of results) {
+    expect(result.mean, JSON.stringify(result)).toBeLessThan(1);
+    expect(result.changedFraction, JSON.stringify(result)).toBeLessThan(.001);
   }
 });
 
@@ -249,11 +377,11 @@ test('cropped portal textures match full-frame textures while turning in either 
     return { maxDelta, pixels, fullPixels, meanDelta: totalDelta / (optimized.length * 16), changedFraction: changed / (optimized.length * 16), differences };
   });
   console.log('Portal crop comparison:', result);
-  // Integer viewport translations can round a handful of MSAA edge samples
-  // differently. Flat regions and pixel alignment must still agree throughout.
+  // Integer viewport translations can round MSAA edges and texture derivatives
+  // by a few levels. Fewer than 0.01% of channels may differ by more than one.
   expect(result.maxDelta).toBeLessThanOrEqual(64);
   expect(result.meanDelta).toBeLessThan(0.001);
-  expect(result.changedFraction).toBeLessThan(0.00001);
+  expect(result.changedFraction).toBeLessThan(0.0001);
   expect(result.pixels).toBeLessThan(result.fullPixels * 0.5);
 });
 
@@ -266,7 +394,7 @@ test.describe('portal detail on Retina', () => {
     const results = [];
     for (const viewport of [{ width: 1920, height: 1080 }, { width: 1511, height: 901 }]) {
       await page.setViewportSize(viewport);
-      results.push(await page.evaluate(async () => {
+      results.push(await page.evaluate(async seam => {
         const modulePath = '/node_modules/three/build/three.module.js';
         const THREE = await import(modulePath);
         const app = window.__samewhere, space = app.space;
@@ -291,7 +419,7 @@ test.describe('portal detail on Retina', () => {
           Object.assign(app.game.player, { room: 'A', x: 0, z: -4.5, yaw: 0, pitch: 0 }); space.render();
           const portal = read();
           // The identical virtual camera, rendered directly from outside A2.
-          Object.assign(app.game.player, { z: 5.5 }); space.render();
+          Object.assign(app.game.player, { z: 2 * seam - 4.5 }); space.render();
           const direct = read();
           let maxDelta = 0, contrast = 0;
           for (let i = 0; i < portal.length; i++) maxDelta = Math.max(maxDelta, Math.abs(portal[i] - direct[i]));
@@ -301,7 +429,7 @@ test.describe('portal detail on Retina', () => {
           return { maxDelta, contrast: contrast / (128 * 127), buffer: [width, height], portalBuffer: [space.targetWidth, space.targetHeight],
             samples: gl.getParameter(gl.SAMPLES), portalSamples: space.portalSamples, glError: gl.getError() };
         } finally { space.rooms.A.scene.remove(pattern); geometry.dispose(); material.dispose(); }
-      }));
+      }, portalDistance('A')));
     }
     for (const result of results) {
       expect(result.portalBuffer).toEqual(result.buffer);

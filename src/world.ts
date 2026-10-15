@@ -16,12 +16,14 @@ export const ROOMS: Record<RoomId, RoomDefinition> = {
   B: { id: 'B', sides: 5, apothem: 5, pedestals: [{ controls: 'A', x: -1.5, z: 0.8 }, { controls: 'B', x: 1.5, z: -0.8 }] },
 };
 export const ROOM_HEIGHT = 3.5;
+export const WALL_THICKNESS = 0.3;
 export const EYE_HEIGHT = 1.65;
 export const DOOR_WIDTH = 1.8;
 export const DOOR_HEIGHT = 2.6;
 export const PLAYER_RADIUS = 0.22;
 export const PEDESTAL_APOTHEM = 0.65;
 export const SOCKET_RADIUS = 0.47;
+export const portalDistance = (room: RoomId) => ROOMS[room].apothem + WALL_THICKNESS / 2;
 export const sameSocket = (a: SocketRef, b: SocketRef) => a.room === b.room && a.side === b.side;
 export const wallAngle = (room: RoomId, side: number) => side * Math.PI * 2 / ROOMS[room].sides;
 export function wallNormal(room: RoomId, side: number): Vec2 {
@@ -37,8 +39,8 @@ export function portalAngle(from: SocketRef, to: SocketRef) {
 }
 export function transformPoint(p: Vec2, from: SocketRef, to: SocketRef): Vec2 {
   const a = wallNormal(from.room, from.side), b = wallNormal(to.room, to.side);
-  const offset = rotate({ x: p.x - a.x * ROOMS[from.room].apothem, z: p.z - a.z * ROOMS[from.room].apothem }, portalAngle(from, to));
-  return { x: offset.x + b.x * ROOMS[to.room].apothem, z: offset.z + b.z * ROOMS[to.room].apothem };
+  const offset = rotate({ x: p.x - a.x * portalDistance(from.room), z: p.z - a.z * portalDistance(from.room) }, portalAngle(from, to));
+  return { x: offset.x + b.x * portalDistance(to.room), z: offset.z + b.z * portalDistance(to.room) };
 }
 export function connections(world: WorldState): Connection[] {
   return (['red', 'blue'] as const).flatMap(color => {
@@ -132,16 +134,32 @@ export class Game {
       let crossed = false;
       for (let side = 0; side < room.sides; side++) {
         const n = wallNormal(room.id, side), to = destination(this.world, { room: room.id, side });
-        const d0 = old.x * n.x + old.z * n.z, d1 = next.x * n.x + next.z * n.z;
-        const lateral = next.x * -n.z + next.z * n.x;
-        const open = to && Math.abs(lateral) < DOOR_WIDTH / 2 - PLAYER_RADIUS;
-        if (open && d0 <= room.apothem && d1 > room.apothem) {
+        const d0 = old.x * n.x + old.z * n.z;
+        let d1 = next.x * n.x + next.z * n.z;
+        let lateral = next.x * -n.z + next.z * n.x;
+        const clearance = DOOR_WIDTH / 2 - PLAYER_RADIUS;
+        if (to && d1 > room.apothem - PLAYER_RADIUS && Math.abs(lateral) > clearance) {
+          // Keep the existing conservative jamb clearance. Once inside the
+          // doorway, stop sideways motion without snapping back into the room.
+          if (d0 <= room.apothem - PLAYER_RADIUS + 1e-9) {
+            const push = d1 - room.apothem + PLAYER_RADIUS;
+            next.x -= n.x * push; next.z -= n.z * push;
+          } else {
+            const push = Math.sign(lateral) * clearance - lateral;
+            next.x -= n.z * push; next.z += n.x * push;
+          }
+          d1 = next.x * n.x + next.z * n.z;
+          lateral = next.x * -n.z + next.z * n.x;
+        }
+        const open = to && Math.abs(lateral) <= clearance + 1e-9;
+        const seam = portalDistance(room.id);
+        if (open && d0 <= seam && d1 > seam) {
           const from = { room: room.id, side };
-          const t = (room.apothem - d0) / (d1 - d0);
-          const boundary = { x: old.x + step.x * t, z: old.z + step.z * t };
+          const t = (seam - d0) / (d1 - d0);
+          const boundary = { x: old.x + (next.x - old.x) * t, z: old.z + (next.z - old.z) * t };
           const before = this.snapshot();
-          before.player.x = boundary.x - n.x * (PLAYER_RADIUS + 0.035);
-          before.player.z = boundary.z - n.z * (PLAYER_RADIUS + 0.035);
+          before.player.x = boundary.x - n.x * (WALL_THICKNESS / 2 + PLAYER_RADIUS + 0.035);
+          before.player.z = boundary.z - n.z * (WALL_THICKNESS / 2 + PLAYER_RADIUS + 0.035);
           this.remember(before);
           next = transformPoint(next, from, to);
           const delta = portalAngle(from, to);
@@ -153,7 +171,7 @@ export class Game {
           if (this.world.mode === 'puzzle' && this.world.visitedB && to.room === 'A') this.world.solved = true;
           crossed = true; break;
         }
-        if (!open && d1 > room.apothem - PLAYER_RADIUS) {
+        if (!to && d1 > room.apothem - PLAYER_RADIUS) {
           const push = d1 - room.apothem + PLAYER_RADIUS;
           next.x -= n.x * push; next.z -= n.z * push;
         }
@@ -162,7 +180,7 @@ export class Game {
         if (this.world.mode === 'puzzle' && room.id === 'A') {
           const distance = (next.z - next.x) / Math.SQRT2;
           const oldSide = old.z - old.x >= 0 ? 1 : -1;
-          const clearance = PLAYER_RADIUS + 0.07;
+          const clearance = PLAYER_RADIUS + WALL_THICKNESS / 2;
           if (distance * oldSide < clearance) {
             const push = clearance * oldSide - distance;
             next.x -= push / Math.SQRT2; next.z += push / Math.SQRT2;
@@ -170,7 +188,7 @@ export class Game {
         }
         for (const pedestal of room.pedestals) {
           const dx = next.x - pedestal.x, dz = next.z - pedestal.z;
-          const distance = Math.hypot(dx, dz), radius = 0.88 + PLAYER_RADIUS;
+          const distance = Math.hypot(dx, dz), radius = PEDESTAL_APOTHEM / Math.cos(Math.PI / ROOMS[pedestal.controls].sides) + PLAYER_RADIUS;
           if (distance < radius) {
             const safe = Math.max(distance, 0.0001);
             next.x = pedestal.x + dx / safe * radius;

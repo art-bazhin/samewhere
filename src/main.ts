@@ -138,7 +138,7 @@ document.addEventListener(mouseEvent, event => {
 }, { passive: true });
 document.addEventListener('keydown', event => {
   if (event.code === 'KeyF') { event.preventDefault(); if (!event.repeat) void toggleFullscreen(); return; }
-  if (event.code === 'F3') { event.preventDefault(); debug = !debug; $('debug').hidden = !debug; space?.setDebug(debug); return; }
+  if (event.code === 'F3') { event.preventDefault(); debug = !debug; $('debug').hidden = !debug; return; }
   if (event.code === 'F2') { event.preventDefault(); if (space) reset(game.world.mode === 'explore' ? 'puzzle' : 'explore'); return; }
   if (event.code === 'F4') { event.preventDefault(); if (locked && !event.repeat) toggleSweep(); return; }
   if (!locked) return;
@@ -220,6 +220,11 @@ function frame(time: number) {
 }
 try {
   space = new SpaceRenderer(canvas, game); updateHUD(); requestAnimationFrame(frame);
+  const playButton = $<HTMLButtonElement>('play-button'), playLabel = playButton.querySelector('span')!;
+  playButton.disabled = true; playLabel.textContent = 'Загрузка пространства…';
+  void space.ready.then(() => { playButton.disabled = false; playLabel.textContent = 'Войти в пространство'; }).catch(error => {
+    console.error(error); $('error').hidden = false; $('error').textContent = 'Не удалось загрузить материалы. Обновите страницу.';
+  });
   // Development-only inspection surface for reproducible browser acceptance checks.
   if (import.meta.env.DEV) Object.assign(window, { __samewhere: { game, space, sync, reset, undo, pause, timing, mouseLook, mouseEvent, get fps() { return fps; }, get mouseInput() { return mouseInput; } } });
 } catch (error) {

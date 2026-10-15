@@ -1,0 +1,26 @@
+{
+  "style": "Backrooms",
+  "materials": [
+    {
+      "name": "Yellow embossed wallpaper",
+      "file": "backrooms-wallpaper-color.png",
+      "meters_per_tile": 1.2,
+      "source": "Generated for Samewhere",
+      "generator": "Built-in image_gen tool",
+      "prompt": "Use case: photorealistic-natural. Asset type: seamless physically based BASE COLOR texture for wallpaper in a first-person Backrooms-style game. Create one square full-bleed texture swatch viewed perfectly straight on, orthographic, of old pale mustard-yellow embossed vinyl wallpaper found in an empty late-1970s office. Fine, restrained vertical meandering pinstripes with tiny elongated diamond / leaf shapes, each only a few centimeters wide in the real material, densely repeating across the swatch. A subtle tactile paper grain and very slight age discoloration; predominantly yellow ochre and straw yellow, with the embossed pattern only slightly darker. The whole swatch represents about 1 meter by 1 meter. It should read as essentially yellow wallpaper at room-view distance, with the woven print visible close up. Natural photographic material detail, subdued pattern contrast, no plaster/concrete patches, no cracks or peeling. BASE COLOR ONLY: diffuse neutral uniform frontal illumination, no directional light or shading, no ambient occlusion, no shadows, no specular highlights, no vignetting, no blur, no fog, no grey veil. Seamlessly repeatable on left/right and top/bottom edges, consistent density across edges, no obvious center motif. Texture fills the entire image edge to edge, no borders, room, architecture, objects, text, symbols, watermark or labels. Output a high-detail square raster texture."
+    },
+    {
+      "name": "Beige office carpet",
+      "file": "backrooms-carpet-color.png",
+      "meters_per_tile": 1,
+      "source": "Generated for Samewhere",
+      "generator": "Built-in image_gen tool",
+      "prompt": "Use case: photorealistic-natural. Asset type: seamless BASE COLOR texture for beige wall-to-wall office carpet in a first-person Backrooms-style game. Create a square full-bleed overhead orthographic macro photograph of plain short dense cut-pile commercial carpet, the type covering empty late-1970s office floors. Sandy beige, light camel, muted golden tan fibers. Soft irregular fine pile, tightly packed wool/nylon fibers, with subtle natural variation and a few faint wear marks, no large stains. The entire image represents 1 meter by 1 meter of carpet. Realistic individual fine fiber detail at close range; at a distance it must read as a quiet even beige carpet, not tiles, woven fabric, a rug, checkerboard, stripes, braids, stitching or a geometric pattern. Color is warm beige, not gray, green or orange. BASE COLOR ONLY: neutral, completely even diffuse lighting, no directional shadows, no ambient occlusion, no highlights, no baked shading, no depth of field, no fog or vignetting. Perfectly flat view, consistent detail scale, seamlessly repeatable on all four edges. No room, furniture, edges of a rug, border, objects, text, watermark or labels."
+    },
+    {
+      "name": "Acoustic ceiling tile",
+      "meters_per_tile": 0.6,
+      "source": "Procedural canvas texture in src/materials.ts"
+    }
+  ]
+}
