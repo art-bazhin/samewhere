@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#e6e5df" />
+    <meta name="description" content="Samewhere — пространственная головоломка о комнатах, которые соединяете вы." />
+    <title>Samewhere — комнаты и связи</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <canvas id="game" aria-label="Трёхмерное пространство Samewhere"></canvas>
+    <div id="hud">
+      <header class="topbar">
+        <a class="wordmark" href="/" aria-label="Samewhere">samewhere<span class="wordmark-dot">.</span></a>
+        <div class="location"><span id="room-shape" class="shape square"></span><span id="room-name">Квадратная комната</span><span class="location-divider"></span><span id="mode-label">Исследование</span></div>
+        <div class="topbar-tools"><span class="performance-counter"><span id="fps-counter" class="fps-counter" aria-label="Частота кадров">— FPS</span><small id="frame-time">— мс</small></span><button class="quiet-button" data-fullscreen aria-label="На весь экран (F)" aria-pressed="false">⛶ <kbd>F</kbd></button><button id="menu-button" class="quiet-button">Меню <kbd>Esc</kbd></button></div>
+      </header>
+      <div class="crosshair" id="crosshair"><span></span></div>
+      <div id="interaction" class="interaction" aria-live="polite"></div>
+      <div id="toast" class="toast" role="status"></div>
+      <aside id="objective" class="objective" hidden><span class="eyebrow">Задача / 01</span><p id="objective-text">Найдите путь в пятиугольную комнату и вернитесь.</p><div class="objective-track"><span id="visit-step">01 <small>Найти комнату</small></span><span id="return-step">02 <small>Вернуться</small></span></div></aside>
+      <footer class="bottom-bar">
+        <div class="control-hint"><span><kbd>W</kbd><span class="wasd-row"><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span><span>Двигайтесь<br><small>Мышь — обзор</small></span></div>
+        <div class="inventory" aria-label="Инвентарь"><span class="inventory-label">В руках</span><button id="select-red" class="inventory-slot selected" aria-label="Выбрать красный шар"><kbd>1</kbd><i class="ball red"></i><span id="red-count">0</span></button><button id="select-blue" class="inventory-slot" aria-label="Выбрать синий шар"><kbd>2</kbd><i class="ball blue"></i><span id="blue-count">0</span></button><span class="inventory-note">ЛКМ <small>взять / положить</small></span></div>
+        <div class="utility-hint"><span><kbd>Z</kbd> Отмена</span><span><kbd>R</kbd> Заново</span><button id="help-button" class="help-button" aria-label="Справка">?</button></div>
+      </footer>
+      <pre id="debug" hidden></pre>
+      <div class="prototype-stamp">ПРОСТРАНСТВЕННЫЙ ЭТЮД <span>01 / ПРОТОТИП</span></div>
+    </div>
+    <div id="overlay" class="overlay">
+      <div class="menu-brand wordmark">samewhere<span class="wordmark-dot">.</span></div>
+      <section class="menu-card" aria-labelledby="menu-title">
+        <div class="menu-meta"><span class="eyebrow">Комнаты и связи</span><span class="edition">Прототип 0.1</span></div>
+        <h1 id="menu-title">Одно место.<br>Бесконечно <em>другое.</em></h1>
+        <p class="menu-intro">Две комнаты. Четыре шара.<br>Вы решаете, куда ведёт каждый проход.</p>
+        <div class="connection-sketch" aria-hidden="true"><span class="sketch-room">□</span><i class="sketch-line"></i><i class="sketch-ball"></i><i class="sketch-line"></i><span class="sketch-room pentagon-glyph">⬠</span></div>
+        <div class="mode-picker" role="group" aria-label="Режим игры"><button data-mode="explore" class="mode-option active"><span>01 / Исследование</span><small>Изучайте пространство в своём темпе</small></button><button data-mode="puzzle" class="mode-option"><span>02 / Перегородка</span><small>Найдите путь в другую комнату и обратно</small></button></div>
+        <button id="play-button" class="play-button"><span>Войти в пространство</span><span>↗</span></button>
+        <button class="fullscreen-menu-button" data-fullscreen aria-pressed="false"><span data-fullscreen-label>На весь экран</span><kbd>F</kbd></button>
+        <p class="menu-note">WASD — движение · Мышь — обзор · Esc — пауза</p>
+        <details id="help"><summary>Как устроены связи <span>+</span></summary><div class="help-content"><p>Каждый пьедестал — пульт комнаты той же формы. Лунка соответствует стене. Маленькая метка указывает сторону 0.</p><p>Два шара одного цвета соединяют два прохода. Заберите шар — связь исчезнет. Положите его на другой пьедестал — пространство изменится.</p><p><b>ЛКМ</b> — взять или положить · <b>1 / 2</b> — цвет<br><b>Z</b> — отмена, включая переходы · <b>R</b> — сначала<br><b>F2</b> — сменить режим · <b>F3</b> — отладка<br><b>F4</b> — тест плавности без мыши<br><b>F</b> — полный экран · <b>M</b> — звук</p></div></details>
+        <p id="error" role="alert" hidden></p>
+      </section>
+      <div class="overlay-caption"><span>Пространство меняется.<br>Правила остаются.</span><span>△<br>SAMEWHERE / 2026</span></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
