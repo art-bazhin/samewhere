@@ -1,5 +1,5 @@
 /** Pure game rules and collision/portal math. No dependency on WebGL or the DOM. */
-export type RoomId = 'A' | 'B';
+export type RoomId = 'A' | 'B' | 'C' | 'D';
 export type BallColor = 'red' | 'blue';
 export interface Vec2 { x: number; z: number }
 export interface SocketRef { room: RoomId; side: number }
@@ -9,11 +9,14 @@ export interface WorldState { balls: BallState[]; selected: BallColor }
 export interface Snapshot { world: WorldState; player: PlayerState }
 export interface Connection { color: BallColor; ends: [SocketRef, SocketRef] }
 export interface PedestalDefinition extends Vec2 { controls: RoomId }
-export interface RoomDefinition { id: RoomId; sides: number; apothem: number; pedestals: PedestalDefinition[] }
+export interface RoomDefinition { id: RoomId; name: string; shape: string; sides: number; apothem: number; pedestals: PedestalDefinition[] }
 export const ROOMS: Record<RoomId, RoomDefinition> = {
-  A: { id: 'A', sides: 4, apothem: 5, pedestals: [{ controls: 'A', x: -1.5, z: 1.5 }, { controls: 'B', x: 1.5, z: -1.5 }] },
-  B: { id: 'B', sides: 5, apothem: 5, pedestals: [{ controls: 'A', x: -1.5, z: 0.8 }, { controls: 'B', x: 1.5, z: -0.8 }] },
+  A: { id: 'A', name: 'Квадратная комната', shape: 'square', sides: 4, apothem: 5, pedestals: [{ controls: 'A', x: -1.5, z: 1.5 }, { controls: 'B', x: 1.5, z: -1.5 }] },
+  B: { id: 'B', name: 'Пятиугольная комната', shape: 'pentagon', sides: 5, apothem: 5, pedestals: [{ controls: 'B', x: -1.5, z: 0.8 }, { controls: 'C', x: 1.5, z: -0.8 }] },
+  C: { id: 'C', name: 'Шестиугольная комната', shape: 'hexagon', sides: 6, apothem: 5, pedestals: [{ controls: 'C', x: -1.5, z: 0.8 }, { controls: 'D', x: 1.5, z: -0.8 }] },
+  D: { id: 'D', name: 'Треугольная комната', shape: 'triangle', sides: 3, apothem: 5, pedestals: [{ controls: 'D', x: -1.5, z: 0.8 }, { controls: 'A', x: 1.5, z: -0.8 }] },
 };
+export const ROOM_IDS = Object.keys(ROOMS) as RoomId[];
 export const ROOM_HEIGHT = 3.5;
 export const WALL_THICKNESS = 0.3;
 export const EYE_HEIGHT = 1.65;
@@ -63,10 +66,10 @@ export function inventoryCount(world: WorldState, color: BallColor) {
 export function initialState(): Snapshot {
   return {
     world: { selected: 'red', balls: [
-      { id: 'R1', color: 'red', socket: { room: 'A', side: 0 } },
-      { id: 'R2', color: 'red', socket: { room: 'A', side: 2 } },
-      { id: 'B1', color: 'blue', socket: { room: 'A', side: 1 } },
-      { id: 'B2', color: 'blue', socket: { room: 'A', side: 3 } },
+      { id: 'R1', color: 'red', socket: { room: 'B', side: 0 } },
+      { id: 'R2', color: 'red', socket: { room: 'B', side: 2 } },
+      { id: 'B1', color: 'blue', socket: { room: 'C', side: 0 } },
+      { id: 'B2', color: 'blue', socket: { room: 'C', side: 3 } },
     ] },
     player: { room: 'A', x: -3, z: 3, yaw: -Math.PI / 4, pitch: -0.16 },
   };

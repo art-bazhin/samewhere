@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GpuTiming } from './gpu-timing';
 import { createMaterials, floorWithContacts, surfaceUV, type MaterialSet } from './materials';
 import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBILITY_END } from './visibility';
-import { ballAt, destination, DOOR_HEIGHT, DOOR_WIDTH, EYE_HEIGHT, Game, PEDESTAL_APOTHEM, portalAngle, portalDistance, ROOM_HEIGHT, ROOMS, SOCKET_RADIUS, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef } from './world';
+import { ballAt, destination, DOOR_HEIGHT, DOOR_WIDTH, EYE_HEIGHT, Game, PEDESTAL_APOTHEM, portalAngle, portalDistance, ROOM_HEIGHT, ROOM_IDS, ROOMS, SOCKET_RADIUS, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef } from './world';
 
 const PALETTE = { background: 0x000000 };
 const plane = new THREE.PlaneGeometry(1, 1);
@@ -234,7 +234,7 @@ export class SpaceRenderer {
     this.renderer.info.autoReset = false;
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.assets = createMaterials(this.renderer); this.ready = this.assets.ready;
-    this.rooms = { A: createRoom('A', this.assets.materials), B: createRoom('B', this.assets.materials) };
+    this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials)])) as Record<RoomId, RoomVisual>;
     this.resize(); this.sync();
   }
   resize() {
@@ -280,7 +280,7 @@ export class SpaceRenderer {
   sync() {
     const world = this.game.world;
     const materials = this.assets.materials;
-    for (const id of ['A', 'B'] as const) {
+    for (const id of ROOM_IDS) {
       const room = this.rooms[id];
       for (const light of room.shadowLights) light.shadow.needsUpdate = true;
       for (let side = 0; side < ROOMS[id].sides; side++) {

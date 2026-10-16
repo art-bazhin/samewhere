@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { MAX_PORTAL_PASSES } from '../../src/visibility';
-import { portalAngle, portalDistance, transformPoint, WALL_THICKNESS, wallNormal, type SocketRef } from '../../src/world';
+import { portalAngle, portalDistance, transformPoint, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../../src/world';
 
 declare global { interface Window { __samewhere: any } }
 async function ready(page: Page) {
@@ -13,7 +13,7 @@ async function pose(page: Page, x: number, z: number, yaw: number, pitch = 0, ro
   }, { x, z, yaw, pitch, room });
   await page.waitForTimeout(80);
 }
-async function aim(page: Page, room: 'A' | 'B', side: number, x: number, z: number) {
+async function aim(page: Page, room: RoomId, side: number, x: number, z: number) {
   return page.evaluate(({ room, side, x, z }) => {
     const app = window.__samewhere;
     const p = app.game.player; Object.assign(p, { x, z });
@@ -27,9 +27,11 @@ async function aim(page: Page, room: 'A' | 'B', side: number, x: number, z: numb
   }, { room, side, x, z });
 }
 async function walkTo(page: Page, x: number, z: number) {
-  await page.evaluate(({ x, z }) => {
+  const arrived = await page.evaluate(({ x, z }) => {
     const p = window.__samewhere.game.player; p.yaw = Math.atan2(p.x - x, p.z - z); p.pitch = -0.05;
+    return Math.hypot(p.x - x, p.z - z) < .08;
   }, { x, z });
+  if (arrived) return;
   await page.keyboard.down('KeyW');
   try { await page.waitForFunction(({ x, z }) => { const p = window.__samewhere.game.player; return Math.hypot(p.x - x, p.z - z) < 0.12; }, { x, z }, { timeout: 6000 }); }
   finally { await page.keyboard.up('KeyW'); }
@@ -40,35 +42,39 @@ async function cross(page: Page, yaw: number, backwards = false) {
   try { await page.waitForFunction(count => window.__samewhere.game.transitions === count + 1, count, { timeout: 3000 }); }
   finally { await page.keyboard.up(key); }
 }
-async function aimFromHere(page: Page, room: 'A' | 'B', side: number) {
+async function aimFromHere(page: Page, room: RoomId, side: number) {
   const p = await page.evaluate(() => ({ x: window.__samewhere.game.player.x, z: window.__samewhere.game.player.z }));
   return aim(page, room, side, p.x, p.z);
 }
 
-test('WebGL scene, actual mouse pick/place, and both shared pedestal representations', async ({ page }) => {
+test('initial ball placement, actual mouse pick/place, and both shared pedestal representations', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await ready(page);
+  await expect(page.locator('#red-count')).toHaveText('0'); await expect(page.locator('#blue-count')).toHaveText('0');
+  expect(await page.evaluate(() => Object.fromEntries(Object.entries(window.__samewhere.space.rooms).map(([id, room]: [string, any]) =>
+    [id, room.sockets.filter((socket: any) => socket.ball.visible).map((socket: any) => `${socket.ref.room}${socket.ref.side}`)]))))
+    .toEqual({ A: ['B0', 'B2'], B: ['B0', 'B2', 'C0', 'C3'], C: ['C0', 'C3'], D: [] });
   await page.screenshot({ path: 'test-results/01-menu.png' });
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
-  const hit = await aim(page, 'A', 0, -1.5, 2.75); expect(hit).toEqual({ room: 'A', side: 0 });
+  const hit = await aim(page, 'B', 0, 1.5, -0.25); expect(hit).toEqual({ room: 'B', side: 0 });
   await page.mouse.down(); await page.mouse.up();
   await expect(page.locator('#red-count')).toHaveText('1');
   const state = await page.evaluate(() => {
     const app = window.__samewhere;
-    return { a: app.space.rooms.A.sockets[0].ball.visible, b: app.space.rooms.B.sockets[0].ball.visible, closedA0: app.space.rooms.A.walls[0].solid.visible, closedA2: app.space.rooms.A.walls[2].solid.visible };
+    return { a: app.space.rooms.A.sockets.find((s: any) => s.ref.room === 'B' && s.ref.side === 0).ball.visible, b: app.space.rooms.B.sockets.find((s: any) => s.ref.room === 'B' && s.ref.side === 0).ball.visible, closedB0: app.space.rooms.B.walls[0].solid.visible, closedB2: app.space.rooms.B.walls[2].solid.visible };
   });
-  expect(state).toEqual({ a: false, b: false, closedA0: true, closedA2: true });
-  expect(await aim(page, 'B', 0, 1.5, -0.25)).toEqual({ room: 'B', side: 0 });
+  expect(state).toEqual({ a: false, b: false, closedB0: true, closedB2: true });
+  expect(await aim(page, 'A', 0, -1.5, 2.75)).toEqual({ room: 'A', side: 0 });
   await page.mouse.down(); await page.mouse.up(); await expect(page.locator('#red-count')).toHaveText('0');
   await page.keyboard.press('KeyZ'); await expect(page.locator('#red-count')).toHaveText('1');
   await page.keyboard.press('KeyR'); await expect(page.locator('#red-count')).toHaveText('0');
   await pose(page, -2.8, 3, -Math.PI / 4, -0.36);
   await page.screenshot({ path: 'test-results/02-room.png' });
-  await pose(page, 0, 0, 0, -0.02);
+  await pose(page, 0, 0, 0, -0.02, 'B');
   await page.screenshot({ path: 'test-results/03-recursion.png' });
   expect(errors).toEqual([]);
-  expect(await page.evaluate(() => window.__samewhere.space.passes)).toBeGreaterThanOrEqual(3);
+  expect(await page.evaluate(() => window.__samewhere.space.passes)).toBeGreaterThan(1);
 });
 
 test('native relative mouse input is applied once, preserves sensitivity, and settles without camera drift', async ({ page }) => {
@@ -125,7 +131,7 @@ test('textured architecture loads locally and paired wall halves form a 30 cm pa
   const result = await page.evaluate(() => {
     const space = window.__samewhere.space, depths: { open: number; solid: number }[] = [], ceilingBounds: { actual: number; expected: number }[] = [];
     let lines = 0;
-    for (const id of ['A', 'B']) {
+    for (const id of Object.keys(space.rooms)) {
       const room = space.rooms[id]; room.scene.updateMatrixWorld(true);
       room.scene.traverse((object: any) => { if (object.isLine) lines++; });
       room.walls.forEach((wall: any, side: number) => {
@@ -173,7 +179,7 @@ test('wallpaper stays fixed when passages open, close, and reopen on every wall'
     const path = '/node_modules/three/build/three.module.js', THREE = await import(path);
     const app = window.__samewhere, ray = new THREE.Raycaster();
     const samples: { room: string; side: number; point: number[]; states: number[][] }[] = [];
-    for (const id of ['A', 'B']) for (let side = 0; side < app.space.rooms[id].walls.length; side++) {
+    for (const id of Object.keys(app.space.rooms)) for (let side = 0; side < app.space.rooms[id].walls.length; side++) {
       const room = app.space.rooms[id], wall = room.walls[side], frame = wall.solid.parent;
       room.scene.updateMatrixWorld(true);
       // Points on the unchanged wall, including the lintel above the aperture.
@@ -198,7 +204,7 @@ test('wallpaper stays fixed when passages open, close, and reopen on every wall'
     }
     return samples;
   });
-  expect(samples).toHaveLength(63);
+  expect(samples).toHaveLength(126);
   for (const sample of samples) for (const state of sample.states.slice(1)) {
     for (let i = 0; i < state.length; i++) expect(state[i], JSON.stringify(sample)).toBeCloseTo(sample.states[0][i], 5);
   }
@@ -294,7 +300,7 @@ test('saucer recesses are closed and support centered balls; four tile lights ca
   for (const distance of result.wallDistances) { expect(distance).toBeGreaterThan(.03); expect(distance).toBeLessThan(.033); }
   for (const distance of result.lipDistances) expect(distance).toBeCloseTo(.055, 5);
   for (const distance of result.bottomDistances) { expect(distance).toBeGreaterThan(.0075); expect(distance).toBeLessThan(.0125); }
-  expect(result.bowls).toHaveLength(18);
+  expect(result.bowls).toHaveLength(36);
   for (const bowl of result.bowls) {
     expect(bowl.lipDepth).toBeCloseTo(.005, 6);
     expect(bowl.depths[0]).toBeGreaterThan(.016); expect(bowl.depths[4]).toBeLessThan(.0001);
@@ -309,7 +315,8 @@ test('saucer recesses are closed and support centered balls; four tile lights ca
   }
 });
 
-test('single game has no mode switch and supports a full room round trip', async ({ page }) => {
+test('the four-room route reaches D using native movement and pedestal clicks', async ({ page }) => {
+  test.setTimeout(90_000);
   await ready(page);
   await expect(page.locator('[data-mode], #mode-label, #objective')).toHaveCount(0);
   await page.locator('#play-button').click();
@@ -319,24 +326,43 @@ test('single game has no mode switch and supports a full room round trip', async
   await page.keyboard.press('F2');
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(before);
   await page.keyboard.press('KeyR');
-  // Full reference route: no position teleports after resetting to the real start.
-  await walkTo(page, -1.5, 3); await walkTo(page, -1.5, 2.75);
-  expect(await aimFromHere(page, 'A', 0)).toEqual({ room: 'A', side: 0 }); await page.mouse.down(); await page.mouse.up();
-  await expect(page.locator('#red-count')).toHaveText('1');
-  await walkTo(page, -3, 2.75); await walkTo(page, -3, 0); await walkTo(page, -4.65, 0); await cross(page, Math.PI / 2);
-  expect(await page.evaluate(() => window.__samewhere.game.transitions)).toBe(1);
-  await walkTo(page, 2.8, 0); await walkTo(page, 1.5, -0.25);
-  expect(await aimFromHere(page, 'B', 0)).toEqual({ room: 'B', side: 0 }); await page.mouse.down(); await page.mouse.up();
-  await expect(page.locator('#red-count')).toHaveText('0');
-  await walkTo(page, 3, 0); await walkTo(page, 4.65, 0); await cross(page, -Math.PI / 2);
-  expect(await page.evaluate(() => window.__samewhere.game.transitions)).toBe(2);
-  await walkTo(page, -3, 0); await walkTo(page, -3, 3.3); await walkTo(page, 0, 3.3); await walkTo(page, 0, 4.65); await cross(page, Math.PI);
-  await expect(page.locator('#room-name')).toHaveText('Пятиугольная комната');
-  await page.screenshot({ path: 'test-results/04-pentagon.png' });
-  await cross(page, Math.PI, true);
-  await expect(page.locator('#room-name')).toHaveText('Квадратная комната');
-  await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Пятиугольная комната');
+  // No teleports after reset: operate only the pedestals present in each room.
+  async function center() {
+    const z = await page.evaluate(() => window.__samewhere.game.player.z);
+    await walkTo(page, 0, z); await walkTo(page, 0, 0);
+  }
+  async function operate(room: RoomId, side: number) {
+    await center();
+    const point = await page.evaluate(room => {
+      const app = window.__samewhere, socket = app.space.rooms[app.game.player.room].sockets.find((s: any) => s.ref.room === room);
+      if (!socket) throw new Error(`Missing ${room} pedestal`);
+      const p = socket.hit.parent.parent.position; return { x: p.x, z: p.z + 1.3 };
+    }, room);
+    await walkTo(page, 0, point.z); await walkTo(page, point.x, point.z);
+    expect(await aimFromHere(page, room, side)).toEqual({ room, side });
+    await page.mouse.down(); await page.mouse.up();
+  }
+  async function enter(side: number, expected: RoomId) {
+    await center();
+    const room = await page.evaluate(() => window.__samewhere.game.player.room) as RoomId;
+    const n = wallNormal(room, side);
+    await walkTo(page, n.x * 4.65, n.z * 4.65); await cross(page, Math.atan2(-n.x, -n.z));
+    expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe(expected);
+  }
+  await operate('B', 2); await operate('A', 0);
+  await enter(0, 'B'); await expect(page.locator('#room-name')).toHaveText('Пятиугольная комната');
+  await page.screenshot({ path: 'test-results/room-B.png' });
+  await operate('C', 3); await enter(0, 'A');
+  await operate('A', 1); await operate('B', 0); await enter(1, 'C'); await expect(page.locator('#room-name')).toHaveText('Шестиугольная комната');
+  await page.screenshot({ path: 'test-results/room-C.png' });
+  await operate('D', 0); await enter(0, 'A'); await enter(0, 'D');
+  await center(); await expect(page.locator('#room-name')).toHaveText('Треугольная комната');
+  await expect(page.locator('#room-shape')).toHaveClass('shape triangle');
+  await expect(page.locator('#objective')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__samewhere.game.transitions)).toBe(5);
+  await page.screenshot({ path: 'test-results/room-D.png' });
   await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Квадратная комната');
+  await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Шестиугольная комната');
 });
 
 test('adjacent A portals, A–B and B self-loops render, with bounded GPU resources after 100 loops', async ({ page }) => {
@@ -346,7 +372,7 @@ test('adjacent A portals, A–B and B self-loops render, with bounded GPU resour
   await expect(page.locator('#overlay')).toBeHidden();
   await page.evaluate(() => {
     const app = window.__samewhere, balls = app.game.world.balls;
-    balls[1].socket = { room: 'A', side: 1 }; balls[2].socket = null; balls[3].socket = null; app.sync();
+    balls[0].socket = { room: 'A', side: 0 }; balls[1].socket = { room: 'A', side: 1 }; balls[2].socket = null; balls[3].socket = null; app.sync();
   });
   await pose(page, 0.3, -4.3, 0); await page.screenshot({ path: 'test-results/05-adjacent.png' });
   await page.keyboard.down('KeyW'); await page.waitForTimeout(600); await page.keyboard.up('KeyW');
@@ -359,7 +385,11 @@ test('adjacent A portals, A–B and B self-loops render, with bounded GPU resour
   await page.keyboard.down('KeyW'); await page.waitForTimeout(600); await page.keyboard.up('KeyW');
   expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('B');
   expect(await page.evaluate(() => window.__samewhere.game.transitions)).toBe(1);
-  await page.evaluate(() => window.__samewhere.reset()); await pose(page, 0.3, 0, 0);
+  await page.evaluate(() => {
+    const app = window.__samewhere; app.reset();
+    app.game.world.balls[0].socket = { room: 'A', side: 0 }; app.game.world.balls[1].socket = { room: 'A', side: 2 };
+    app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
+  }); await pose(page, 0.3, 0, 0);
   // Warm the fixed render-target pool from several directions before measuring.
   for (let i = 0; i < 4; i++) await pose(page, 0.3, 0, i * Math.PI / 2);
   const before = await page.evaluate(() => ({ ...window.__samewhere.space.renderer.info.memory }));
@@ -392,6 +422,11 @@ test('distant floor joins have no missing MSAA coverage at grazing angles', asyn
       [{ room: 'A', side: 0 }, { room: 'A', side: 1 }],
       [{ room: 'A', side: 2 }, { room: 'B', side: 0 }],
       [{ room: 'B', side: 0 }, { room: 'B', side: 2 }],
+      [{ room: 'A', side: 1 }, { room: 'C', side: 0 }],
+      [{ room: 'C', side: 0 }, { room: 'D', side: 1 }],
+      [{ room: 'A', side: 0 }, { room: 'D', side: 0 }],
+      [{ room: 'C', side: 0 }, { room: 'C', side: 3 }],
+      [{ room: 'D', side: 0 }, { room: 'D', side: 2 }],
     ];
     const samples = [];
     for (const route of routes) for (const [from, to] of [route, [...route].reverse()]) for (const lateral of [-3.3, 3.3]) {
@@ -422,6 +457,11 @@ test('rendered perspective remains continuous within 2 mm of every kind of seam'
     [{ room: 'A', side: 0 }, { room: 'A', side: 1 }],
     [{ room: 'A', side: 2 }, { room: 'B', side: 0 }],
     [{ room: 'B', side: 0 }, { room: 'B', side: 2 }],
+    [{ room: 'A', side: 1 }, { room: 'C', side: 0 }],
+    [{ room: 'C', side: 0 }, { room: 'D', side: 1 }],
+    [{ room: 'A', side: 0 }, { room: 'D', side: 0 }],
+    [{ room: 'C', side: 0 }, { room: 'C', side: 3 }],
+    [{ room: 'D', side: 0 }, { room: 'D', side: 2 }],
   ];
   for (const [from, to] of routes) {
     await page.evaluate(({ from, to }) => {
@@ -463,6 +503,11 @@ test('the entire frame stays continuous at the eye plane, including angled and r
       [{ room: 'A', side: 0 }, { room: 'A', side: 1 }],
       [{ room: 'A', side: 2 }, { room: 'B', side: 0 }],
       [{ room: 'B', side: 0 }, { room: 'B', side: 2 }],
+      [{ room: 'A', side: 1 }, { room: 'C', side: 0 }],
+      [{ room: 'C', side: 0 }, { room: 'D', side: 1 }],
+      [{ room: 'A', side: 0 }, { room: 'D', side: 0 }],
+      [{ room: 'C', side: 0 }, { room: 'C', side: 3 }],
+      [{ room: 'D', side: 0 }, { room: 'D', side: 2 }],
     ];
     const results = [];
     const read = (point: any, room: string, yaw: number, pixels: Uint8Array) => {
@@ -508,10 +553,9 @@ test('cropped portal textures match full-frame textures while turning in either 
     try {
       for (const room of ['A', 'B']) {
         app.reset();
-        if (room === 'B') {
-          app.game.world.balls[0].socket = { room: 'B', side: 0 };
-          app.game.world.balls[1].socket = { room: 'B', side: 2 }; app.sync();
-        }
+        app.game.world.balls[0].socket = { room, side: 0 };
+        app.game.world.balls[1].socket = { room, side: 2 };
+        app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
         for (let i = 0; i < 8; i++) {
           Object.assign(app.game.player, { room, x: -2.8, z: 3, yaw: i * Math.PI / 4 + 0.1, pitch: -0.12 });
           space.targetAt = original; space.render();
@@ -553,6 +597,7 @@ test.describe('portal detail on Retina', () => {
         const THREE = await import(modulePath);
         const app = window.__samewhere, space = app.space;
         app.reset(); space.resize();
+        app.game.world.balls[0].socket = { room: 'A', side: 0 }; app.game.world.balls[1].socket = { room: 'A', side: 2 };
         app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
         // A one-pixel checkerboard inside the receiving room reveals any scaling
         // or filtering that can be hidden by broad, flat-colored room surfaces.

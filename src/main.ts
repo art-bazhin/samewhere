@@ -1,5 +1,5 @@
 import './style.css';
-import { ballAt, connections, Game, inventoryCount } from './world';
+import { ballAt, connections, Game, inventoryCount, ROOMS } from './world';
 import { SpaceRenderer } from './scene';
 import { Sound } from './audio';
 import { FrameTiming } from './timing';
@@ -34,8 +34,9 @@ function applyLook(delta: { x: number; y: number }) {
 }
 function updateHUD() {
   const world = game.world;
-  $('room-name').textContent = game.player.room === 'A' ? 'Квадратная комната' : 'Пятиугольная комната';
-  $('room-shape').className = `shape ${game.player.room === 'A' ? 'square' : 'pentagon'}`;
+  const room = ROOMS[game.player.room];
+  $('room-name').textContent = room.name;
+  $('room-shape').className = `shape ${room.shape}`;
   $('red-count').textContent = String(inventoryCount(world, 'red')); $('blue-count').textContent = String(inventoryCount(world, 'blue'));
   $('select-red').classList.toggle('selected', world.selected === 'red'); $('select-blue').classList.toggle('selected', world.selected === 'blue');
   $('select-red').setAttribute('aria-pressed', String(world.selected === 'red')); $('select-blue').setAttribute('aria-pressed', String(world.selected === 'blue'));

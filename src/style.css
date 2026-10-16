@@ -33,6 +33,8 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 .location { display: flex; align-items: center; gap: 10px; background: var(--paper); padding: 9px 12px; border: 1px solid #ddd; font-size: 10px; }
 .shape { display: inline-block; width: 11px; height: 11px; border: 1px solid currentColor; }
 .shape.pentagon { border: 0; background: var(--ink); clip-path: polygon(50% 0,100% 38%,81% 100%,19% 100%,0 38%); }
+.shape.hexagon { border: 0; background: var(--ink); clip-path: polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%); }
+.shape.triangle { border: 0; background: var(--ink); clip-path: polygon(50% 0,100% 100%,0 100%); }
 .bottom-bar { position: absolute; bottom: 30px; left: 32px; right: 32px; display: flex; align-items: center; justify-content: flex-end; min-height: 50px; }
 .inventory { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; background: var(--paper); border: 1px solid #ccc; padding: 5px; }
 .inventory-label { color: #777; font-size: 9px; padding: 0 12px; }
@@ -68,7 +70,6 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 .sketch-room { font: 33px/1 Arial, sans-serif; }
 .pentagon-glyph { font-size: 37px; }
 .sketch-line { width: 28px; height: 1px; background: #888; }
-.sketch-ball { width: 9px; height: 9px; border: 1px solid #171717; border-radius: 50%; }
 .play-button { display: flex; align-items: center; justify-content: space-between; width: 100%; background: #171717; color: #fff; padding: 16px 18px; font-size: 12px; }
 .play-button:hover { background: #333; }
 .play-button > span:last-child { font: 25px/1 Arial, sans-serif; }
