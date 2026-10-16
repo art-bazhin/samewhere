@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ballAt, connections, destination, DOOR_WIDTH, Game, inventoryCount, PLAYER_RADIUS, portalAngle, portalDistance, ROOMS, rotate, transformPoint, validateWorld, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../src/world';
+import { ballAt, connections, destination, DOOR_WIDTH, Game, inventoryCount, PEDESTAL_APOTHEM, PLAYER_RADIUS, portalAngle, portalDistance, ROOMS, rotate, transformPoint, validateWorld, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../src/world';
 
 const close = (a: number, b: number, epsilon = 1e-7) => assert.ok(Math.abs(a - b) < epsilon, `${a} ≠ ${b}`);
 function atWall(game: Game, room: RoomId, side: number, lateral = 0) {
@@ -87,7 +87,7 @@ test('closed walls, door jambs, pedestals and the partition resist a large movem
   atWall(game, 'A', 0); game.move({ x: 0, z: -10 }); assert.ok(game.player.z >= -5 + PLAYER_RADIUS - 1e-8);
   atWall(game, 'A', 3, 0.82); game.move({ x: -1, z: 0 }); assert.equal(game.transitions, 0); assert.ok(game.player.x >= -5 + PLAYER_RADIUS - 1e-8);
   Object.assign(game.player, { x: -1, z: 1 }); game.move({ x: 3, z: -3 }); assert.ok((game.player.z - game.player.x) / Math.SQRT2 >= PLAYER_RADIUS + WALL_THICKNESS / 2 - 1e-8);
-  const free = new Game(); Object.assign(free.player, { x: -1.5, z: 3 }); free.move({ x: 0, z: -1.2 }); assert.ok(Math.hypot(free.player.x + 1.5, free.player.z - 1.5) >= 1.099);
+  const free = new Game(); Object.assign(free.player, { x: -1.5, z: 3 }); free.move({ x: 0, z: -1.2 }); assert.ok(Math.hypot(free.player.x + 1.5, free.player.z - 1.5) >= PEDESTAL_APOTHEM / Math.cos(Math.PI / 4) + PLAYER_RADIUS - 1e-8);
 });
 test('the partition reference solution reaches B, returns and can undo both legs', () => {
   const game = new Game('puzzle');

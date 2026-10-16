@@ -22,7 +22,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
     floor: new THREE.MeshStandardMaterial({ map: carpet, bumpMap: carpet, bumpScale: 0.008, roughness: 1 }),
     ceiling: new THREE.MeshStandardMaterial({ map: ceiling, bumpMap: ceiling, bumpScale: 0.002, emissive: 0x3f3b28, roughness: 1, side: THREE.BackSide }),
     pedestal: new THREE.MeshStandardMaterial({ color: 0xcdbb86, roughness: 0.87 }),
-    socket: new THREE.MeshStandardMaterial({ color: 0x655735, roughness: 0.8, metalness: 0.12 }),
+    socket: new THREE.MeshStandardMaterial({ color: 0xcdbb86, roughness: 0.87, vertexColors: true }),
     hit: new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }),
     red: new THREE.MeshStandardMaterial({ color: 0xc92530, roughness: 0.4, metalness: 0.02 }),
     blue: new THREE.MeshStandardMaterial({ color: 0x2466c9, roughness: 0.4, metalness: 0.02 }),

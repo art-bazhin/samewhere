@@ -6,12 +6,37 @@ import { ballAt, destination, DOOR_HEIGHT, DOOR_WIDTH, EYE_HEIGHT, Game, PEDESTA
 
 const PALETTE = { background: 0x000000 };
 const plane = new THREE.PlaneGeometry(1, 1);
-const sphere = new THREE.SphereGeometry(0.145, 24, 16);
-const SOCKET_OPENING = 0.165;
-const PEDESTAL_HEIGHT = 1.02;
-const SOCKET_DEPTH = 0.065;
+const BALL_RADIUS = 0.04;
+const sphere = new THREE.SphereGeometry(BALL_RADIUS, 24, 16);
+const SOCKET_OPENING = 0.055;
+const PEDESTAL_HEIGHT = 1.2;
+const SOCKET_DEPTH = 0.01625;
+const SOCKET_RECESS = 0.005;
 const socketGeometry = new THREE.CircleGeometry(SOCKET_OPENING, 32);
-const socketFloorGeometry = new THREE.CircleGeometry(SOCKET_OPENING + 0.002, 48);
+const socketBowlGeometry = createSocketBowl();
+
+function createSocketBowl() {
+  // A rounded dish with a horizontal tangent at both the center and the lip.
+  // Its bottom curvature is wider than the ball, so the ball rests at its lowest point.
+  const profile = Array.from({ length: 25 }, (_, i) => {
+    const t = 1 - i / 24;
+    return new THREE.Vector2(SOCKET_OPENING * t, -SOCKET_DEPTH * (1 - t * t) ** 2);
+  });
+  const geometry = new THREE.LatheGeometry(profile, 48);
+  const positions = geometry.getAttribute('position'), normals = geometry.getAttribute('normal');
+  const colors = new Float32Array(positions.count * 3), normal = new THREE.Vector3();
+  for (let i = 0; i < positions.count; i++) {
+    const x = positions.getX(i), z = positions.getZ(i), radius = Math.hypot(x, z);
+    const t = Math.min(radius / SOCKET_OPENING, 1), curve = 1 - t * t;
+    const slope = 4 * SOCKET_DEPTH / (SOCKET_OPENING * SOCKET_OPENING) * curve;
+    normal.set(-slope * x, 1, -slope * z).normalize(); normals.setXYZ(i, normal.x, normal.y, normal.z);
+    // Gentle cavity shading fades to the pedestal's exact color at the rim.
+    const shade = 1 - .18 * curve * curve; colors.set([shade, shade, shade], i * 3);
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geometry;
+}
+
 function box(parent: THREE.Object3D, material: THREE.Material, size: number[], position: number[]) {
   // Project in the parent's coordinates, just like the extruded passage shell.
   // Both wall variants must anchor the wallpaper at floor level.
@@ -71,25 +96,22 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
     hole.absarc(n.x * SOCKET_RADIUS, -n.z * SOCKET_RADIUS, SOCKET_OPENING, 0, Math.PI * 2, false);
     shape.holes.push(hole);
   }
-  // Keep the exterior a single continuous prism. Only the inner bore walls
-  // stop at the recess floor; opaque disks close the shallow wells below.
-  const baseHeight = PEDESTAL_HEIGHT - SOCKET_DEPTH;
+  // Keep a short vertical lip above each recessed bowl, with no gap between them.
   const geometry = new THREE.ExtrudeGeometry(shape, { depth: PEDESTAL_HEIGHT + .006, bevelEnabled: false, steps: 1, curveSegments: 24 });
   geometry.rotateX(-Math.PI / 2); geometry.translate(0, -.006, 0);
   const positions = geometry.getAttribute('position'), normals = geometry.getAttribute('normal');
   for (let i = 0; i < positions.count; i++) {
-    if (Math.abs(normals.getY(i)) < .1 && Math.hypot(positions.getX(i), positions.getZ(i)) < PEDESTAL_APOTHEM) {
-      positions.setY(i, Math.max(positions.getY(i), baseHeight));
-    }
+    const bore = Math.abs(normals.getY(i)) < .1 && Math.hypot(positions.getX(i), positions.getZ(i)) < PEDESTAL_APOTHEM;
+    if (bore) positions.setY(i, Math.max(positions.getY(i), PEDESTAL_HEIGHT - SOCKET_RECESS));
   }
   const body = new THREE.Mesh(surfaceUV(geometry), materials.pedestal); body.name = 'pedestal-body';
   body.castShadow = body.receiveShadow = true; group.add(body); blockers.push(body);
   for (let side = 0; side < sides; side++) {
     const n = wallNormal(controls, side), socket = new THREE.Group();
     socket.position.set(n.x * SOCKET_RADIUS, PEDESTAL_HEIGHT, n.z * SOCKET_RADIUS); group.add(socket);
-    const bottom = new THREE.Mesh(socketFloorGeometry, materials.socket); bottom.rotation.x = -Math.PI / 2; bottom.position.y = -SOCKET_DEPTH + 0.0005; bottom.name = 'recess-bottom'; bottom.castShadow = bottom.receiveShadow = true; socket.add(bottom); blockers.push(bottom);
+    const bowl = new THREE.Mesh(socketBowlGeometry, materials.socket); bowl.name = 'socket-bowl'; bowl.position.y = -SOCKET_RECESS; bowl.castShadow = bowl.receiveShadow = true; socket.add(bowl); blockers.push(bowl);
     const hit = new THREE.Mesh(socketGeometry, materials.hit); hit.rotation.x = -Math.PI / 2; hit.position.y = 0.001; socket.add(hit);
-    const ball = new THREE.Mesh(sphere, materials.red); ball.position.y = 0.11; ball.castShadow = ball.receiveShadow = true; socket.add(ball);
+    const ball = new THREE.Mesh(sphere, materials.red); ball.position.y = BALL_RADIUS - SOCKET_DEPTH - SOCKET_RECESS; ball.castShadow = ball.receiveShadow = true; socket.add(ball);
     const ref = { room: controls, side };
     hit.userData.socket = ref; ball.userData.socket = ref;
     visuals.push({ ref, hit, ball });

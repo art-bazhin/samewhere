@@ -18,8 +18,9 @@ async function aim(page: Page, room: 'A' | 'B', side: number, x: number, z: numb
     const app = window.__samewhere;
     const p = app.game.player; Object.assign(p, { x, z });
     const target = app.space.rooms[p.room].sockets.find((s: any) => s.ref.room === room && s.ref.side === side);
-    const point = target.ball.getWorldPosition(app.space.camera.position.clone());
-    if (!target.ball.visible) point.y = 1.04;
+    const point = (target.ball.visible ? target.ball : target.hit).getWorldPosition(app.space.camera.position.clone());
+    // Avoid the circle fan's shared center vertex when aiming at an empty well.
+    if (!target.ball.visible) point.x += .001;
     const dx = point.x - p.x, dz = point.z - p.z;
     p.yaw = Math.atan2(-dx, -dz); p.pitch = Math.atan2(point.y - 1.65, Math.hypot(dx, dz));
     return app.space.pick();
@@ -242,37 +243,65 @@ test('near colors stay saturated and distant surfaces fade smoothly to black thr
   }
 });
 
-test('recess walls and bottoms are opaque from the inside; four tile lights cast from their visible panels', async ({ page }) => {
+test('saucer recesses are closed and support centered balls; four tile lights cast from their panels', async ({ page }) => {
   await ready(page);
   const result = await page.evaluate(async () => {
     const path = '/node_modules/three/build/three.module.js', THREE = await import(path);
     const space = window.__samewhere.space, ray = new THREE.Raycaster(), point = new THREE.Vector3();
-    const wallDistances: number[] = [], bottomDistances: number[] = [], fixtures: any[] = [];
+    const wallDistances: number[] = [], lipDistances: number[] = [], bottomDistances: number[] = [], fixtures: any[] = [], bowls: any[] = [];
     for (const room of Object.values(space.rooms) as any[]) {
       room.scene.updateMatrixWorld(true);
       const pedestals: any[] = [], lamps: any[] = [];
       room.scene.traverse((object: any) => {
-        if (object.name === 'pedestal-body' || object.name === 'recess-bottom') pedestals.push(object);
+        if (object.name === 'pedestal-body' || object.name === 'socket-bowl') pedestals.push(object);
         if (object.name === 'ceiling-lamp') lamps.push(object);
       });
       for (const socket of room.sockets) {
-        socket.hit.getWorldPosition(point); point.y = .99;
+        const bowl = socket.hit.parent.getObjectByName('socket-bowl'), center = bowl.getWorldPosition(new THREE.Vector3());
+        point.copy(center); point.y -= .0075;
         for (const direction of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
           ray.set(point, new THREE.Vector3(...direction));
           wallDistances.push(ray.intersectObjects(pedestals, false)[0]?.distance ?? Infinity);
         }
         ray.set(point, new THREE.Vector3(0, -1, 0));
         bottomDistances.push(ray.intersectObjects(pedestals, false)[0]?.distance ?? Infinity);
+        socket.hit.getWorldPosition(point); point.y -= .0035;
+        for (const direction of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+          ray.set(point, new THREE.Vector3(...direction));
+          lipDistances.push(ray.intersectObjects(pedestals, false)[0]?.distance ?? Infinity);
+        }
+        const depths = [.0005, .01375, .0275, .04125, .05445].map(offset => {
+          ray.set(new THREE.Vector3(center.x + offset, center.y + .05, center.z), new THREE.Vector3(0, -1, 0));
+          const hit = ray.intersectObject(bowl, false)[0];
+          return hit ? center.y - hit.point.y : Infinity;
+        });
+        const positions = bowl.geometry.attributes.position, normals = bowl.geometry.attributes.normal, radius = socket.ball.geometry.parameters.radius;
+        let bottomY = Infinity, clearance = Infinity, minUpNormal = 1;
+        for (let i = 0; i < positions.count; i++) {
+          const r = Math.hypot(positions.getX(i), positions.getZ(i)), y = positions.getY(i) + bowl.position.y;
+          bottomY = Math.min(bottomY, y); minUpNormal = Math.min(minUpNormal, normals.getY(i));
+          if (r <= radius) clearance = Math.min(clearance, socket.ball.position.y - Math.sqrt(radius * radius - r * r) - y);
+        }
+        bowls.push({ depths, minUpNormal, clearance, lipDepth: -bowl.position.y, gap: socket.ball.position.y - radius - bottomY, centered: Math.hypot(socket.ball.position.x, socket.ball.position.z) });
       }
       fixtures.push({ sizes: lamps.map(lamp => [lamp.geometry.parameters.width, lamp.geometry.parameters.height]),
         offsets: room.shadowLights.map((light: any) => Math.min(...lamps.map(lamp => light.position.distanceTo(lamp.position)))),
         casts: room.shadowLights.every((light: any) => light.castShadow),
         baseY: Math.max(...pedestals.filter(p => p.name === 'pedestal-body').map(p => (p.geometry.computeBoundingBox(), p.geometry.boundingBox.min.y))) });
     }
-    return { wallDistances, bottomDistances, fixtures };
+    return { wallDistances, lipDistances, bottomDistances, fixtures, bowls };
   });
-  for (const distance of result.wallDistances) { expect(distance).toBeGreaterThan(.15); expect(distance).toBeLessThan(.18); }
-  for (const distance of result.bottomDistances) { expect(distance).toBeGreaterThan(.03); expect(distance).toBeLessThan(.05); }
+  for (const distance of result.wallDistances) { expect(distance).toBeGreaterThan(.03); expect(distance).toBeLessThan(.033); }
+  for (const distance of result.lipDistances) expect(distance).toBeCloseTo(.055, 5);
+  for (const distance of result.bottomDistances) { expect(distance).toBeGreaterThan(.0075); expect(distance).toBeLessThan(.0125); }
+  expect(result.bowls).toHaveLength(18);
+  for (const bowl of result.bowls) {
+    expect(bowl.lipDepth).toBeCloseTo(.005, 6);
+    expect(bowl.depths[0]).toBeGreaterThan(.016); expect(bowl.depths[4]).toBeLessThan(.0001);
+    for (let i = 1; i < bowl.depths.length; i++) expect(bowl.depths[i]).toBeLessThan(bowl.depths[i - 1]);
+    expect(Math.abs(bowl.gap)).toBeLessThan(.000001); expect(bowl.centered).toBe(0);
+    expect(bowl.clearance).toBeGreaterThanOrEqual(-.000001); expect(bowl.minUpNormal).toBeGreaterThan(.9);
+  }
   for (const fixture of result.fixtures) {
     expect(fixture.sizes).toEqual([[.55, .55], [.55, .55], [.55, .55], [.55, .55]]);
     for (const offset of fixture.offsets) expect(offset).toBeLessThan(.02);
@@ -284,9 +313,9 @@ test('partition blocks the ray; control solution is traversable in the rendered 
   await ready(page); await page.locator('#play-button').click();
   await expect(page.locator('#overlay')).toBeHidden();
   await page.keyboard.press('F2');
-  expect(await aim(page, 'B', 3, 0, 0.5)).toBeNull();
+  expect(await aim(page, 'B', 3, 0, 0.35)).toBeNull();
   // The same ray reaches the socket after removing the partition, proving it is an occlusion test.
-  await page.keyboard.press('F2'); expect(await aim(page, 'B', 3, 0, 0.5)).toEqual({ room: 'B', side: 3 }); await page.keyboard.press('F2');
+  await page.keyboard.press('F2'); expect(await aim(page, 'B', 3, 0, 0.35)).toEqual({ room: 'B', side: 3 }); await page.keyboard.press('F2');
   await page.keyboard.press('KeyR');
   // Full reference route: no position teleports after resetting to the real start.
   await walkTo(page, -1.5, 3); await walkTo(page, -1.5, 2.75);
