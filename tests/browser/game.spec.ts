@@ -344,6 +344,47 @@ test('adjacent A portals, A–B and B self-loops render, with bounded GPU resour
 });
 
 
+test('distant floor joins have no missing MSAA coverage at grazing angles', async ({ page }) => {
+  await ready(page);
+  const samples = await page.evaluate(async () => {
+    const path = '/src/world.ts', { portalDistance, wallNormal } = await import(path);
+    const app = window.__samewhere, space = app.space, gl = space.renderer.getContext();
+    const width = gl.drawingBufferWidth, height = gl.drawingBufferHeight, pixels = new Uint8Array(3 * 3 * 4);
+    for (const room of Object.values(space.rooms) as any[]) {
+      // A uniform emissive floor exposes lost coverage independently of carpet,
+      // lighting differences, or shadows. Keep the actual floor shader hooks.
+      const material = room.scene.getObjectByName('floor').material;
+      material.map = material.bumpMap = null; material.color.set(0); material.emissive.set(0xff0000); material.needsUpdate = true;
+      room.scene.traverse((object: any) => { if (object.name === 'pedestal-body') object.parent.visible = false; });
+    }
+    const routes = [
+      [{ room: 'A', side: 0 }, { room: 'A', side: 2 }],
+      [{ room: 'A', side: 0 }, { room: 'A', side: 1 }],
+      [{ room: 'A', side: 2 }, { room: 'B', side: 0 }],
+      [{ room: 'B', side: 0 }, { room: 'B', side: 2 }],
+    ];
+    const samples = [];
+    for (const route of routes) for (const [from, to] of [route, [...route].reverse()]) for (const lateral of [-3.3, 3.3]) {
+      app.game.world.balls[0].socket = from; app.game.world.balls[1].socket = to;
+      app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
+      const n = wallNormal(from.room, from.side), distance = portalDistance(from.room);
+      const x = n.x * (distance - 8.5) - n.z * lateral, z = n.z * (distance - 8.5) + n.x * lateral;
+      Object.assign(app.game.player, { room: from.room, x, z, yaw: Math.atan2(x - n.x * distance, z - n.z * distance), pitch: -Math.atan2(1.65, Math.hypot(8.5, lateral)) });
+      space.render();
+      let minRed = 255;
+      for (const offset of [-.5, 0, .5]) {
+        const point = space.camera.position.clone().set(n.x * distance - n.z * offset, 0, n.z * distance + n.x * offset).project(space.camera);
+        const px = Math.floor((point.x + 1) * width / 2), py = Math.floor((point.y + 1) * height / 2);
+        gl.readPixels(px - 1, py - 1, 3, 3, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        for (let i = 0; i < pixels.length; i += 4) minRed = Math.min(minRed, pixels[i]);
+      }
+      samples.push({ from, to, lateral, minRed });
+    }
+    return samples;
+  });
+  for (const sample of samples) expect(sample.minRed, JSON.stringify(sample)).toBeGreaterThanOrEqual(254);
+});
+
 test('rendered perspective remains continuous within 2 mm of every kind of seam', async ({ page }) => {
   await ready(page);
   const routes: [SocketRef, SocketRef][] = [

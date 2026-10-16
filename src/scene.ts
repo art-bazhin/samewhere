@@ -136,7 +136,11 @@ function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
     // supplies the other half, so reveals never overlap across the portal plane.
     const geometry = new THREE.ExtrudeGeometry(opening, { depth: WALL_THICKNESS / 2, bevelEnabled: false, steps: 1 }); geometry.translate(0, 0, -WALL_THICKNESS / 2);
     const shell = new THREE.Mesh(surfaceUV(geometry), materials.wall); shell.castShadow = shell.receiveShadow = true; open.add(shell); blockers.push(shell);
-    const threshold = box(open, materials.threshold, [DOOR_WIDTH, 0.012, WALL_THICKNESS / 2], [0, -0.006, -WALL_THICKNESS / 4]);
+    const threshold = box(open, floor.material, [DOOR_WIDTH, 0.012, WALL_THICKNESS / 2], [0, -0.006, -WALL_THICKNESS / 4]);
+    // Continue the room's carpet coordinates across the rotated doorway.
+    wall.updateMatrix();
+    const carpetGeometry = surfaceUV(threshold.geometry.clone().applyMatrix4(wall.matrix));
+    threshold.geometry.setAttribute('uv', carpetGeometry.getAttribute('uv')); carpetGeometry.dispose();
     threshold.castShadow = false;
     const portal = new THREE.Mesh(plane, portalMaterial()); portal.scale.set(DOOR_WIDTH, DOOR_HEIGHT, 1); portal.position.set(0, DOOR_HEIGHT / 2, -WALL_THICKNESS / 2); wall.add(portal);
     // Establish portal depth first, so hidden PBR surfaces do not shade the whole

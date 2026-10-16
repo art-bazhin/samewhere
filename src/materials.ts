@@ -22,7 +22,6 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
     floor: new THREE.MeshStandardMaterial({ map: carpet, bumpMap: carpet, bumpScale: 0.008, roughness: 1 }),
     ceiling: new THREE.MeshStandardMaterial({ map: ceiling, bumpMap: ceiling, bumpScale: 0.002, emissive: 0x3f3b28, roughness: 1, side: THREE.BackSide }),
     pedestal: new THREE.MeshStandardMaterial({ color: 0xcdbb86, roughness: 0.87 }),
-    threshold: new THREE.MeshBasicMaterial({ color: 0x9d895c }),
     socket: new THREE.MeshStandardMaterial({ color: 0x655735, roughness: 0.8, metalness: 0.12 }),
     hit: new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }),
     red: new THREE.MeshStandardMaterial({ color: 0xc92530, roughness: 0.4, metalness: 0.02 }),
@@ -71,6 +70,10 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
       shade *= 1. - .55 * exp(-max(edge${index}, 0.) * 18.);`;
   }).join('\n');
   material.onBeforeCompile = shader => {
+    // The convex floor and passage halves already end at each portal plane.
+    // Clipping again discards MSAA edge pixels whose centers lie outside the
+    // plane even though some covered samples are inside, leaving a dotted seam.
+    shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', '');
     shader.vertexShader = 'varying vec2 contactPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
       contactPosition = (modelMatrix * vec4(transformed, 1.)).xz;`);
