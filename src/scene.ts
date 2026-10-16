@@ -13,8 +13,11 @@ const SOCKET_DEPTH = 0.065;
 const socketGeometry = new THREE.CircleGeometry(SOCKET_OPENING, 32);
 const socketFloorGeometry = new THREE.CircleGeometry(SOCKET_OPENING + 0.002, 48);
 function box(parent: THREE.Object3D, material: THREE.Material, size: number[], position: number[]) {
-  const mesh = new THREE.Mesh(surfaceUV(new THREE.BoxGeometry(size[0], size[1], size[2])), material);
-  mesh.position.set(position[0], position[1], position[2]); mesh.castShadow = mesh.receiveShadow = true;
+  // Project in the parent's coordinates, just like the extruded passage shell.
+  // Both wall variants must anchor the wallpaper at floor level.
+  const geometry = new THREE.BoxGeometry(size[0], size[1], size[2]);
+  geometry.translate(position[0], position[1], position[2]);
+  const mesh = new THREE.Mesh(surfaceUV(geometry), material); mesh.castShadow = mesh.receiveShadow = true;
   parent.add(mesh); return mesh;
 }
 

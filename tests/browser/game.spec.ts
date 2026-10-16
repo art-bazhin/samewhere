@@ -166,6 +166,43 @@ test('textured architecture loads locally and paired wall halves form a 30 cm pa
   expect(result.glError).toBe(0); expect(external).toEqual([]);
 });
 
+test('wallpaper stays fixed when passages open, close, and reopen on every wall', async ({ page }) => {
+  await ready(page);
+  const samples = await page.evaluate(async () => {
+    const path = '/node_modules/three/build/three.module.js', THREE = await import(path);
+    const app = window.__samewhere, ray = new THREE.Raycaster();
+    const samples: { room: string; side: number; point: number[]; states: number[][] }[] = [];
+    for (const id of ['A', 'B']) for (let side = 0; side < app.space.rooms[id].walls.length; side++) {
+      const room = app.space.rooms[id], wall = room.walls[side], frame = wall.solid.parent;
+      room.scene.updateMatrixWorld(true);
+      // Points on the unchanged wall, including the lintel above the aperture.
+      for (const [x, y] of [[-2, .4], [2, .4], [-2, 1.65], [2, 1.65], [-2, 3.1], [0, 3.1], [2, 3.1]]) {
+        const origin = frame.localToWorld(new THREE.Vector3(x, y, .5));
+        const direction = new THREE.Vector3(0, 0, -1).transformDirection(frame.matrixWorld);
+        const states: number[][] = [];
+        for (const open of [true, false, true]) {
+          app.game.world.balls[0].socket = { room: id, side };
+          app.game.world.balls[1].socket = open ? { room: id, side: (side + 1) % room.walls.length } : null;
+          app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
+          ray.set(origin, direction);
+          const mesh = (wall.open.visible ? wall.open : wall.solid).children[0];
+          const hit = ray.intersectObject(mesh, false)[0];
+          if (!hit?.uv) throw new Error(`Missing wall at ${id}${side}: ${x}, ${y}`);
+          const mapUV = hit.uv.clone(), bumpUV = hit.uv.clone();
+          mesh.material.map.transformUv(mapUV); mesh.material.bumpMap.transformUv(bumpUV);
+          states.push([mapUV.x, mapUV.y, bumpUV.x, bumpUV.y]);
+        }
+        samples.push({ room: id, side, point: [x, y], states });
+      }
+    }
+    return samples;
+  });
+  expect(samples).toHaveLength(63);
+  for (const sample of samples) for (const state of sample.states.slice(1)) {
+    for (let i = 0; i < state.length; i++) expect(state[i], JSON.stringify(sample)).toBeCloseTo(sample.states[0][i], 5);
+  }
+});
+
 test('near colors stay saturated and distant surfaces fade smoothly to black through portals', async ({ page }) => {
   await ready(page);
   const samples = await page.evaluate(async () => {
