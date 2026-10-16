@@ -26,7 +26,7 @@ test('seven-room layout starts in A with empty inventory, red balls on B and blu
   assert.deepEqual(destination(world, { room: 'C', side: 0 }), { room: 'C', side: 3 });
   assert.deepEqual(ROOM_IDS, ['A', 'B', 'C', 'D', 'E', 'F', 'G']);
   assert.deepEqual(ROOM_IDS.map(id => ROOMS[id].sides), [4, 5, 6, 3, 3, 4, 4]);
-  assert.deepEqual(ROOM_IDS.map(id => ROOMS[id].pedestals.map(p => p.controls)), [['A', 'B'], ['B', 'C'], ['C', 'D'], ['D', 'A', 'E'], ['B', 'F'], ['D', 'G'], ['G', 'D']]);
+  assert.deepEqual(ROOM_IDS.map(id => ROOMS[id].pedestals.map(p => p.controls)), [['A', 'B'], ['B', 'C'], ['C', 'D'], ['D', 'A', 'E'], ['B', 'F'], ['D', 'G'], ROOM_IDS]);
   assert.ok(world.balls.every(ball => ball.socket?.room === (ball.color === 'red' ? 'B' : 'C')));
   for (const room of ['A', 'D', 'E', 'F', 'G'] as const) for (let side = 0; side < ROOMS[room].sides; side++) assert.equal(destination(world, { room, side }), null);
 });
@@ -89,16 +89,17 @@ test('Y arms have equal length, + has four ends, and H has two separated paralle
   assert.equal(canStand('E', { x: 0, z: 4 }), false);
   for (const p of [{ x: 0, z: -5 }, { x: 5, z: 0 }, { x: 0, z: 5 }, { x: -5, z: 0 }]) assert.ok(canStand('F', p));
   assert.equal(canStand('F', { x: 4, z: 4 }), false);
-  for (const x of [-3.5, 3.5]) for (const z of [-5, 5]) assert.ok(canStand('G', { x, z }));
-  assert.ok(canStand('G', { x: 0, z: 0 })); assert.equal(canStand('G', { x: 0, z: -5 }), false);
+  for (const x of [-3.5, 3.5]) for (const z of [-5.5, 5.5]) assert.ok(canStand('G', { x, z }));
+  assert.ok(canStand('G', { x: 0, z: 1.1 })); assert.equal(canStand('G', { x: 0, z: 0 }), false);
+  assert.equal(canStand('G', { x: 0, z: -5 }), false);
 });
 
 test('concave walls stop shortcuts across H notches while its center connects both legs', () => {
-  const game = new Game(); Object.assign(game.player, { room: 'G', x: -3.5, z: -4 });
+  const game = new Game(); Object.assign(game.player, { room: 'G', x: -3.5, z: -5.5 });
   game.move({ x: 7, z: 0 }); assert.ok(game.player.x <= -1.8 - PLAYER_RADIUS + 1e-7);
-  game.move({ x: 0, z: 4 }); close(game.player.z, 0);
+  game.move({ x: 0, z: 6.6 }); close(game.player.z, 1.1);
   game.move({ x: 4.3, z: 0 }); assert.ok(game.player.x > 2);
-  game.move({ x: 0, z: -4 }); close(game.player.z, -4); assert.ok(game.player.x > 2);
+  game.move({ x: 0, z: -6.6 }); close(game.player.z, -5.5); assert.ok(game.player.x > 2);
   assert.ok(insideOutline(game.player, roomOutline('G')));
 });
 
@@ -140,7 +141,9 @@ test('closed walls, door jambs and pedestals resist a large movement step', () =
   const game = loopGame(); game.interact({ room: 'A', side: 0 });
   atWall(game, 'A', 0); game.move({ x: 0, z: -10 }); assert.ok(game.player.z >= -5 + PLAYER_RADIUS - 1e-8);
   atWall(game, 'A', 3, 0.82); game.move({ x: -1, z: 0 }); assert.equal(game.transitions, 0); assert.ok(game.player.x >= -5 + PLAYER_RADIUS - 1e-8);
-  const free = new Game(); Object.assign(free.player, { x: -1.5, z: 3 }); free.move({ x: 0, z: -1.2 }); assert.ok(Math.hypot(free.player.x + 1.5, free.player.z - 1.5) >= PEDESTAL_APOTHEM / Math.cos(Math.PI / 4) + PLAYER_RADIUS - 1e-8);
+  const free = new Game(), pedestal = ROOMS.A.pedestals[0];
+  Object.assign(free.player, { x: pedestal.x, z: pedestal.z + 1.5 }); free.move({ x: 0, z: -1.2 });
+  assert.ok(Math.hypot(free.player.x - pedestal.x, free.player.z - pedestal.z) >= PEDESTAL_APOTHEM / Math.cos(Math.PI / 4) + PLAYER_RADIUS - 1e-8);
 });
 test('the room diagonal can be crossed freely in both directions', () => {
   const game = new Game(); Object.assign(game.player, { x: -1, z: 1 });

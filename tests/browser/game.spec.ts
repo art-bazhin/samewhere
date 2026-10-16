@@ -93,10 +93,11 @@ test('initial ball placement, actual mouse pick/place, and both shared pedestal 
   await expect(page.locator('#red-count')).toHaveText('0'); await expect(page.locator('#blue-count')).toHaveText('0');
   expect(await page.evaluate(() => Object.fromEntries(Object.entries(window.__samewhere.space.rooms).map(([id, room]: [string, any]) =>
     [id, room.sockets.filter((socket: any) => socket.ball.visible).map((socket: any) => `${socket.ref.room}${socket.ref.side}`)]))))
-    .toEqual({ A: ['B0', 'B2'], B: ['B0', 'B2', 'C0', 'C3'], C: ['C0', 'C3'], D: [], E: ['B0', 'B2'], F: [], G: [] });
+    .toEqual({ A: ['B0', 'B2'], B: ['B0', 'B2', 'C0', 'C3'], C: ['C0', 'C3'], D: [], E: ['B0', 'B2'], F: [], G: ['B0', 'B2', 'C0', 'C3'] });
   await page.screenshot({ path: 'test-results/01-menu.png' });
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
-  const hit = await aim(page, 'B', 0, 1.5, -0.25); expect(hit).toEqual({ room: 'B', side: 0 });
+  const b = ROOMS.A.pedestals.find(p => p.controls === 'B')!;
+  const hit = await aim(page, 'B', 0, b.x, b.z + 1.25); expect(hit).toEqual({ room: 'B', side: 0 });
   await page.mouse.down(); await page.mouse.up();
   await expect(page.locator('#red-count')).toHaveText('1');
   const state = await page.evaluate(() => {
@@ -104,7 +105,8 @@ test('initial ball placement, actual mouse pick/place, and both shared pedestal 
     return { a: app.space.rooms.A.sockets.find((s: any) => s.ref.room === 'B' && s.ref.side === 0).ball.visible, b: app.space.rooms.B.sockets.find((s: any) => s.ref.room === 'B' && s.ref.side === 0).ball.visible, closedB0: app.space.rooms.B.walls[0].solid.visible, closedB2: app.space.rooms.B.walls[2].solid.visible };
   });
   expect(state).toEqual({ a: false, b: false, closedB0: true, closedB2: true });
-  expect(await aim(page, 'A', 0, -1.5, 2.75)).toEqual({ room: 'A', side: 0 });
+  const a = ROOMS.A.pedestals.find(p => p.controls === 'A')!;
+  expect(await aim(page, 'A', 0, a.x, a.z + 1.25)).toEqual({ room: 'A', side: 0 });
   await page.mouse.down(); await page.mouse.up(); await expect(page.locator('#red-count')).toHaveText('0');
   await page.keyboard.press('KeyZ'); await expect(page.locator('#red-count')).toHaveText('1');
   await page.keyboard.press('KeyR'); await expect(page.locator('#red-count')).toHaveText('0');
@@ -208,7 +210,7 @@ test('textured architecture loads locally and paired wall halves form a 30 cm pa
   for (const bound of result.ceilingBounds) expect(bound.actual).toBeCloseTo(bound.expected, 5);
   expect(result.maps).toHaveLength(6);
   for (const [width, height] of result.maps) { expect(width).toBeGreaterThanOrEqual(1024); expect(height).toBeGreaterThanOrEqual(1024); }
-  expect(result.lines).toBe(0); expect(result.shadows).toEqual([1024, 1024, 1024, 1024]);
+  expect(result.lines).toBe(0); expect(result.shadows).toEqual(Array(ROOMS.A.pedestals.length).fill(1024));
   expect(result.glError).toBe(0); expect(external).toEqual([]);
 });
 
@@ -336,18 +338,19 @@ test('near colors stay saturated and distant surfaces fade smoothly to black thr
   }
 });
 
-test('saucer recesses are closed and support centered balls; four tile lights cast from their panels', async ({ page }) => {
+test('saucer recesses support centered balls; each pedestal has a light aligned to the ceiling tiles', async ({ page }) => {
   await ready(page);
   const result = await page.evaluate(async () => {
     const path = '/node_modules/three/build/three.module.js', THREE = await import(path);
     const space = window.__samewhere.space, ray = new THREE.Raycaster(), point = new THREE.Vector3();
     const wallDistances: number[] = [], lipDistances: number[] = [], bottomDistances: number[] = [], fixtures: any[] = [], bowls: any[] = [];
-    for (const room of Object.values(space.rooms) as any[]) {
+    for (const [id, room] of Object.entries(space.rooms) as [string, any][]) {
       room.scene.updateMatrixWorld(true);
-      const pedestals: any[] = [], lamps: any[] = [];
+      const pedestals: any[] = [], lamps: any[] = [], frames: any[] = [];
       room.scene.traverse((object: any) => {
         if (object.name === 'pedestal-body' || object.name === 'socket-bowl') pedestals.push(object);
         if (object.name === 'ceiling-lamp') lamps.push(object);
+        if (object.name === 'ceiling-lamp-frame') frames.push(object);
       });
       for (const socket of room.sockets) {
         const bowl = socket.hit.parent.getObjectByName('socket-bowl'), center = bowl.getWorldPosition(new THREE.Vector3());
@@ -377,10 +380,25 @@ test('saucer recesses are closed and support centered balls; four tile lights ca
         }
         bowls.push({ depths, minUpNormal, clearance, lipDepth: -bowl.position.y, gap: socket.ball.position.y - radius - bottomY, centered: Math.hypot(socket.ball.position.x, socket.ball.position.z) });
       }
-      fixtures.push({ sizes: lamps.map(lamp => [lamp.geometry.parameters.width, lamp.geometry.parameters.height]),
+      const bodies = pedestals.filter(p => p.name === 'pedestal-body'), ceiling = room.scene.getObjectByName('ceiling'), texture = ceiling.material.map;
+      texture.updateMatrix();
+      const ceilingUV = (x: number, z: number) => {
+        ray.set(new THREE.Vector3(x, 2, z), new THREE.Vector3(0, 1, 0));
+        const hit = ray.intersectObject(ceiling, false)[0];
+        if (!hit?.uv) throw new Error(`Missing ceiling in ${id} at ${x}, ${z}`);
+        texture.transformUv(hit.uv); return hit.uv.toArray();
+      };
+      const coordinates = (objects: any[]) => objects.map(object => { const p = object.getWorldPosition(new THREE.Vector3()); return [p.x, p.z]; }).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      fixtures.push({ id, pedestalCount: bodies.length, lightCount: room.shadowLights.length,
+        sizes: lamps.map(lamp => [lamp.geometry.parameters.width, lamp.geometry.parameters.height]),
+        frameSizes: frames.map(frame => [frame.geometry.parameters.width, frame.geometry.parameters.height]),
+        pedestalPositions: coordinates(bodies), lampPositions: coordinates(lamps), lightPositions: coordinates(room.shadowLights),
+        targetPositions: coordinates(room.shadowLights.map((light: any) => light.target)),
+        centerUVs: lamps.map(lamp => ceilingUV(lamp.position.x, lamp.position.z)),
+        cornerUVs: frames.flatMap(frame => [-1, 1].flatMap(x => [-1, 1].map(z => ceilingUV(frame.position.x + x * frame.geometry.parameters.width / 2, frame.position.z + z * frame.geometry.parameters.height / 2)))),
         offsets: room.shadowLights.map((light: any) => Math.min(...lamps.map(lamp => light.position.distanceTo(lamp.position)))),
         casts: room.shadowLights.every((light: any) => light.castShadow),
-        baseY: Math.max(...pedestals.filter(p => p.name === 'pedestal-body').map(p => (p.geometry.computeBoundingBox(), p.geometry.boundingBox.min.y))) });
+        baseY: Math.max(...bodies.map(p => (p.geometry.computeBoundingBox(), p.geometry.boundingBox.min.y))) });
     }
     return { wallDistances, lipDistances, bottomDistances, fixtures, bowls };
   });
@@ -396,13 +414,21 @@ test('saucer recesses are closed and support centered balls; four tile lights ca
     expect(bowl.clearance).toBeGreaterThanOrEqual(-.000001); expect(bowl.minUpNormal).toBeGreaterThan(.9);
   }
   for (const fixture of result.fixtures) {
-    expect(fixture.sizes).toEqual([[.55, .55], [.55, .55], [.55, .55], [.55, .55]]);
+    expect(fixture.pedestalCount).toBe(ROOMS[fixture.id as RoomId].pedestals.length);
+    expect(fixture.sizes).toHaveLength(fixture.pedestalCount); expect(fixture.frameSizes).toHaveLength(fixture.pedestalCount);
+    expect(fixture.lightCount).toBe(fixture.pedestalCount);
+    expect(fixture.lampPositions).toEqual(fixture.pedestalPositions); expect(fixture.lightPositions).toEqual(fixture.pedestalPositions);
+    expect(fixture.targetPositions).toEqual(fixture.pedestalPositions);
+    for (const size of fixture.sizes) for (const dimension of size) expect(dimension).toBeCloseTo(.55, 8);
+    for (const size of fixture.frameSizes) for (const dimension of size) expect(dimension).toBeCloseTo(.6, 8);
+    for (const uv of fixture.centerUVs) for (const value of uv) expect(value).toBeCloseTo(.5, 5);
+    for (const uv of fixture.cornerUVs) for (const value of uv) expect(Math.min(Math.abs(value), Math.abs(1 - value))).toBeLessThan(.00001);
     for (const offset of fixture.offsets) expect(offset).toBeLessThan(.02);
     expect(fixture.casts).toBe(true); expect(fixture.baseY).toBeLessThan(0);
   }
 });
 
-test('the complete layout reaches G through D using native movement and pedestal clicks', async ({ page }) => {
+test('the complete layout reaches the H hub and all seven pedestals work with native movement and clicks', async ({ page }) => {
   test.setTimeout(120_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -410,7 +436,8 @@ test('the complete layout reaches G through D using native movement and pedestal
   await expect(page.locator('[data-mode], #mode-label, #objective')).toHaveCount(0);
   await page.locator('#play-button').click();
   await expect(page.locator('#overlay')).toBeHidden();
-  expect(await aim(page, 'B', 3, 0, 0.35)).toEqual({ room: 'B', side: 3 });
+  const initialB = ROOMS.A.pedestals.find(p => p.controls === 'B')!;
+  expect(await aim(page, 'B', 3, initialB.x, initialB.z + 1.3)).toEqual({ room: 'B', side: 3 });
   const before = await page.evaluate(() => window.__samewhere.game.snapshot());
   await page.keyboard.press('F2');
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(before);
@@ -418,15 +445,18 @@ test('the complete layout reaches G through D using native movement and pedestal
   // No teleports after reset: operate only the pedestals present in each room.
   async function center() {
     const { z, room } = await page.evaluate(() => window.__samewhere.game.player);
-    if (ROOMS[room as RoomId].outline) { await walkTo(page, 0, 0); return; }
+    if (ROOMS[room as RoomId].outline) { await walkTo(page, 0, room === 'G' ? 1.1 : 0); return; }
     await walkTo(page, 0, z); await walkTo(page, 0, 0);
   }
   async function operate(room: RoomId, side: number) {
     await center();
-    const point = await page.evaluate(room => {
+    const point = await page.evaluate(async room => {
       const app = window.__samewhere, socket = app.space.rooms[app.game.player.room].sockets.find((s: any) => s.ref.room === room);
       if (!socket) throw new Error(`Missing ${room} pedestal`);
-      const p = socket.hit.parent.parent.position; return { x: p.x, z: p.z + 1.3 };
+      const path = '/src/world.ts', { canStand } = await import(path), p = socket.hit.parent.parent.position;
+      const point = [1.3, 1].map(distance => ({ x: p.x, z: p.z + distance })).find(point => canStand(app.game.player.room, point, .4));
+      if (!point) throw new Error(`No approach to ${room} pedestal in ${app.game.player.room}`);
+      return point;
     }, room);
     const currentRoom = await page.evaluate(() => window.__samewhere.game.player.room) as RoomId;
     if (!ROOMS[currentRoom].outline) await walkTo(page, 0, point.z);
@@ -477,6 +507,26 @@ test('the complete layout reaches G through D using native movement and pedestal
   await expect(page.locator('#red-count')).toHaveText('0'); await expect(page.locator('#blue-count')).toHaveText('0');
   expect(await page.evaluate(() => window.__samewhere.game.world.balls.length)).toBe(4);
   await page.screenshot({ path: 'test-results/room-G.png' });
+
+  const atHub = await page.evaluate(() => ({ world: window.__samewhere.game.snapshot().world, history: window.__samewhere.game.history.length }));
+  await operate('E', 0); // Borrow one ball to exercise every control in the hub.
+  for (const room of ROOM_IDS) {
+    const side = await page.evaluate(({ room, sides }) => {
+      const balls = window.__samewhere.game.world.balls;
+      for (let side = 0; side < sides; side++) if (!balls.some((ball: any) => ball.socket?.room === room && ball.socket.side === side)) return side;
+      throw new Error(`No free socket in ${room}`);
+    }, { room, sides: ROOMS[room].sides });
+    await operate(room, side);
+    expect(await page.evaluate(({ room, side }) => window.__samewhere.game.world.balls.find((ball: any) => ball.socket?.room === room && ball.socket.side === side)?.color, { room, side })).toBe('red');
+    for (let socket = 0; socket < ROOMS[room].sides; socket++) expect(await aimFromHere(page, room, socket)).toEqual({ room, side: socket });
+    expect(await aimFromHere(page, room, side)).toEqual({ room, side });
+    await page.mouse.down(); await page.mouse.up();
+    await expect(page.locator('#red-count')).toHaveText('1');
+  }
+  await operate('E', 0);
+  const hubActions = await page.evaluate(history => window.__samewhere.game.history.length - history, atHub.history);
+  for (let i = 0; i < hubActions; i++) await page.keyboard.press('KeyZ');
+  expect(await page.evaluate(() => window.__samewhere.game.world)).toEqual(atHub.world);
   await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Y-комната');
   await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Комната-крест');
   await page.keyboard.press('KeyR'); await expect(page.locator('#room-name')).toHaveText('Квадратная комната');

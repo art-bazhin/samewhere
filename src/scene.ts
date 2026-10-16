@@ -3,7 +3,7 @@ import { GpuTiming } from './gpu-timing';
 import { createMaterials, floorWithContacts, surfaceUV, type MaterialSet } from './materials';
 import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBILITY_END } from './visibility';
 import { offsetOutline } from './geometry';
-import { ballAt, destination, DOOR_HEIGHT, DOOR_WIDTH, EYE_HEIGHT, Game, pedestalOutline, portalAngle, portalDistance, portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomOutline, roomWalls, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
+import { ballAt, CEILING_TILE_SIZE, destination, DOOR_HEIGHT, DOOR_WIDTH, EYE_HEIGHT, Game, pedestalOutline, portalAngle, portalDistance, portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomOutline, roomWalls, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
 
 const PALETTE = { background: 0x000000 };
 const plane = new THREE.PlaneGeometry(1, 1);
@@ -121,8 +121,7 @@ function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
   scene.background = new THREE.Color(PALETTE.background);
   scene.add(new THREE.HemisphereLight(0xfff8df, 0xc2a568, 1), new THREE.AmbientLight(0xfff6dd, 0.12));
   const shadowLights: THREE.SpotLight[] = [];
-  const lamps = definition.lamps ?? [-1.5, 1.5].flatMap(x => [-1.5, 1.5].map(z => ({ x, z })));
-  for (const { x, z } of lamps) {
+  for (const { x, z } of definition.pedestals) {
     const light = new THREE.SpotLight(0xfff5d7, 14, 18, 1.28, 0.65, 2);
     light.position.set(x, ROOM_HEIGHT - 0.015, z); light.target.position.set(x, 0, z);
     light.castShadow = true; light.shadow.mapSize.set(1024, 1024);
@@ -130,9 +129,9 @@ function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
     light.shadow.bias = -0.00002; light.shadow.normalBias = 0.0015;
     light.shadow.autoUpdate = false; light.shadow.needsUpdate = true;
     scene.add(light, light.target); shadowLights.push(light);
-    const frame = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6), materials.lampFrame);
+    const frame = new THREE.Mesh(new THREE.PlaneGeometry(CEILING_TILE_SIZE, CEILING_TILE_SIZE), materials.lampFrame); frame.name = 'ceiling-lamp-frame';
     frame.rotation.x = Math.PI / 2; frame.position.set(x, ROOM_HEIGHT - 0.002, z); scene.add(frame);
-    const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.55), materials.lamp); lens.name = 'ceiling-lamp';
+    const lens = new THREE.Mesh(new THREE.PlaneGeometry(CEILING_TILE_SIZE - .05, CEILING_TILE_SIZE - .05), materials.lamp); lens.name = 'ceiling-lamp';
     lens.rotation.x = Math.PI / 2; lens.position.set(x, ROOM_HEIGHT - 0.004, z); scene.add(lens);
   }
   const outline = roomOutline(id);
@@ -226,6 +225,7 @@ export class SpaceRenderer {
   private readonly clipPointsA = Array.from({ length: 12 }, () => new THREE.Vector4());
   private readonly clipPointsB = Array.from({ length: 12 }, () => new THREE.Vector4());
   private readonly views: PortalView[][] = Array.from({ length: MAX_DEPTH + 2 }, () => []);
+  private compiling = false;
   constructor(public canvas: HTMLCanvasElement, public game: Game) {
     // Create the context explicitly: this Three.js release requests alpha:true
     // internally even with renderer alpha:false. The game is always opaque.
@@ -242,9 +242,23 @@ export class SpaceRenderer {
     this.renderer.clippingPlanes = [this.clipPlane];
     this.renderer.info.autoReset = false;
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.assets = createMaterials(this.renderer); this.ready = this.assets.ready;
+    this.assets = createMaterials(this.renderer);
     this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials)])) as Record<RoomId, RoomVisual>;
     this.resize(); this.sync();
+    this.ready = this.assets.ready.then(async () => {
+      // Initialize clipping/shadows, then compile each room's light count while
+      // the menu is loading. Shared materials must not be rebound by rendering
+      // another scene while compileAsync waits for its programs to finish.
+      this.render(); this.compiling = true;
+      const previousTarget = this.renderer.getRenderTarget();
+      try {
+        // Main views use sRGB output; portal buffers use linear output.
+        for (const target of [null, this.targets[0]]) {
+          this.renderer.setRenderTarget(target);
+          for (const id of ROOM_IDS) await this.renderer.compileAsync(this.rooms[id].scene, this.camera);
+        }
+      } finally { this.renderer.setRenderTarget(previousTarget); this.compiling = false; }
+    });
   }
   resize() {
     this.width = innerWidth; this.height = innerHeight;
@@ -427,6 +441,7 @@ export class SpaceRenderer {
     this.renderer.render(room.scene, camera);
   }
   render() {
+    if (this.compiling) return;
     this.updateCamera(); this.passes = 0; this.portalPixels = 0; this.renderer.info.reset();
     this.gpuTiming.begin();
     try { this.renderRoom(this.game.player.room, this.camera, 0, FULL, null); }

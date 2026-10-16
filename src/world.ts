@@ -11,21 +11,31 @@ export interface Snapshot { world: WorldState; player: PlayerState }
 export interface Connection { color: BallColor; ends: [SocketRef, SocketRef] }
 export interface PedestalDefinition extends Vec2 { controls: RoomId }
 /** sides counts portal/socket positions; outlines may have additional solid edges. */
-export interface RoomDefinition { id: RoomId; name: string; shape: string; sides: number; apothem: number; pedestals: PedestalDefinition[]; outline?: Vec2[]; portalEdges?: number[]; lamps?: Vec2[] }
+export interface RoomDefinition { id: RoomId; name: string; shape: string; sides: number; apothem: number; pedestals: PedestalDefinition[]; outline?: Vec2[]; portalEdges?: number[] }
+export const CEILING_TILE_SIZE = 0.6;
 export const ROOMS: Record<RoomId, RoomDefinition> = {
   A: { id: 'A', name: 'Квадратная комната', shape: 'square', sides: 4, apothem: 5, pedestals: [{ controls: 'A', x: -1.5, z: 1.5 }, { controls: 'B', x: 1.5, z: -1.5 }] },
   B: { id: 'B', name: 'Пятиугольная комната', shape: 'pentagon', sides: 5, apothem: 5, pedestals: [{ controls: 'B', x: -1.5, z: 0.8 }, { controls: 'C', x: 1.5, z: -0.8 }] },
   C: { id: 'C', name: 'Шестиугольная комната', shape: 'hexagon', sides: 6, apothem: 5, pedestals: [{ controls: 'C', x: -1.5, z: 0.8 }, { controls: 'D', x: 1.5, z: -0.8 }] },
   D: { id: 'D', name: 'Треугольная комната', shape: 'triangle', sides: 3, apothem: 5, pedestals: [{ controls: 'D', x: -1.5, z: 0.8 }, { controls: 'A', x: 1.5, z: -0.8 }, { controls: 'E', x: 1.5, z: 2 }] },
   E: { id: 'E', name: 'Y-комната', shape: 'y-room', sides: 3, apothem: 7, outline: yOutline(7, 1.7), portalEdges: [0, 3, 6],
-    pedestals: [{ controls: 'B', x: -2.6, z: 1.5 }, { controls: 'F', x: 2.6, z: 1.5 }],
-    lamps: [{ x: 0, z: 0 }, ...[0, 1, 2].map(i => ({ x: Math.sin(i * Math.PI * 2 / 3) * 4, z: -Math.cos(i * Math.PI * 2 / 3) * 4 }))] },
+    pedestals: [{ controls: 'B', x: -2.6, z: 1.5 }, { controls: 'F', x: 2.6, z: 1.5 }] },
   F: { id: 'F', name: 'Комната-крест', shape: 'cross-room', sides: 4, apothem: 7, outline: crossOutline(7, 1.7), portalEdges: [0, 3, 6, 9],
-    pedestals: [{ controls: 'D', x: -3, z: 0 }, { controls: 'G', x: 3, z: 0 }], lamps: [{ x: 0, z: -4 }, { x: 4, z: 0 }, { x: 0, z: 4 }, { x: -4, z: 0 }] },
+    pedestals: [{ controls: 'D', x: -3, z: 0 }, { controls: 'G', x: 3, z: 0 }] },
   G: { id: 'G', name: 'H-комната', shape: 'h-room', sides: 4, apothem: 7, outline: hOutline(7, 3.5, 1.7), portalEdges: [0, 4, 6, 10],
-    pedestals: [{ controls: 'G', x: -3.5, z: 0 }, { controls: 'D', x: 3.5, z: 0 }], lamps: [{ x: -3.5, z: -3.5 }, { x: 3.5, z: -3.5 }, { x: -3.5, z: 3.5 }, { x: 3.5, z: 3.5 }] },
+    pedestals: [
+      { controls: 'A', x: -3.5, z: -4 }, { controls: 'B', x: -3.5, z: 0 }, { controls: 'C', x: -3.5, z: 4 },
+      { controls: 'D', x: 3.5, z: -4 }, { controls: 'E', x: 3.5, z: 0 }, { controls: 'F', x: 3.5, z: 4 },
+      { controls: 'G', x: 0, z: 0 },
+    ] },
 };
 export const ROOM_IDS = Object.keys(ROOMS) as RoomId[];
+// Tile centers are integer multiples of 60 cm; the origin is a tile center.
+// Round half-tiles away from zero to preserve symmetric pedestal arrangements.
+const ceilingCoordinate = (value: number) => Math.sign(value) * Math.round(Math.abs(value) / CEILING_TILE_SIZE) * CEILING_TILE_SIZE;
+for (const id of ROOM_IDS) for (const pedestal of ROOMS[id].pedestals) {
+  pedestal.x = ceilingCoordinate(pedestal.x); pedestal.z = ceilingCoordinate(pedestal.z);
+}
 const outlines = Object.fromEntries(ROOM_IDS.map(id => [id, ROOMS[id].outline ?? regularOutline(ROOMS[id].sides, ROOMS[id].apothem)])) as Record<RoomId, Vec2[]>;
 const boundaries = Object.fromEntries(ROOM_IDS.map(id => [id, outlineWalls(outlines[id], ROOMS[id].portalEdges ?? Array.from({ length: ROOMS[id].sides }, (_, i) => i))])) as Record<RoomId, ReturnType<typeof outlineWalls>>;
 const doorways = Object.fromEntries(ROOM_IDS.map(id => [id, boundaries[id].filter(wall => wall.portal !== null).sort((a, b) => a.portal! - b.portal!)])) as typeof boundaries;

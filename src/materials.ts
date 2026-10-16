@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { pedestalOutline, PEDESTAL_APOTHEM, ROOM_HEIGHT, ROOMS, wallNormal, type PedestalDefinition } from './world';
+import { CEILING_TILE_SIZE, pedestalOutline, PEDESTAL_APOTHEM, ROOM_HEIGHT, ROOMS, wallNormal, type PedestalDefinition } from './world';
 import { withDistanceFade } from './visibility';
 
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
@@ -116,7 +116,9 @@ function ceilingTile() {
   }
   context.putImageData(pixels, 0, 0);
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping; texture.repeat.setScalar(2 / 0.6);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping; texture.repeat.setScalar(2 / CEILING_TILE_SIZE);
+  // surfaceUV projects x/-z in meters. Put the tile center at each grid point.
+  texture.offset.set(.5, .5);
   return texture;
 }
 
