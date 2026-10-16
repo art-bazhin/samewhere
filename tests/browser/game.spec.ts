@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { MAX_PORTAL_PASSES } from '../../src/visibility';
-import { portalAngle, portalDistance, transformPoint, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../../src/world';
+import { doorFrame, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, transformPoint, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../../src/world';
 
 declare global { interface Window { __samewhere: any } }
 async function ready(page: Page) {
@@ -19,14 +19,14 @@ async function aim(page: Page, room: RoomId, side: number, x: number, z: number)
     const p = app.game.player; Object.assign(p, { x, z });
     const target = app.space.rooms[p.room].sockets.find((s: any) => s.ref.room === room && s.ref.side === side);
     const point = (target.ball.visible ? target.ball : target.hit).getWorldPosition(app.space.camera.position.clone());
-    // Avoid the circle fan's shared center vertex when aiming at an empty well.
-    if (!target.ball.visible) point.x += .001;
+    // Aim inside a triangle, away from the circle fan's shared center and edges.
+    if (!target.ball.visible) { point.x += .004; point.z += .002; }
     const dx = point.x - p.x, dz = point.z - p.z;
     p.yaw = Math.atan2(-dx, -dz); p.pitch = Math.atan2(point.y - 1.65, Math.hypot(dx, dz));
     return app.space.pick();
   }, { room, side, x, z });
 }
-async function walkTo(page: Page, x: number, z: number) {
+async function walkStraight(page: Page, x: number, z: number) {
   const arrived = await page.evaluate(({ x, z }) => {
     const p = window.__samewhere.game.player; p.yaw = Math.atan2(p.x - x, p.z - z); p.pitch = -0.05;
     return Math.hypot(p.x - x, p.z - z) < .08;
@@ -35,6 +35,45 @@ async function walkTo(page: Page, x: number, z: number) {
   await page.keyboard.down('KeyW');
   try { await page.waitForFunction(({ x, z }) => { const p = window.__samewhere.game.player; return Math.hypot(p.x - x, p.z - z) < 0.12; }, { x, z }, { timeout: 6000 }); }
   finally { await page.keyboard.up('KeyW'); }
+}
+async function walkTo(page: Page, x: number, z: number) {
+  const waypoints = await page.evaluate(async target => {
+    const path = '/src/world.ts', { ROOMS, roomOutline, canStand } = await import(path);
+    const player = window.__samewhere.game.player, room = player.room;
+    if (!ROOMS[room].outline) return [target];
+    if (!canStand(room, target)) throw new Error(`Unwalkable target in ${room}: ${JSON.stringify(target)}`);
+    const outline = roomOutline(room), step = .3, minX = Math.min(...outline.map((p: any) => p.x)), minZ = Math.min(...outline.map((p: any) => p.z));
+    const width = Math.ceil((Math.max(...outline.map((p: any) => p.x)) - minX) / step) + 1;
+    const height = Math.ceil((Math.max(...outline.map((p: any) => p.z)) - minZ) / step) + 1;
+    const points = Array.from({ length: width * height }, (_, i) => ({ x: minX + i % width * step, z: minZ + Math.floor(i / width) * step }));
+    const valid = points.map(p => canStand(room, p, .4));
+    const nearest = (p: any) => points.reduce((best, point, i) => valid[i] && Math.hypot(point.x - p.x, point.z - p.z) < Math.hypot(points[best].x - p.x, points[best].z - p.z) ? i : best, valid.indexOf(true));
+    const clear = (a: any, b: any) => {
+      const count = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / .08);
+      for (let i = 0; i <= count; i++) if (!canStand(room, { x: a.x + (b.x - a.x) * i / Math.max(1, count), z: a.z + (b.z - a.z) * i / Math.max(1, count) }, .36)) return false;
+      return true;
+    };
+    const start = nearest(player), end = nearest(target), previous = new Int32Array(points.length).fill(-1), queue = [start]; previous[start] = start;
+    for (let head = 0; head < queue.length && previous[end] < 0; head++) {
+      const current = queue[head], cx = current % width, cz = Math.floor(current / width);
+      for (const dx of [-1, 0, 1]) for (const dz of [-1, 0, 1]) {
+        if ((!dx && !dz) || cx + dx < 0 || cx + dx >= width || cz + dz < 0 || cz + dz >= height) continue;
+        const next = current + dx + dz * width;
+        if (previous[next] < 0 && valid[next] && clear(points[current], points[next])) { previous[next] = current; queue.push(next); }
+      }
+    }
+    if (previous[end] < 0) throw new Error(`No walking path in ${room}`);
+    const route = [target];
+    for (let i = end; i !== start; i = previous[i]) route.push(points[i]);
+    route.push(points[start]); route.reverse();
+    const smooth = [route[0]];
+    for (let i = 0; i < route.length - 1;) {
+      let next = route.length - 1; while (next > i + 1 && !clear(route[i], route[next])) next--;
+      smooth.push(route[next]); i = next;
+    }
+    return smooth;
+  }, { x, z });
+  for (const p of waypoints) await walkStraight(page, p.x, p.z);
 }
 async function cross(page: Page, yaw: number, backwards = false) {
   const count = await page.evaluate(yaw => { const app = window.__samewhere; app.game.player.yaw = yaw; return app.game.transitions; }, yaw);
@@ -54,7 +93,7 @@ test('initial ball placement, actual mouse pick/place, and both shared pedestal 
   await expect(page.locator('#red-count')).toHaveText('0'); await expect(page.locator('#blue-count')).toHaveText('0');
   expect(await page.evaluate(() => Object.fromEntries(Object.entries(window.__samewhere.space.rooms).map(([id, room]: [string, any]) =>
     [id, room.sockets.filter((socket: any) => socket.ball.visible).map((socket: any) => `${socket.ref.room}${socket.ref.side}`)]))))
-    .toEqual({ A: ['B0', 'B2'], B: ['B0', 'B2', 'C0', 'C3'], C: ['C0', 'C3'], D: [] });
+    .toEqual({ A: ['B0', 'B2'], B: ['B0', 'B2', 'C0', 'C3'], C: ['C0', 'C3'], D: [], E: ['B0', 'B2'], F: [], G: [] });
   await page.screenshot({ path: 'test-results/01-menu.png' });
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   const hit = await aim(page, 'B', 0, 1.5, -0.25); expect(hit).toEqual({ room: 'B', side: 0 });
@@ -135,7 +174,7 @@ test('textured architecture loads locally and paired wall halves form a 30 cm pa
       const room = space.rooms[id]; room.scene.updateMatrixWorld(true);
       room.scene.traverse((object: any) => { if (object.isLine) lines++; });
       room.walls.forEach((wall: any, side: number) => {
-        const angle = side * Math.PI * 2 / room.walls.length, nx = Math.sin(angle), nz = -Math.cos(angle);
+        const { x: nx, z: nz } = room.portals[side].normal;
         const depth = (group: any) => {
           let near = Infinity, far = -Infinity;
           group.traverse((mesh: any) => {
@@ -173,6 +212,53 @@ test('textured architecture loads locally and paired wall halves form a 30 cm pa
   expect(result.glError).toBe(0); expect(external).toEqual([]);
 });
 
+test('concave footprints match the floor, ceiling, walls, and miniature cutouts', async ({ page }) => {
+  await ready(page);
+  const result = await page.evaluate(async () => {
+    const threePath = '/node_modules/three/build/three.module.js', worldPath = '/src/world.ts', geometryPath = '/src/geometry.ts';
+    const THREE = await import(threePath), world = await import(worldPath), geometry = await import(geometryPath);
+    const space = window.__samewhere.space, ray = new THREE.Raycaster(), failures: unknown[] = [];
+    let checks = 0;
+    const nearEdge = (p: any, outline: any[]) => outline.some((a, i) => {
+      const q = geometry.closestOnSegment(p, a, outline[(i + 1) % outline.length]); return Math.hypot(p.x - q.x, p.z - q.z) < .0001;
+    });
+    const verify = (mesh: any, p: any, expected: boolean, label: string, up = false, origin = { x: 0, z: 0 }) => {
+      ray.set(new THREE.Vector3(p.x + origin.x, up ? 1 : 2, p.z + origin.z), new THREE.Vector3(0, up ? 1 : -1, 0));
+      ray.far = 4; checks++;
+      if (!!ray.intersectObject(mesh, false).length !== expected && failures.length < 20) failures.push({ label, p, expected });
+    };
+    for (const id of ['E', 'F', 'G']) {
+      const room = space.rooms[id], outline = world.roomOutline(id), roof = geometry.offsetOutline(outline, world.WALL_THICKNESS / 2);
+      room.scene.updateMatrixWorld(true);
+      for (let x = -7.5; x <= 7.5; x += .5) for (let z = -7.5; z <= 7.5; z += .5) {
+        const p = { x, z };
+        if (!nearEdge(p, outline)) verify(room.scene.getObjectByName('floor'), p, geometry.insideOutline(p, outline), `${id} floor`);
+        if (!nearEdge(p, roof)) verify(room.scene.getObjectByName('ceiling'), p, geometry.insideOutline(p, roof), `${id} ceiling`, true);
+      }
+      const walls: any[] = []; room.scene.traverse((mesh: any) => { if (mesh.name === 'boundary-wall') walls.push(mesh); });
+      for (const wall of world.roomWalls(id).filter((wall: any) => wall.portal === null)) {
+        ray.set(new THREE.Vector3(wall.center.x - wall.normal.x * .5, 1.65, wall.center.z - wall.normal.z * .5), new THREE.Vector3(wall.normal.x, 0, wall.normal.z));
+        const hit = ray.intersectObjects(walls, false)[0]; checks++;
+        if (!hit || Math.abs(hit.distance - .5) > .0001) failures.push({ label: `${id} side wall`, distance: hit?.distance });
+      }
+    }
+    for (const room of Object.values(space.rooms) as any[]) {
+      const groups = new Set<any>();
+      for (const socket of room.sockets) if (world.ROOMS[socket.ref.room].outline && !groups.has(socket.hit.parent.parent)) {
+        const group = socket.hit.parent.parent; groups.add(group);
+        const id = socket.ref.room, outline = world.pedestalOutline(id), centers = Array.from({ length: world.ROOMS[id].sides }, (_, side) => world.socketPosition(id, side));
+        for (let ix = -10; ix <= 10; ix++) for (let iz = -10; iz <= 10; iz++) {
+          const p = { x: ix * .05, z: iz * .05 };
+          if (nearEdge(p, outline) || centers.some((q: any) => Math.hypot(p.x - q.x, p.z - q.z) < .058)) continue;
+          verify(group.getObjectByName('pedestal-body'), p, geometry.insideOutline(p, outline), `${id} miniature`, false, group.position);
+        }
+      }
+    }
+    return { checks, failures };
+  });
+  expect(result.checks).toBeGreaterThan(7000); expect(result.failures).toEqual([]);
+});
+
 test('wallpaper stays fixed when passages open, close, and reopen on every wall', async ({ page }) => {
   await ready(page);
   const samples = await page.evaluate(async () => {
@@ -182,8 +268,9 @@ test('wallpaper stays fixed when passages open, close, and reopen on every wall'
     for (const id of Object.keys(app.space.rooms)) for (let side = 0; side < app.space.rooms[id].walls.length; side++) {
       const room = app.space.rooms[id], wall = room.walls[side], frame = wall.solid.parent;
       room.scene.updateMatrixWorld(true);
+      const lateral = Math.min(2, wall.solid.children[0].geometry.parameters.width / 2 - .1);
       // Points on the unchanged wall, including the lintel above the aperture.
-      for (const [x, y] of [[-2, .4], [2, .4], [-2, 1.65], [2, 1.65], [-2, 3.1], [0, 3.1], [2, 3.1]]) {
+      for (const [x, y] of [[-lateral, .4], [lateral, .4], [-lateral, 1.65], [lateral, 1.65], [-lateral, 3.1], [0, 3.1], [lateral, 3.1]]) {
         const origin = frame.localToWorld(new THREE.Vector3(x, y, .5));
         const direction = new THREE.Vector3(0, 0, -1).transformDirection(frame.matrixWorld);
         const states: number[][] = [];
@@ -204,7 +291,7 @@ test('wallpaper stays fixed when passages open, close, and reopen on every wall'
     }
     return samples;
   });
-  expect(samples).toHaveLength(126);
+  expect(samples).toHaveLength(ROOM_IDS.reduce((count, id) => count + ROOMS[id].sides * 7, 0));
   for (const sample of samples) for (const state of sample.states.slice(1)) {
     for (let i = 0; i < state.length; i++) expect(state[i], JSON.stringify(sample)).toBeCloseTo(sample.states[0][i], 5);
   }
@@ -300,7 +387,7 @@ test('saucer recesses are closed and support centered balls; four tile lights ca
   for (const distance of result.wallDistances) { expect(distance).toBeGreaterThan(.03); expect(distance).toBeLessThan(.033); }
   for (const distance of result.lipDistances) expect(distance).toBeCloseTo(.055, 5);
   for (const distance of result.bottomDistances) { expect(distance).toBeGreaterThan(.0075); expect(distance).toBeLessThan(.0125); }
-  expect(result.bowls).toHaveLength(36);
+  expect(result.bowls).toHaveLength(ROOM_IDS.reduce((count, id) => count + ROOMS[id].pedestals.reduce((sum, p) => sum + ROOMS[p.controls].sides, 0), 0));
   for (const bowl of result.bowls) {
     expect(bowl.lipDepth).toBeCloseTo(.005, 6);
     expect(bowl.depths[0]).toBeGreaterThan(.016); expect(bowl.depths[4]).toBeLessThan(.0001);
@@ -315,8 +402,10 @@ test('saucer recesses are closed and support centered balls; four tile lights ca
   }
 });
 
-test('the four-room route reaches D using native movement and pedestal clicks', async ({ page }) => {
-  test.setTimeout(90_000);
+test('the complete layout reaches G through D using native movement and pedestal clicks', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await ready(page);
   await expect(page.locator('[data-mode], #mode-label, #objective')).toHaveCount(0);
   await page.locator('#play-button').click();
@@ -328,7 +417,8 @@ test('the four-room route reaches D using native movement and pedestal clicks', 
   await page.keyboard.press('KeyR');
   // No teleports after reset: operate only the pedestals present in each room.
   async function center() {
-    const z = await page.evaluate(() => window.__samewhere.game.player.z);
+    const { z, room } = await page.evaluate(() => window.__samewhere.game.player);
+    if (ROOMS[room as RoomId].outline) { await walkTo(page, 0, 0); return; }
     await walkTo(page, 0, z); await walkTo(page, 0, 0);
   }
   async function operate(room: RoomId, side: number) {
@@ -338,15 +428,19 @@ test('the four-room route reaches D using native movement and pedestal clicks', 
       if (!socket) throw new Error(`Missing ${room} pedestal`);
       const p = socket.hit.parent.parent.position; return { x: p.x, z: p.z + 1.3 };
     }, room);
-    await walkTo(page, 0, point.z); await walkTo(page, point.x, point.z);
-    expect(await aimFromHere(page, room, side)).toEqual({ room, side });
+    const currentRoom = await page.evaluate(() => window.__samewhere.game.player.room) as RoomId;
+    if (!ROOMS[currentRoom].outline) await walkTo(page, 0, point.z);
+    await walkTo(page, point.x, point.z);
+    await expect.poll(() => aimFromHere(page, room, side), { timeout: 1500 }).toEqual({ room, side });
     await page.mouse.down(); await page.mouse.up();
   }
   async function enter(side: number, expected: RoomId) {
     await center();
     const room = await page.evaluate(() => window.__samewhere.game.player.room) as RoomId;
-    const n = wallNormal(room, side);
-    await walkTo(page, n.x * 4.65, n.z * 4.65); await cross(page, Math.atan2(-n.x, -n.z));
+    const n = wallNormal(room, side), frame = doorFrame(room, side);
+    // Approach diagonal doorways along the wall to walk around the pedestals.
+    if (!ROOMS[room].outline) await walkTo(page, 0, frame.center.z - n.z * .35);
+    await walkTo(page, frame.center.x - n.x * .35, frame.center.z - n.z * .35); await cross(page, Math.atan2(-n.x, -n.z));
     expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe(expected);
   }
   await operate('B', 2); await operate('A', 0);
@@ -361,8 +455,33 @@ test('the four-room route reaches D using native movement and pedestal clicks', 
   await expect(page.locator('#objective')).toHaveCount(0);
   expect(await page.evaluate(() => window.__samewhere.game.transitions)).toBe(5);
   await page.screenshot({ path: 'test-results/room-D.png' });
-  await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Квадратная комната');
-  await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Шестиугольная комната');
+
+  await operate('A', 0); await operate('E', 0);
+  await operate('A', 1); await operate('E', 1);
+  await enter(0, 'E'); await expect(page.locator('#room-name')).toHaveText('Y-комната');
+  await expect(page.locator('#room-shape')).toHaveClass('shape y-room');
+  await page.screenshot({ path: 'test-results/room-E.png' });
+  await enter(1, 'C'); await operate('D', 0); await enter(0, 'E');
+  await operate('B', 0); await enter(0, 'B');
+  await operate('C', 0); await enter(0, 'E');
+  await operate('B', 0); await operate('F', 0); await enter(0, 'F');
+  await expect(page.locator('#room-name')).toHaveText('Комната-крест');
+  await expect(page.locator('#room-shape')).toHaveClass('shape cross-room');
+  await page.keyboard.press('Digit2'); await operate('G', 0);
+  await page.screenshot({ path: 'test-results/room-F.png' });
+  await enter(0, 'E'); await enter(1, 'G'); await center();
+  await expect(page.locator('#room-name')).toHaveText('H-комната');
+  await expect(page.locator('#room-shape')).toHaveClass('shape h-room');
+  await expect(page.locator('#objective')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__samewhere.game.transitions)).toBe(13);
+  await expect(page.locator('#red-count')).toHaveText('0'); await expect(page.locator('#blue-count')).toHaveText('0');
+  expect(await page.evaluate(() => window.__samewhere.game.world.balls.length)).toBe(4);
+  await page.screenshot({ path: 'test-results/room-G.png' });
+  await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Y-комната');
+  await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Комната-крест');
+  await page.keyboard.press('KeyR'); await expect(page.locator('#room-name')).toHaveText('Квадратная комната');
+  expect(await page.evaluate(() => window.__samewhere.game.world.balls.map((ball: any) => ball.socket?.room))).toEqual(['B', 'B', 'C', 'C']);
+  expect(errors).toEqual([]);
 });
 
 test('adjacent A portals, A–B and B self-loops render, with bounded GPU resources after 100 loops', async ({ page }) => {
@@ -407,7 +526,7 @@ test('adjacent A portals, A–B and B self-loops render, with bounded GPU resour
 test('distant floor joins have no missing MSAA coverage at grazing angles', async ({ page }) => {
   await ready(page);
   const samples = await page.evaluate(async () => {
-    const path = '/src/world.ts', { portalDistance, wallNormal } = await import(path);
+    const path = '/src/world.ts', { portalPosition, wallNormal, ROOMS } = await import(path);
     const app = window.__samewhere, space = app.space, gl = space.renderer.getContext();
     const width = gl.drawingBufferWidth, height = gl.drawingBufferHeight, pixels = new Uint8Array(3 * 3 * 4);
     for (const room of Object.values(space.rooms) as any[]) {
@@ -427,18 +546,22 @@ test('distant floor joins have no missing MSAA coverage at grazing angles', asyn
       [{ room: 'A', side: 0 }, { room: 'D', side: 0 }],
       [{ room: 'C', side: 0 }, { room: 'C', side: 3 }],
       [{ room: 'D', side: 0 }, { room: 'D', side: 2 }],
+      [{ room: 'D', side: 0 }, { room: 'E', side: 0 }],
+      [{ room: 'E', side: 0 }, { room: 'F', side: 0 }],
+      [{ room: 'E', side: 1 }, { room: 'G', side: 0 }],
     ];
     const samples = [];
     for (const route of routes) for (const [from, to] of [route, [...route].reverse()]) for (const lateral of [-3.3, 3.3]) {
       app.game.world.balls[0].socket = from; app.game.world.balls[1].socket = to;
       app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
-      const n = wallNormal(from.room, from.side), distance = portalDistance(from.room);
-      const x = n.x * (distance - 8.5) - n.z * lateral, z = n.z * (distance - 8.5) + n.x * lateral;
-      Object.assign(app.game.player, { room: from.room, x, z, yaw: Math.atan2(x - n.x * distance, z - n.z * distance), pitch: -Math.atan2(1.65, Math.hypot(8.5, lateral)) });
+      const n = wallNormal(from.room, from.side), origin = portalPosition(from.room, from.side), corridor = !!ROOMS[from.room].outline;
+      const approach = corridor ? 5 : 8.5, offset = corridor ? Math.sign(lateral) * .8 : lateral;
+      const x = origin.x - n.x * approach - n.z * offset, z = origin.z - n.z * approach + n.x * offset;
+      Object.assign(app.game.player, { room: from.room, x, z, yaw: Math.atan2(x - origin.x, z - origin.z), pitch: -Math.atan2(1.65, Math.hypot(approach, offset)) });
       space.render();
       let minRed = 255;
       for (const offset of [-.5, 0, .5]) {
-        const point = space.camera.position.clone().set(n.x * distance - n.z * offset, 0, n.z * distance + n.x * offset).project(space.camera);
+        const point = space.camera.position.clone().set(origin.x - n.z * offset, 0, origin.z + n.x * offset).project(space.camera);
         const px = Math.floor((point.x + 1) * width / 2), py = Math.floor((point.y + 1) * height / 2);
         gl.readPixels(px - 1, py - 1, 3, 3, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
         for (let i = 0; i < pixels.length; i += 4) minRed = Math.min(minRed, pixels[i]);
@@ -462,6 +585,9 @@ test('rendered perspective remains continuous within 2 mm of every kind of seam'
     [{ room: 'A', side: 0 }, { room: 'D', side: 0 }],
     [{ room: 'C', side: 0 }, { room: 'C', side: 3 }],
     [{ room: 'D', side: 0 }, { room: 'D', side: 2 }],
+    [{ room: 'D', side: 0 }, { room: 'E', side: 0 }],
+    [{ room: 'E', side: 0 }, { room: 'F', side: 0 }],
+    [{ room: 'E', side: 1 }, { room: 'G', side: 0 }],
   ];
   for (const [from, to] of routes) {
     await page.evaluate(({ from, to }) => {
@@ -469,7 +595,7 @@ test('rendered perspective remains continuous within 2 mm of every kind of seam'
       app.game.world.balls[0].socket = from; app.game.world.balls[1].socket = to;
       app.game.world.balls[2].socket = null; app.game.world.balls[3].socket = null; app.sync();
     }, { from, to });
-    const n = wallNormal(from.room, from.side), yaw = Math.atan2(-n.x, -n.z), seam = portalDistance(from.room);
+    const n = wallNormal(from.room, from.side), yaw = Math.atan2(-n.x, -n.z), origin = portalPosition(from.room, from.side);
     async function sample(x: number, z: number, room: string, angle: number) {
       return page.evaluate(({ x, z, room, angle }) => {
         const app = window.__samewhere; Object.assign(app.game.player, { x, z, room, yaw: angle, pitch: -0.02 }); app.space.render();
@@ -478,9 +604,9 @@ test('rendered perspective remains continuous within 2 mm of every kind of seam'
         return Array.from(pixels);
       }, { x, z, room, angle });
     }
-    const before = await sample(n.x * (seam - 0.001) - n.z * 0.25, n.z * (seam - 0.001) + n.x * 0.25, from.room, yaw);
+    const before = await sample(origin.x - n.x * .001 - n.z * .25, origin.z - n.z * .001 + n.x * .25, from.room, yaw);
     await page.screenshot({ path: `test-results/seam-${from.room}${from.side}-before.png` });
-    const afterPoint = transformPoint({ x: n.x * (seam + 0.001) - n.z * 0.25, z: n.z * (seam + 0.001) + n.x * 0.25 }, from, to);
+    const afterPoint = transformPoint({ x: origin.x + n.x * .001 - n.z * .25, z: origin.z + n.z * .001 + n.x * .25 }, from, to);
     const after = await sample(afterPoint.x, afterPoint.z, to.room, yaw - portalAngle(from, to));
     await page.screenshot({ path: `test-results/seam-${from.room}${from.side}-after.png` });
     let difference = 0; for (let i = 0; i < before.length; i++) difference += Math.abs(before[i] - after[i]);
@@ -494,7 +620,7 @@ test('the entire frame stays continuous at the eye plane, including angled and r
   await ready(page);
   const results = await page.evaluate(async () => {
     const modulePath = '/src/world.ts';
-    const { portalDistance, portalAngle, transformPoint, wallNormal } = await import(modulePath);
+    const { portalPosition, portalAngle, transformPoint, wallNormal } = await import(modulePath);
     const app = window.__samewhere, space = app.space, gl = space.renderer.getContext();
     const width = gl.drawingBufferWidth, height = gl.drawingBufferHeight;
     const before = new Uint8Array(width * height * 4), after = new Uint8Array(before.length);
@@ -508,6 +634,9 @@ test('the entire frame stays continuous at the eye plane, including angled and r
       [{ room: 'A', side: 0 }, { room: 'D', side: 0 }],
       [{ room: 'C', side: 0 }, { room: 'C', side: 3 }],
       [{ room: 'D', side: 0 }, { room: 'D', side: 2 }],
+      [{ room: 'D', side: 0 }, { room: 'E', side: 0 }],
+      [{ room: 'E', side: 0 }, { room: 'F', side: 0 }],
+      [{ room: 'E', side: 1 }, { room: 'G', side: 0 }],
     ];
     const results = [];
     const read = (point: any, room: string, yaw: number, pixels: Uint8Array) => {
@@ -518,11 +647,11 @@ test('the entire frame stays continuous at the eye plane, including angled and r
       app.reset();
       app.game.world.balls[0].socket = from; app.game.world.balls[1].socket = to;
       app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
-      const n = wallNormal(from.room, from.side), seam = portalDistance(from.room);
+      const n = wallNormal(from.room, from.side), origin = portalPosition(from.room, from.side);
       for (const [lateral, angle] of [[0, 0], [.65, .45], [-.65, -.45], [.2, Math.PI]]) for (const epsilon of [.00001, 0]) {
         const yaw = Math.atan2(-n.x, -n.z) + angle;
-        read({ x: n.x * (seam - epsilon) - n.z * lateral, z: n.z * (seam - epsilon) + n.x * lateral }, from.room, yaw, before);
-        const point = transformPoint({ x: n.x * (seam + epsilon) - n.z * lateral, z: n.z * (seam + epsilon) + n.x * lateral }, from, to);
+        read({ x: origin.x - n.x * epsilon - n.z * lateral, z: origin.z - n.z * epsilon + n.x * lateral }, from.room, yaw, before);
+        const point = transformPoint({ x: origin.x + n.x * epsilon - n.z * lateral, z: origin.z + n.z * epsilon + n.x * lateral }, from, to);
         read(point, to.room, yaw - portalAngle(from, to), after);
         let difference = 0, changed = 0;
         for (let i = 0; i < before.length; i++) {

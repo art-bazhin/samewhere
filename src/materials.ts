@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PEDESTAL_APOTHEM, ROOM_HEIGHT, ROOMS, wallNormal, type PedestalDefinition } from './world';
+import { pedestalOutline, PEDESTAL_APOTHEM, ROOM_HEIGHT, ROOMS, wallNormal, type PedestalDefinition } from './world';
 import { withDistanceFade } from './visibility';
 
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
@@ -61,6 +61,21 @@ export type MaterialSet = ReturnType<typeof createMaterials>['materials'];
 export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: PedestalDefinition[]) {
   const material = base.clone();
   const contacts = pedestals.map((p, index) => {
+    if (ROOMS[p.controls].outline) {
+      const outline = pedestalOutline(p.controls), v = (point: { x: number; z: number }) => `vec2(${point.x.toFixed(6)}, ${point.z.toFixed(6)})`;
+      const segments = outline.map((a, edge) => {
+        const b = outline[(edge + 1) % outline.length], dx = b.x - a.x, dz = b.z - a.z;
+        return `{
+          vec2 a = ${v(a)}, b = ${v(b)}, segment = b - a;
+          float t = clamp(dot(local${index} - a, segment) / dot(segment, segment), 0., 1.);
+          edge${index} = min(edge${index}, length(local${index} - a - t * segment));
+          ${Math.abs(dz) > 1e-8 ? `if ((a.y > local${index}.y) != (b.y > local${index}.y) && local${index}.x < ${dx.toFixed(6)} * (local${index}.y - a.y) / ${dz.toFixed(6)} + a.x) inside${index} = !inside${index};` : ''}
+        }`;
+      }).join('\n');
+      return `vec2 local${index} = contactPosition - vec2(${p.x.toFixed(4)}, ${p.z.toFixed(4)});
+        float edge${index} = 100.; bool inside${index} = false; ${segments}
+        shade *= 1. - .55 * exp(-(inside${index} ? 0. : edge${index}) * 18.);`;
+    }
     const edges = Array.from({ length: ROOMS[p.controls].sides }, (_, side) => {
       const n = wallNormal(p.controls, side);
       return `edge${index} = max(edge${index}, dot(local${index}, vec2(${n.x.toFixed(5)}, ${n.z.toFixed(5)})) - ${PEDESTAL_APOTHEM.toFixed(4)});`;
@@ -70,7 +85,7 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
       shade *= 1. - .55 * exp(-max(edge${index}, 0.) * 18.);`;
   }).join('\n');
   material.onBeforeCompile = shader => {
-    // The convex floor and passage halves already end at each portal plane.
+    // The floor and passage halves already end at each terminal portal plane.
     // Clipping again discards MSAA edge pixels whose centers lie outside the
     // plane even though some covered samples are inside, leaving a dotted seam.
     shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', '');

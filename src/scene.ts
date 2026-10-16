@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { GpuTiming } from './gpu-timing';
 import { createMaterials, floorWithContacts, surfaceUV, type MaterialSet } from './materials';
 import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBILITY_END } from './visibility';
-import { ballAt, destination, DOOR_HEIGHT, DOOR_WIDTH, EYE_HEIGHT, Game, PEDESTAL_APOTHEM, portalAngle, portalDistance, ROOM_HEIGHT, ROOM_IDS, ROOMS, SOCKET_RADIUS, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef } from './world';
+import { offsetOutline } from './geometry';
+import { ballAt, destination, DOOR_HEIGHT, DOOR_WIDTH, EYE_HEIGHT, Game, pedestalOutline, portalAngle, portalDistance, portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomOutline, roomWalls, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
 
 const PALETTE = { background: 0x000000 };
 const plane = new THREE.PlaneGeometry(1, 1);
@@ -46,17 +47,13 @@ function box(parent: THREE.Object3D, material: THREE.Material, size: number[], p
   parent.add(mesh); return mesh;
 }
 
-function polygonShape(sides: number, apothem: number) {
-  const shape = new THREE.Shape(), radius = apothem / Math.cos(Math.PI / sides);
-  for (let i = 0; i < sides; i++) {
-    const angle = i * Math.PI * 2 / sides - Math.PI / sides;
-    const x = Math.sin(angle) * radius, y = Math.cos(angle) * radius;
-    if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
-  }
+function footprintShape(outline: Vec2[]) {
+  const shape = new THREE.Shape();
+  outline.forEach(({ x, z }, index) => { if (index === 0) shape.moveTo(x, -z); else shape.lineTo(x, -z); });
   shape.closePath(); return shape;
 }
 
-interface Portal { side: number; mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; to: SocketRef | null; transform: THREE.Matrix4; normal: { x: number; z: number }; distance: number; receivingDistance: number }
+interface Portal { side: number; mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; to: SocketRef | null; transform: THREE.Matrix4; normal: Vec2; center: Vec2; distance: number; receivingDistance: number }
 interface SocketVisual { ref: SocketRef; hit: THREE.Mesh; ball: THREE.Mesh }
 export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; walls: { solid: THREE.Group; open: THREE.Group }[]; shadowLights: THREE.SpotLight[] }
 
@@ -90,10 +87,11 @@ function portalMaterial() {
 function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, visuals: SocketVisual[], blockers: THREE.Object3D[], materials: MaterialSet) {
   const group = new THREE.Group(); group.position.set(x, 0, z); parent.add(group);
   const sides = ROOMS[controls].sides;
-  const shape = polygonShape(sides, PEDESTAL_APOTHEM);
+  const shape = footprintShape(pedestalOutline(controls));
+  const centers = Array.from({ length: sides }, (_, side) => socketPosition(controls, side));
   for (let side = 0; side < sides; side++) {
-    const n = wallNormal(controls, side), hole = new THREE.Path();
-    hole.absarc(n.x * SOCKET_RADIUS, -n.z * SOCKET_RADIUS, SOCKET_OPENING, 0, Math.PI * 2, false);
+    const p = centers[side], hole = new THREE.Path();
+    hole.absarc(p.x, -p.z, SOCKET_OPENING, 0, Math.PI * 2, false);
     shape.holes.push(hole);
   }
   // Keep a short vertical lip above each recessed bowl, with no gap between them.
@@ -101,14 +99,14 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
   geometry.rotateX(-Math.PI / 2); geometry.translate(0, -.006, 0);
   const positions = geometry.getAttribute('position'), normals = geometry.getAttribute('normal');
   for (let i = 0; i < positions.count; i++) {
-    const bore = Math.abs(normals.getY(i)) < .1 && Math.hypot(positions.getX(i), positions.getZ(i)) < PEDESTAL_APOTHEM;
+    const bore = Math.abs(normals.getY(i)) < .1 && centers.some(p => Math.hypot(positions.getX(i) - p.x, positions.getZ(i) - p.z) < SOCKET_OPENING + .001);
     if (bore) positions.setY(i, Math.max(positions.getY(i), PEDESTAL_HEIGHT - SOCKET_RECESS));
   }
   const body = new THREE.Mesh(surfaceUV(geometry), materials.pedestal); body.name = 'pedestal-body';
   body.castShadow = body.receiveShadow = true; group.add(body); blockers.push(body);
   for (let side = 0; side < sides; side++) {
-    const n = wallNormal(controls, side), socket = new THREE.Group();
-    socket.position.set(n.x * SOCKET_RADIUS, PEDESTAL_HEIGHT, n.z * SOCKET_RADIUS); group.add(socket);
+    const p = centers[side], socket = new THREE.Group();
+    socket.position.set(p.x, PEDESTAL_HEIGHT, p.z); group.add(socket);
     const bowl = new THREE.Mesh(socketBowlGeometry, materials.socket); bowl.name = 'socket-bowl'; bowl.position.y = -SOCKET_RECESS; bowl.castShadow = bowl.receiveShadow = true; socket.add(bowl); blockers.push(bowl);
     const hit = new THREE.Mesh(socketGeometry, materials.hit); hit.rotation.x = -Math.PI / 2; hit.position.y = 0.001; socket.add(hit);
     const ball = new THREE.Mesh(sphere, materials.red); ball.position.y = BALL_RADIUS - SOCKET_DEPTH - SOCKET_RECESS; ball.castShadow = ball.receiveShadow = true; socket.add(ball);
@@ -123,7 +121,8 @@ function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
   scene.background = new THREE.Color(PALETTE.background);
   scene.add(new THREE.HemisphereLight(0xfff8df, 0xc2a568, 1), new THREE.AmbientLight(0xfff6dd, 0.12));
   const shadowLights: THREE.SpotLight[] = [];
-  for (const x of [-1.5, 1.5]) for (const z of [-1.5, 1.5]) {
+  const lamps = definition.lamps ?? [-1.5, 1.5].flatMap(x => [-1.5, 1.5].map(z => ({ x, z })));
+  for (const { x, z } of lamps) {
     const light = new THREE.SpotLight(0xfff5d7, 14, 18, 1.28, 0.65, 2);
     light.position.set(x, ROOM_HEIGHT - 0.015, z); light.target.position.set(x, 0, z);
     light.castShadow = true; light.shadow.mapSize.set(1024, 1024);
@@ -136,17 +135,27 @@ function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
     const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.55), materials.lamp); lens.name = 'ceiling-lamp';
     lens.rotation.x = Math.PI / 2; lens.position.set(x, ROOM_HEIGHT - 0.004, z); scene.add(lens);
   }
-  const floorGeometry = new THREE.ShapeGeometry(polygonShape(definition.sides, definition.apothem)); floorGeometry.rotateX(-Math.PI / 2); surfaceUV(floorGeometry);
+  const outline = roomOutline(id);
+  const floorGeometry = new THREE.ShapeGeometry(footprintShape(outline)); floorGeometry.rotateX(-Math.PI / 2); surfaceUV(floorGeometry);
   const floor = new THREE.Mesh(floorGeometry, floorWithContacts(materials.floor, definition.pedestals)); floor.name = 'floor'; floor.receiveShadow = true; scene.add(floor);
   // Preserve the footprint orientation. Mirroring it by rotating the other way
   // leaves triangular gaps above a pentagon's walls; render the back face instead.
-  const ceilingGeometry = new THREE.ShapeGeometry(polygonShape(definition.sides, portalDistance(id))); ceilingGeometry.rotateX(-Math.PI / 2); surfaceUV(ceilingGeometry);
+  const ceilingGeometry = new THREE.ShapeGeometry(footprintShape(offsetOutline(outline, WALL_THICKNESS / 2))); ceilingGeometry.rotateX(-Math.PI / 2); surfaceUV(ceilingGeometry);
   const ceiling = new THREE.Mesh(ceilingGeometry, materials.ceiling); ceiling.name = 'ceiling'; ceiling.position.y = ROOM_HEIGHT; ceiling.receiveShadow = true; scene.add(ceiling);
   const sockets: SocketVisual[] = [], portals: Portal[] = [], blockers: THREE.Object3D[] = [], walls: RoomVisual['walls'] = [];
-  const wallWidth = 2 * (definition.apothem + WALL_THICKNESS) * Math.tan(Math.PI / definition.sides) + 0.02;
-  for (let side = 0; side < definition.sides; side++) {
-    const n = wallNormal(id, side), wall = new THREE.Group();
-    wall.position.set(n.x * definition.apothem, 0, n.z * definition.apothem); wall.rotation.y = -wallAngle(id, side); scene.add(wall);
+  const outside = offsetOutline(outline, WALL_THICKNESS);
+  for (const [index, boundary] of roomWalls(id).entries()) {
+    if (boundary.portal === null) {
+      // A mitered shell follows the complete concave footprint without boxes
+      // protruding into the inside corners or hidden walls across a junction.
+      const shape = footprintShape([boundary.a, boundary.b, outside[(index + 1) % outside.length], outside[index]]);
+      const geometry = new THREE.ExtrudeGeometry(shape, { depth: ROOM_HEIGHT, bevelEnabled: false, steps: 1 }); geometry.rotateX(-Math.PI / 2);
+      const mesh = new THREE.Mesh(surfaceUV(geometry), materials.wall); mesh.name = 'boundary-wall'; mesh.castShadow = mesh.receiveShadow = true;
+      scene.add(mesh); blockers.push(mesh); continue;
+    }
+    const side = boundary.portal, n = wallNormal(id, side), wall = new THREE.Group();
+    const wallWidth = definition.outline ? boundary.width + WALL_THICKNESS * 2 : 2 * (definition.apothem + WALL_THICKNESS) * Math.tan(Math.PI / definition.sides) + .02;
+    wall.position.set(boundary.center.x, 0, boundary.center.z); wall.rotation.y = -wallAngle(id, side); scene.add(wall);
     const solid = new THREE.Group(), open = new THREE.Group(); wall.add(solid, open);
     blockers.push(box(solid, materials.wall, [wallWidth, ROOM_HEIGHT, WALL_THICKNESS], [0, ROOM_HEIGHT / 2, -WALL_THICKNESS / 2]));
     const opening = new THREE.Shape();
@@ -168,7 +177,7 @@ function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
     // Establish portal depth first, so hidden PBR surfaces do not shade the whole
     // screen again when the player is standing right in front of a passage.
     portal.renderOrder = -1;
-    portals.push({ side, mesh: portal, to: null, transform: new THREE.Matrix4(), normal: n, distance: portalDistance(id), receivingDistance: 0 }); walls.push({ solid, open });
+    portals[side] = { side, mesh: portal, to: null, transform: new THREE.Matrix4(), normal: n, center: portalPosition(id, side), distance: portalDistance(id, side), receivingDistance: 0 }; walls[side] = { solid, open };
   }
   for (const p of definition.pedestals) pedestal(scene, p.x, p.z, p.controls, sockets, blockers, materials);
   scene.updateMatrixWorld(true);
@@ -288,11 +297,11 @@ export class SpaceRenderer {
         portal.to = destination(world, { room: id, side });
         const active = !!portal.to;
         if (portal.to) {
-          const from = { room: id, side }, n = wallNormal(portal.to.room, portal.to.side);
-          portal.receivingDistance = portalDistance(portal.to.room);
-          portal.transform.makeTranslation(n.x * portal.receivingDistance, 0, n.z * portal.receivingDistance)
+          const from = { room: id, side }, to = portalPosition(portal.to.room, portal.to.side);
+          portal.receivingDistance = portalDistance(portal.to.room, portal.to.side);
+          portal.transform.makeTranslation(to.x, 0, to.z)
             .multiply(this.matrix.makeRotationY(-portalAngle(from, portal.to)))
-            .multiply(this.translation.makeTranslation(-portal.normal.x * portal.distance, 0, -portal.normal.z * portal.distance));
+            .multiply(this.translation.makeTranslation(-portal.center.x, 0, -portal.center.z));
         }
         room.walls[side].solid.visible = !active; room.walls[side].open.visible = active; room.portals[side].mesh.visible = active;
       }
@@ -326,11 +335,11 @@ export class SpaceRenderer {
     const n = portal.normal;
     const distance = portal.distance - n.x * camera.position.x - n.z * camera.position.z;
     if (distance < -0.025) return false;
-    const sideDistance = Math.max(0, Math.abs(-n.z * camera.position.x + n.x * camera.position.z) - DOOR_WIDTH / 2);
+    const sideDistance = Math.max(0, Math.abs(-n.z * (camera.position.x - portal.center.x) + n.x * (camera.position.z - portal.center.z)) - DOOR_WIDTH / 2);
     if (Math.hypot(distance, sideDistance) >= VISIBILITY_END) return false;
     // The projection of a plane through the eye is degenerate. From inside the
     // aperture its forward view fills the frame; keep a complete image available.
-    const lateral = -n.z * camera.position.x + n.x * camera.position.z;
+    const lateral = -n.z * (camera.position.x - portal.center.x) + n.x * (camera.position.z - portal.center.z);
     if (camera === this.camera && distance >= -1e-8 && distance < MIN_APERTURE_DISTANCE && Math.abs(lateral) < DOOR_WIDTH / 2) {
       Object.assign(bounds, clip); return true;
     }
@@ -412,7 +421,7 @@ export class SpaceRenderer {
     if (incoming === undefined) this.clipPlane.setComponents(0, 1, 0, 1);
     else {
       const normal = room.portals[incoming].normal;
-      this.clipPlane.setComponents(-normal.x, 0, -normal.z, portalDistance(id) - 0.00001);
+      this.clipPlane.setComponents(-normal.x, 0, -normal.z, room.portals[incoming].distance - 0.00001);
     }
     this.renderer.setRenderTarget(target);
     this.renderer.render(room.scene, camera);

@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ballAt, connections, destination, DOOR_WIDTH, Game, inventoryCount, PEDESTAL_APOTHEM, PLAYER_RADIUS, portalAngle, portalDistance, ROOM_IDS, ROOMS, rotate, transformPoint, validateWorld, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../src/world';
+import { closestOnSegment, insideOutline } from '../src/geometry';
+import { ballAt, canStand, connections, destination, DOOR_WIDTH, Game, inventoryCount, pedestalOutline, PEDESTAL_APOTHEM, PLAYER_RADIUS, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, roomOutline, rotate, socketPosition, transformPoint, validateWorld, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../src/world';
 
 const close = (a: number, b: number, epsilon = 1e-7) => assert.ok(Math.abs(a - b) < epsilon, `${a} ≠ ${b}`);
 function atWall(game: Game, room: RoomId, side: number, lateral = 0) {
-  const n = wallNormal(room, side);
-  Object.assign(game.player, { room, x: n.x * 4.7 - n.z * lateral, z: n.z * 4.7 + n.x * lateral, yaw: -Math.atan2(n.x, -n.z), pitch: -0.2 });
+  const n = wallNormal(room, side), p = portalPosition(room, side);
+  Object.assign(game.player, { room, x: p.x - n.x * .45 - n.z * lateral, z: p.z - n.z * .45 + n.x * lateral, yaw: -Math.atan2(n.x, -n.z), pitch: -0.2 });
 }
 function walkOut(game: Game, side: number) {
   const n = wallNormal(game.player.room, side); game.move({ x: n.x * 0.6, z: n.z * 0.6 });
@@ -16,18 +17,18 @@ function loopGame() {
   return game;
 }
 
-test('four-room pedestal chain starts in A with empty inventory, red balls on B and blue balls on C', () => {
+test('seven-room layout starts in A with empty inventory, red balls on B and blue balls on C', () => {
   const { world, player } = new Game();
   assert.equal(player.room, 'A');
   assert.equal(inventoryCount(world, 'red'), 0); assert.equal(inventoryCount(world, 'blue'), 0);
   assert.equal(connections(world).length, 2);
   assert.deepEqual(destination(world, { room: 'B', side: 0 }), { room: 'B', side: 2 });
   assert.deepEqual(destination(world, { room: 'C', side: 0 }), { room: 'C', side: 3 });
-  assert.deepEqual(ROOM_IDS, ['A', 'B', 'C', 'D']);
-  assert.deepEqual(ROOM_IDS.map(id => ROOMS[id].sides), [4, 5, 6, 3]);
-  assert.deepEqual(ROOM_IDS.map(id => ROOMS[id].pedestals.map(p => p.controls)), [['A', 'B'], ['B', 'C'], ['C', 'D'], ['D', 'A']]);
+  assert.deepEqual(ROOM_IDS, ['A', 'B', 'C', 'D', 'E', 'F', 'G']);
+  assert.deepEqual(ROOM_IDS.map(id => ROOMS[id].sides), [4, 5, 6, 3, 3, 4, 4]);
+  assert.deepEqual(ROOM_IDS.map(id => ROOMS[id].pedestals.map(p => p.controls)), [['A', 'B'], ['B', 'C'], ['C', 'D'], ['D', 'A', 'E'], ['B', 'F'], ['D', 'G'], ['G', 'D']]);
   assert.ok(world.balls.every(ball => ball.socket?.room === (ball.color === 'red' ? 'B' : 'C')));
-  for (const room of ['A', 'D'] as const) for (let side = 0; side < ROOMS[room].sides; side++) assert.equal(destination(world, { room, side }), null);
+  for (const room of ['A', 'D', 'E', 'F', 'G'] as const) for (let side = 0; side < ROOMS[room].sides; side++) assert.equal(destination(world, { room, side }), null);
 });
 test('taking R2 removes both red doors and preserves blue; placing it on A links A0–B0', () => {
   const game = new Game();
@@ -67,16 +68,58 @@ test('four-ball conservation survives 2,000 arbitrary take/place/undo operations
     assert.equal(game.world.balls.filter(b => b.socket).length + inventoryCount(game.world, 'red') + inventoryCount(game.world, 'blue'), 4);
   }
 });
-test('all 324 source/target combinations preserve lateral position, direction, and inverse mapping', () => {
+test('all source/target combinations preserve lateral position, direction, and inverse mapping', () => {
   const endpoints: SocketRef[] = ROOM_IDS.flatMap(room => Array.from({ length: ROOMS[room].sides }, (_, side) => ({ room, side })));
   for (const from of endpoints) for (const to of endpoints) {
-    const a = wallNormal(from.room, from.side), b = wallNormal(to.room, to.side);
-    const p = { x: a.x * (portalDistance(from.room) + 0.3) - a.z * 0.4, z: a.z * (portalDistance(from.room) + 0.3) + a.x * 0.4 };
+    const a = wallNormal(from.room, from.side), b = wallNormal(to.room, to.side), start = portalPosition(from.room, from.side), end = portalPosition(to.room, to.side);
+    const p = { x: start.x + a.x * .3 - a.z * .4, z: start.z + a.z * .3 + a.x * .4 };
     const mapped = transformPoint(p, from, to), back = transformPoint(mapped, to, from);
     close(back.x, p.x); close(back.z, p.z);
-    close(mapped.x * b.x + mapped.z * b.z, portalDistance(to.room) - 0.3);
-    close(mapped.x * -b.z + mapped.z * b.x, -0.4);
+    close((mapped.x - end.x) * b.x + (mapped.z - end.z) * b.z, -0.3);
+    close((mapped.x - end.x) * -b.z + (mapped.z - end.z) * b.x, -0.4);
     const direction = rotate(a, portalAngle(from, to)); close(direction.x, -b.x); close(direction.z, -b.z);
+  }
+});
+
+test('Y arms have equal length, + has four ends, and H has two separated parallel corridors', () => {
+  for (let side = 0; side < 3; side++) close(Math.hypot(...Object.values(portalPosition('E', side))), 7 + WALL_THICKNESS / 2);
+  assert.equal(ROOMS.E.sides, 3); assert.equal(ROOMS.F.sides, 4); assert.equal(ROOMS.G.sides, 4);
+  assert.ok(canStand('E', { x: 0, z: -5 }));
+  assert.ok(canStand('E', { x: -4.3, z: 2.5 })); assert.ok(canStand('E', { x: 4.3, z: 2.5 }));
+  assert.equal(canStand('E', { x: 0, z: 4 }), false);
+  for (const p of [{ x: 0, z: -5 }, { x: 5, z: 0 }, { x: 0, z: 5 }, { x: -5, z: 0 }]) assert.ok(canStand('F', p));
+  assert.equal(canStand('F', { x: 4, z: 4 }), false);
+  for (const x of [-3.5, 3.5]) for (const z of [-5, 5]) assert.ok(canStand('G', { x, z }));
+  assert.ok(canStand('G', { x: 0, z: 0 })); assert.equal(canStand('G', { x: 0, z: -5 }), false);
+});
+
+test('concave walls stop shortcuts across H notches while its center connects both legs', () => {
+  const game = new Game(); Object.assign(game.player, { room: 'G', x: -3.5, z: -4 });
+  game.move({ x: 7, z: 0 }); assert.ok(game.player.x <= -1.8 - PLAYER_RADIUS + 1e-7);
+  game.move({ x: 0, z: 4 }); close(game.player.z, 0);
+  game.move({ x: 4.3, z: 0 }); assert.ok(game.player.x > 2);
+  game.move({ x: 0, z: -4 }); close(game.player.z, -4); assert.ok(game.player.x > 2);
+  assert.ok(insideOutline(game.player, roomOutline('G')));
+});
+
+test('every corridor terminal crosses and returns, including the offset H portals', () => {
+  for (const room of ['E', 'F', 'G'] as const) for (let side = 0; side < ROOMS[room].sides; side++) {
+    const game = new Game(); game.world.balls[0].socket = { room, side }; game.world.balls[1].socket = { room: 'A', side: 0 };
+    game.world.balls[2].socket = game.world.balls[3].socket = null;
+    atWall(game, room, side, .1); walkOut(game, side); assert.equal(game.player.room, 'A', `${room}${side} entry`);
+    game.move({ x: 0, z: -.6 }); assert.equal(game.player.room, room, `${room}${side} return`);
+    assert.equal(game.transitions, 2);
+  }
+});
+
+test('miniature sockets follow corridor ends and retain 9 cm of clearance from the nearest edge', () => {
+  for (const room of ROOM_IDS) {
+    const outline = pedestalOutline(room);
+    for (let side = 0; side < ROOMS[room].sides; side++) {
+      const p = socketPosition(room, side); assert.ok(insideOutline(p, outline));
+      const clearance = Math.min(...outline.map((a, i) => { const q = closestOnSegment(p, a, outline[(i + 1) % outline.length]); return Math.hypot(p.x - q.x, p.z - q.z); }));
+      close(clearance, .09);
+    }
   }
 });
 test('opposite portals preserve the camera and permit an immediate backward return', () => {
@@ -113,7 +156,7 @@ test('a link reaches B, returns and can undo both legs', () => {
   game.undo(); assert.equal(game.player.room, 'B');
   game.undo(); assert.equal(game.player.room, 'A');
 });
-test('the A–B–A–C–A–D route uses only pedestals available in the current room', () => {
+test('the complete A–D–G route uses only available pedestals and preserves all four balls', () => {
   const game = new Game(), route: RoomId[] = ['A'];
   const interact = (room: RoomId, side: number) => {
     assert.ok(ROOMS[game.player.room].pedestals.some(p => p.controls === room), `${room} pedestal unavailable in ${game.player.room}`);
@@ -132,6 +175,23 @@ test('the A–B–A–C–A–D route uses only pedestals available in the curre
   assert.deepEqual(destination(game.world, { room: 'A', side: 0 }), { room: 'D', side: 0 });
   assert.deepEqual(destination(game.world, { room: 'A', side: 1 }), { room: 'C', side: 0 });
   assert.equal(inventoryCount(game.world, 'red') + inventoryCount(game.world, 'blue'), 0);
+
+  interact('A', 0); interact('E', 0); // Move the red anchor from A to E.
+  interact('A', 1); interact('E', 1);
+  cross(0, 'E'); cross(1, 'C');
+  interact('D', 0); cross(0, 'E');
+  interact('B', 0); cross(0, 'B');
+  interact('C', 0); cross(0, 'E');
+  interact('B', 0); interact('F', 0); cross(0, 'F');
+  game.world.selected = 'blue'; interact('G', 0);
+  cross(0, 'E'); cross(1, 'G');
+  assert.deepEqual(route, ['A', 'B', 'A', 'C', 'A', 'D', 'E', 'C', 'E', 'B', 'E', 'F', 'E', 'G']);
+  assert.deepEqual(destination(game.world, { room: 'E', side: 0 }), { room: 'F', side: 0 });
+  assert.deepEqual(destination(game.world, { room: 'E', side: 1 }), { room: 'G', side: 0 });
+  assert.equal(game.transitions, 13); assert.equal(game.world.balls.length, 4);
+  assert.ok(game.world.balls.every(ball => ball.socket));
+  assert.ok(game.undo()); assert.equal(game.player.room, 'E');
+  assert.ok(game.undo()); assert.equal(game.player.room, 'F');
 });
 test('100 continuous loops have bounded state/history and no position drift', () => {
   const game = loopGame(); Object.assign(game.player, { x: 0.4, z: 0 });
