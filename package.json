@@ -12,7 +12,8 @@
     "profile": "node scripts/profile-turns.mjs",
     "profile:pacing": "node scripts/profile-pacing.mjs",
     "profile:interactions": "node scripts/profile-interactions.mjs",
-    "profile:lighting": "node scripts/profile-light-transfer.mjs"
+    "profile:lighting": "node scripts/profile-light-transfer.mjs",
+    "profile:hub": "node scripts/profile-hub.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"

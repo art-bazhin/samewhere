@@ -17,7 +17,7 @@ try {
       const original = space.render.bind(space), begin = space.gpuTiming.begin, end = space.gpuTiming.end;
       space.gpuTiming.begin = space.gpuTiming.end = () => {};
       if (mode === 'reference') {
-        for (const room of Object.values(space.rooms)) room.shadows.scene.children = room.scene.children;
+        for (const room of Object.values(space.rooms)) { room.shadows.scene.children = room.scene.children; room.shadows.partialUpdates = false; }
         space.portalOccluded = () => false;
         space.preparePendingShadow = () => {};
       }

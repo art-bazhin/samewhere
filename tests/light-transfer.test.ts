@@ -1,7 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { DataUtils } from 'three';
+import { combineTransfers, compressTransfer } from '../src/light-transfer-cache';
 import { bakeTransfer, TRANSFER_AXES, TRANSFER_GRIDS, TRANSFER_SPACING, transferAt, transferPathBlocked } from '../src/light-transfer-field';
 import { portalPosition, ROOM_IDS } from '../src/world';
+
+test('sparse prepared fields reproduce the original summed lighting bit for bit', () => {
+  const sources = ['C', 'G'].map(room => bakeTransfer({ room: 'A', side: 0 }, { room: room as 'C' | 'G', side: 0 }));
+  const prepared = sources.map((values, index) => compressTransfer('A', `A0<${index}`, values));
+  const scratch = new Float32Array(sources[0].length), actual = new Uint16Array(scratch.length), reference = new Uint16Array(scratch.length);
+  for (let i = 0; i < reference.length; i++) reference[i] = DataUtils.toHalfFloat(Math.fround(sources[0][i] + sources[1][i]));
+  combineTransfers(prepared, scratch, actual); assert.deepEqual(actual, reference);
+  // Removing one contribution reuses the same buffers and leaves no stale light.
+  combineTransfers(prepared.slice(0, 1), scratch, actual);
+  assert.deepEqual(actual, Uint16Array.from(sources[0], value => DataUtils.toHalfFloat(value)));
+  combineTransfers([], scratch, actual); assert.ok(actual.every(value => value === 0));
+  assert.ok(prepared.reduce((sum, field) => sum + field.runs.byteLength + field.values.byteLength, 0) < sources[0].byteLength / 4);
+});
 
 test('a neighboring ceiling lamp lights the floor through a correctly transformed aperture', () => {
   const a = transferAt({ room: 'A', side: 0 }, { room: 'G', side: 0 }, { x: 0, y: 0, z: -4 });

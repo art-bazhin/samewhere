@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import { CEILING_LIGHT } from './lighting';
 import { TRANSFER_AXES, TRANSFER_GRIDS, TRANSFER_SPACING } from './light-transfer-field';
+import { combineTransfers, type PreparedTransfer } from './light-transfer-cache';
 import { connections, ROOM_IDS, type RoomId, type WorldState } from './world';
-import type { TransferRequest, TransferResult } from './light-transfer-worker';
+import type { TransferResult } from './light-transfer-worker';
 
-type CachedField = TransferResult['fields'][number] & { links: string[] };
-const MAX_SNAPSHOTS = 32;
-const MAX_SNAPSHOT_BYTES = 20 * 1024 * 1024;
+interface FieldBuffer { texture: THREE.Data3DTexture; key: string; min: THREE.Vector3; max: THREE.Vector3 }
+interface RoomField extends FieldBuffer { scratch: Float32Array; expected: string; buffers: FieldBuffer[] }
 
 /** Worker-baked one-hop diffuse lighting; no additional lights or render passes. */
 export class LightTransfer {
@@ -14,11 +14,15 @@ export class LightTransfer {
   readonly ready: Promise<void>;
   readonly fields = Object.fromEntries(ROOM_IDS.map(room => {
     const grid = TRANSFER_GRIDS[room], { x, y, z } = grid.size;
-    const texture = new THREE.Data3DTexture(new Uint16Array(x * y * z * TRANSFER_AXES), x, y, z * TRANSFER_AXES);
-    texture.format = THREE.RedFormat; texture.type = THREE.HalfFloatType;
-    texture.minFilter = texture.magFilter = THREE.LinearFilter; texture.needsUpdate = true;
-    return [room, { texture, key: '', expected: '', min: new THREE.Vector3(), max: new THREE.Vector3(-1, -1, -1) }];
-  })) as Record<RoomId, { texture: THREE.Data3DTexture; key: string; expected: string; min: THREE.Vector3; max: THREE.Vector3 }>;
+    const buffers = Array.from({ length: 2 }, () => {
+      const texture = new THREE.Data3DTexture(new Uint16Array(x * y * z * TRANSFER_AXES), x, y, z * TRANSFER_AXES);
+      texture.format = THREE.RedFormat; texture.type = THREE.HalfFloatType;
+      texture.minFilter = texture.magFilter = THREE.LinearFilter; texture.needsUpdate = true;
+      return { texture, key: '', min: new THREE.Vector3(), max: new THREE.Vector3(-1, -1, -1) };
+    });
+    return [room, { ...buffers[0], min: buffers[0].min.clone(), max: buffers[0].max.clone(), buffers,
+      scratch: new Float32Array(x * y * z * TRANSFER_AXES), expected: '' }];
+  })) as Record<RoomId, RoomField>;
   readonly uniforms = {
     transferredLight: { value: this.fields.A.texture },
     transferOrigin: { value: new THREE.Vector3() }, transferSize: { value: new THREE.Vector3(1, 1, 1) },
@@ -29,34 +33,24 @@ export class LightTransfer {
   jobs = 0;
   lastBakeMs = 0;
   cacheSize = 0;
-  snapshotBytes = 0;
-  private readonly snapshots = new Map<string, CachedField>();
+  preparedBytes = 0;
+  private readonly prepared = new Map<string, PreparedTransfer>();
   private readonly worker = new Worker(new URL('./light-transfer-worker.ts', import.meta.url), { type: 'module' });
-  private request: Omit<TransferRequest, 'known'> | null = null;
-  private busy = false;
   private state = '';
-  private waiters: (() => void)[] = [];
-  private resolveReady!: () => void;
+  private initialized = false;
 
   constructor() {
     this.ready = new Promise<void>((resolve, reject) => {
-      this.resolveReady = resolve;
       this.worker.onerror = event => { console.error('Light transfer worker:', event.message); reject(new Error(event.message)); };
+      this.worker.onmessage = ({ data }: MessageEvent<TransferResult>) => {
+        this.lastBakeMs = data.elapsedMs; this.cacheSize = data.fields.length;
+        for (const field of data.fields) {
+          this.prepared.set(field.key, field); this.preparedBytes += field.values.byteLength + field.runs.byteLength;
+        }
+        this.initialized = true; this.apply(); this.worker.terminate(); resolve();
+      };
+      this.jobs++; this.worker.postMessage(null);
     });
-    this.worker.onmessage = ({ data }: MessageEvent<TransferResult>) => {
-      this.busy = false; this.lastBakeMs = data.elapsedMs; this.cacheSize = data.cacheSize;
-      for (const result of data.fields) {
-        const previous = this.snapshots.get(result.key);
-        if (previous) this.snapshotBytes -= previous.data.byteLength;
-        this.snapshots.delete(result.key);
-        this.snapshots.set(result.key, { ...result, links: result.key.split('|') }); this.snapshotBytes += result.data.byteLength;
-      }
-      // Old replies still contain reusable static contributions, but only fields
-      // made entirely of currently open passages can become visible.
-      this.applyCached(); this.trimCache();
-      if (data.revision !== this.revision) { this.dispatch(); return; }
-      this.resolveReady(); this.waiters.splice(0).forEach(resolve => resolve());
-    };
   }
   sync(world: WorldState) {
     const links = connections(world).flatMap(({ ends }) => [
@@ -64,57 +58,46 @@ export class LightTransfer {
       { receiver: ends[1], source: ends[0], key: `${ends[1].room}${ends[1].side}<${ends[0].room}${ends[0].side}` },
     ]).sort((a, b) => a.key.localeCompare(b.key));
     const state = links.map(link => link.key).join('|');
-    if (this.request && state === this.state) return;
+    if (state === this.state) return;
     this.state = state;
     const keys = Object.fromEntries(ROOM_IDS.map(room => [room, links.filter(link => link.receiver.room === room).map(link => link.key).join('|')])) as Record<RoomId, string>;
     for (const room of ROOM_IDS) this.fields[room].expected = keys[room];
-    this.applyCached();
-    this.request = { revision: ++this.revision, links, keys }; this.dispatch();
+    this.revision++; if (this.initialized) this.apply();
   }
-  private dispatch() {
-    if (this.busy || !this.request) return;
-    this.busy = true; this.jobs++; this.worker.postMessage({ ...this.request, known: [...this.snapshots.keys()] } satisfies TransferRequest);
-  }
-  private applyCached() {
+  private apply() {
     for (const room of ROOM_IDS) {
       const field = this.fields[room];
       if (field.key === field.expected) continue;
-      const expected = field.expected.split('|');
-      const surviving = field.key.split('|').filter(link => link && expected.includes(link));
-      let best = this.snapshots.get(field.expected);
-      if (!best && field.expected) for (const snapshot of this.snapshots.values()) {
-        if (snapshot.room === room && (!best || snapshot.links.length > best.links.length)
-          && snapshot.links.every(link => expected.includes(link)) && surviving.every(link => snapshot.links.includes(link))) best = snapshot;
+      if (!field.expected) { field.key = ''; continue; }
+      let buffer = field.buffers.find(buffer => buffer.key === field.expected);
+      if (!buffer) {
+        // Do not overwrite the texture the GPU sampled in the previous frame.
+        // Both storage buffers are allocated and uploaded before play.
+        buffer = field.buffers.find(buffer => buffer.texture !== field.texture)!;
+        const sources = field.expected.split('|').map(key => this.prepared.get(key)!);
+        combineTransfers(sources, field.scratch, buffer.texture.image.data as Uint16Array);
+        buffer.min.set(Infinity, Infinity, Infinity); buffer.max.set(-Infinity, -Infinity, -Infinity);
+        for (const source of sources) if (source.values.length) for (let axis = 0; axis < 3; axis++) {
+          buffer.min.setComponent(axis, Math.min(buffer.min.getComponent(axis), source.min[axis]));
+          buffer.max.setComponent(axis, Math.max(buffer.max.getComponent(axis), source.max[axis]));
+        }
+        if (!Number.isFinite(buffer.min.x)) { buffer.min.set(0, 0, 0); buffer.max.set(-1, -1, -1); }
+        buffer.key = field.expected; buffer.texture.needsUpdate = true;
       }
-      if (!best) { field.key = ''; continue; }
-      // Missing new lights do not switch off already prepared, surviving lights.
-      // A closed passage is never kept in the selected subset.
-      if (field.key !== best.key) {
-        if (field.texture.image.data !== best.data) { field.texture.image.data = best.data; field.texture.needsUpdate = true; }
-        field.key = best.key;
-        field.min.fromArray(best.min); field.max.fromArray(best.max);
-      }
-      this.snapshots.delete(best.key); this.snapshots.set(best.key, best);
+      field.texture = buffer.texture; field.key = field.expected; field.min.copy(buffer.min); field.max.copy(buffer.max);
     }
   }
-  private trimCache() {
-    const active = new Set(Object.values(this.fields).flatMap(field => field.expected.split('|').filter(Boolean)));
-    while (this.snapshots.size > MAX_SNAPSHOTS || this.snapshotBytes > MAX_SNAPSHOT_BYTES) {
-      // Keep all subsets of the live connections, not just their full sum. They
-      // must remain available even after a long sequence of other ball moves.
-      const oldest = [...this.snapshots.values()].find(snapshot => !snapshot.links.every(link => active.has(link)));
-      if (!oldest) break;
-      this.snapshotBytes -= oldest.data.byteLength; this.snapshots.delete(oldest.key);
-    }
-  }
-  whenSettled() { return this.busy ? new Promise<void>(resolve => this.waiters.push(resolve)) : Promise.resolve(); }
-  bind(room: RoomId) {
+  whenSettled() { return this.ready; }
+  bind(room: RoomId, preparing = false) {
     const grid = TRANSFER_GRIDS[room], field = this.fields[room];
     this.uniforms.transferredLight.value = field.texture;
     this.uniforms.transferOrigin.value.set(grid.origin.x, grid.origin.y, grid.origin.z);
     this.uniforms.transferSize.value.set(grid.size.x, grid.size.y, grid.size.z);
-    this.uniforms.transferMin.value.copy(field.min); this.uniforms.transferMax.value.copy(field.max);
-    this.uniforms.transferGain.value = this.enabled && !!field.key ? 1 : 0;
+    if (preparing) {
+      this.uniforms.transferMin.value.copy(this.uniforms.transferOrigin.value);
+      this.uniforms.transferMax.value.set(grid.origin.x + grid.size.x * TRANSFER_SPACING, grid.origin.y + grid.size.y * TRANSFER_SPACING, grid.origin.z + grid.size.z * TRANSFER_SPACING);
+    } else { this.uniforms.transferMin.value.copy(field.min); this.uniforms.transferMax.value.copy(field.max); }
+    this.uniforms.transferGain.value = preparing || this.enabled && !!field.key ? 1 : 0;
   }
   install(material: THREE.MeshStandardMaterial) {
     const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
@@ -146,5 +129,5 @@ export class LightTransfer {
     };
     material.customProgramCacheKey = () => `${key}:neighbor-diffuse`;
   }
-  dispose() { this.worker.terminate(); for (const field of Object.values(this.fields)) field.texture.dispose(); }
+  dispose() { this.worker.terminate(); this.prepared.clear(); for (const field of Object.values(this.fields)) for (const buffer of field.buffers) buffer.texture.dispose(); }
 }

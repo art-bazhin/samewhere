@@ -1,5 +1,51 @@
 import { test, expect } from '@playwright/test';
 
+test('bounded contacts and skipped unlit surfaces preserve direct and portal pixels', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 700 });
+  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+  await page.evaluate(() => window.__samewhere.space.ready);
+  const result = await page.evaluate(async () => {
+    const path = '/src/world.ts', { ROOM_IDS, ROOMS, portalPosition, wallNormal } = await import(path);
+    const app = window.__samewhere, space = app.space, gl = space.renderer.getContext();
+    const optimized = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4), reference = new Uint8Array(optimized.length);
+    let comparisons = 0, changed = 0, total = 0, max = 0;
+    const before = { programs: space.renderer.info.programs!.length, targets: space.targetAllocations };
+    const compare = () => {
+      space.assets.optimizations.value = true; space.render();
+      gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, optimized);
+      space.assets.optimizations.value = false; space.render();
+      gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, reference);
+      for (let i = 0; i < reference.length; i++) {
+        const delta = Math.abs(reference[i] - optimized[i]); total += delta; max = Math.max(max, delta); if (delta > 1) changed++;
+      }
+      comparisons++;
+    };
+    try {
+      for (const room of ROOM_IDS) {
+        for (const p of ROOMS[room].pedestals) for (const angle of [0, 1.4, 3.2]) {
+          Object.assign(app.game.player, { room, x: p.x + Math.sin(angle) * 1.5, z: p.z + Math.cos(angle) * 1.5, yaw: angle, pitch: -.7 });
+          compare();
+        }
+      }
+      // Hub walls, carpet contacts, transformed normals and transport must also
+      // agree when the hub fills a recursive portal view at its four terminals.
+      for (let side = 0; side < 4; side++) {
+        app.game.world.balls.forEach((ball: any) => { ball.socket = null; });
+        app.game.world.balls[0].socket = { room: 'A', side: 0 }; app.game.world.balls[1].socket = { room: 'G', side };
+        app.sync(); await space.lightTransfer.whenSettled();
+        Object.assign(app.game.player, { room: 'A', x: 0, z: -4.7, yaw: 0, pitch: -.3 }); compare();
+        const p = portalPosition('G', side), n = wallNormal('G', side);
+        Object.assign(app.game.player, { room: 'G', x: p.x - n.x * .3, z: p.z - n.z * .3, yaw: Math.atan2(n.x, n.z), pitch: -.3 }); compare();
+      }
+    } finally { space.assets.optimizations.value = true; }
+    return { comparisons, mean: total / (comparisons * reference.length), changed, max,
+      newPrograms: space.renderer.info.programs!.length - before.programs, newTargets: space.targetAllocations - before.targets, error: gl.getError() };
+  });
+  console.log('Optimized vs original surface lighting:', result);
+  expect(result.comparisons).toBe(68); expect(result.changed).toBe(0); expect(result.max).toBeLessThanOrEqual(1);
+  expect(result.newPrograms).toBe(0); expect(result.newTargets).toBe(0); expect(result.error).toBe(0);
+});
+
 test('startup prepares every room; ball changes only invalidate affected spotlights', async ({ page }) => {
   await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
   await page.evaluate(() => window.__samewhere.space.ready);
@@ -22,11 +68,11 @@ test('startup prepares every room; ball changes only invalidate affected spotlig
     Object.assign(app.game.player, { room: 'G', x: -3.6, z: 5.5, yaw: 0, pitch: -.3 }); space.render();
     const steadyDraws = space.drawCalls;
     const action = app.game.interact({ room: 'C', side: 3 }); app.sync();
-    const changed = dirty(); space.render(); const actionDraws = space.drawCalls;
+    const changed = dirty(); space.render(); const actionDraws = space.drawCalls, actionShadowPixels = space.shadowPixels;
     const pending = [Object.values(dirty()).reduce((sum: number, count: any) => sum + count, 0)];
     for (let i = 0; i < 3; i++) { space.render(); pending.push(Object.values(dirty()).reduce((sum: number, count: any) => sum + count, 0)); }
     await pageYield();
-    return { maps, unchanged, before, after, action, changed, steadyDraws, actionDraws, pending, error: renderer.getContext().getError() };
+    return { maps, unchanged, before, after, action, changed, steadyDraws, actionDraws, actionShadowPixels, pending, error: renderer.getContext().getError() };
     function pageYield() { return new Promise<void>(resolve => requestAnimationFrame(() => resolve())); }
   });
   console.log('Prepared resources and selective shadows:', result);
@@ -37,6 +83,7 @@ test('startup prepares every room; ball changes only invalidate affected spotlig
   expect(result.action).toBe('take');
   expect(result.changed).toEqual({ A: 0, B: 2, C: 2, D: 0, E: 0, F: 0, G: 4 });
   expect(result.actionDraws).toBeLessThan(result.steadyDraws + 50);
+  expect(result.actionShadowPixels).toBeGreaterThan(0); expect(result.actionShadowPixels).toBeLessThan(50000);
   expect(result.pending).toEqual([3, 2, 1, 0]);
   expect(result.error).toBe(0);
 });
@@ -45,14 +92,18 @@ test('batched and selectively cached shadows match a full redraw of the original
   await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
   await page.evaluate(() => window.__samewhere.space.ready);
   const result = await page.evaluate(async () => {
-    const path = '/src/world.ts', { ROOM_IDS, ROOMS } = await import(path);
+    const path = '/src/world.ts', { ROOM_IDS, ROOMS, portalPosition, wallNormal } = await import(path);
     const app = window.__samewhere, space = app.space, renderer = space.renderer, gl = renderer.getContext();
     const optimized = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4), reference = new Uint8Array(optimized.length);
     let total = 0, changed = 0, max = 0, comparisons = 0;
     const differences: unknown[] = [];
-    function compare(id: string, label: string, controls = id) {
+    function compare(id: string, label: string, controls = id, door?: number) {
       const pedestal = ROOMS[id].pedestals.find((p: any) => p.controls === controls) ?? ROOMS[id].pedestals[0];
       Object.assign(app.game.player, { room: id, x: pedestal.x + .1, z: pedestal.z + 1.8, yaw: .08, pitch: -.5 });
+      if (door !== undefined) {
+        const p = portalPosition(id, door), n = wallNormal(id, door);
+        Object.assign(app.game.player, { x: p.x - n.x * .8 + n.z * .5, z: p.z - n.z * .8 - n.x * .5, yaw: Math.atan2(-n.x, -n.z), pitch: -.4 });
+      }
       // First render the cached result; then force an independent reference
       // shadow pass using the original meshes, bypassing the batched scene.
       space.render(); gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, optimized);
@@ -76,6 +127,8 @@ test('batched and selectively cached shadows match a full redraw of the original
         app.game.world.balls[0].socket = { room: id, side };
         app.game.world.balls[1].socket = { room: id, side: (side + 1) % ROOMS[id].sides }; app.sync();
         compare(id, `${id}${side}`); if (id !== 'G') compare('G', `${id}${side}`, id);
+        compare(id, `${id}${side}:open-wall`, id, side);
+        compare(id, `${id}${side}:closed-wall`, id, (side + 2) % ROOMS[id].sides);
       }
     }
     app.reset(); app.game.interact({ room: 'C', side: 3 }); app.sync(); app.undo();
@@ -84,9 +137,10 @@ test('batched and selectively cached shadows match a full redraw of the original
     return { mean: total / (comparisons * optimized.length), changed: changed / (comparisons * optimized.length), max, comparisons, differences, error: gl.getError() };
   });
   console.log('Original vs batched shadow comparison:', result);
-  expect(result.comparisons).toBe(68);
+  expect(result.comparisons).toBe(126);
   // Baking transforms into float32 can round a shadow edge by a subpixel.
   expect(result.mean).toBeLessThan(.01); expect(result.changed).toBeLessThan(.0001);
+  expect(result.max).toBeLessThanOrEqual(1);
   expect(result.error).toBe(0);
 });
 

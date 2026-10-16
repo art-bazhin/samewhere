@@ -3,7 +3,7 @@ import { GpuTiming } from './gpu-timing';
 import { RoomShadows } from './shadows';
 import { LightTransfer } from './light-transfer';
 import { CEILING_LIGHT } from './lighting';
-import { createMaterials, floorWithContacts, surfaceUV, type MaterialSet } from './materials';
+import { createMaterials, floorWithContacts, optimizeLighting, surfaceUV, type MaterialSet } from './materials';
 import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBILITY_END } from './visibility';
 import { offsetOutline } from './geometry';
 import { ballAt, CEILING_TILE_SIZE, destination, DOOR_HEIGHT, DOOR_WIDTH, EYE_HEIGHT, Game, PEDESTAL_HEIGHT, pedestalOutline, portalAngle, portalDistance, portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomOutline, roomWalls, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
@@ -118,7 +118,7 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
   }
 }
 
-function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
+function createRoom(id: RoomId, materials: MaterialSet, optimizations: THREE.IUniform<boolean>): RoomVisual {
   const definition = ROOMS[id], scene = new THREE.Scene();
   scene.background = new THREE.Color(PALETTE.background);
   scene.add(new THREE.HemisphereLight(0xfff8df, 0xc2a568, 1), new THREE.AmbientLight(0xfff6dd, 0.12));
@@ -138,7 +138,7 @@ function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
   }
   const outline = roomOutline(id);
   const floorGeometry = new THREE.ShapeGeometry(footprintShape(outline)); floorGeometry.rotateX(-Math.PI / 2); surfaceUV(floorGeometry);
-  const floor = new THREE.Mesh(floorGeometry, floorWithContacts(materials.floor, definition.pedestals)); floor.name = 'floor'; floor.receiveShadow = true; scene.add(floor);
+  const floor = new THREE.Mesh(floorGeometry, floorWithContacts(materials.floor, definition.pedestals, optimizations)); floor.name = 'floor'; floor.receiveShadow = true; scene.add(floor);
   // Preserve the footprint orientation. Mirroring it by rotating the other way
   // leaves triangular gaps above a pentagon's walls; render the back face instead.
   const ceilingGeometry = new THREE.ShapeGeometry(footprintShape(offsetOutline(outline, WALL_THICKNESS / 2))); ceilingGeometry.rotateX(-Math.PI / 2); surfaceUV(ceilingGeometry);
@@ -234,6 +234,7 @@ export class SpaceRenderer {
   raycaster = new THREE.Raycaster();
   hovered: SocketVisual | null = null;
   drawCalls = 0;
+  shadowPixels = 0;
   portalPixels = 0;
   occludedPortals = 0;
   readonly maxPasses = MAX_PASSES;
@@ -269,19 +270,26 @@ export class SpaceRenderer {
     this.renderer.info.autoReset = false;
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.assets = createMaterials(this.renderer);
-    this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials)])) as Record<RoomId, RoomVisual>;
+    this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations)])) as Record<RoomId, RoomVisual>;
     this.lightTransfer = new LightTransfer();
     const litMaterials = new Set<THREE.Material>(Object.values(this.assets.materials));
     for (const room of Object.values(this.rooms)) room.scene.traverse(object => {
       if (object instanceof THREE.Mesh) for (const material of Array.isArray(object.material) ? object.material : [object.material]) litMaterials.add(material);
     });
-    for (const material of litMaterials) if (material instanceof THREE.MeshStandardMaterial) this.lightTransfer.install(material);
-    const shadowScenes = new Map(Object.values(this.rooms).map(room => [room.scene, room.shadows.scene]));
+    for (const material of litMaterials) if (material instanceof THREE.MeshStandardMaterial) {
+      optimizeLighting(material, this.assets.optimizations); this.lightTransfer.install(material);
+    }
+    const shadowScenes = new Map(Object.values(this.rooms).map(room => [room.scene, room.shadows]));
     const renderShadows = this.renderer.shadowMap.render.bind(this.renderer.shadowMap);
     // Three's shadow pass accepts a separate scene. Use the prebatched exact
     // casters, while the regular pass and ray picking retain the original meshes.
-    this.renderer.shadowMap.render = (lights, scene, camera) => renderShadows(lights,
-      scene === this.preparationScene ? this.preparationRoom!.shadows.scene : shadowScenes.get(scene) ?? scene, camera);
+    this.renderer.shadowMap.render = (lights, scene, camera) => {
+      const shadows = scene === this.preparationScene ? this.preparationRoom!.shadows : shadowScenes.get(scene);
+      if (!shadows) { renderShadows(lights, scene, camera); return; }
+      this.shadowPixels += shadows.beforeRender(lights);
+      try { renderShadows(lights, shadows.scene, camera); }
+      finally { shadows.afterRender(lights); }
+    };
     this.preparationLight.castShadow = true;
     this.preparationScene.add(this.preparationLight, this.preparationLight.target);
     this.resize(); this.sync();
@@ -302,14 +310,17 @@ export class SpaceRenderer {
     });
   }
   private async prepareRooms() {
-    const target = new THREE.WebGLRenderTarget(64, 64), camera = this.camera.clone();
+    // Match the portal framebuffer's actual sample count. A single-sample
+    // texture does not warm the driver's multisampled linear-light pipeline.
+    const target = new THREE.WebGLRenderTarget(64, 64, { samples: this.portalSamples, resolveDepthBuffer: false }), camera = this.camera.clone();
     camera.position.set(0, EYE_HEIGHT, 0); camera.updateMatrixWorld(true);
     this.clipPlane.setComponents(0, 1, 0, 1);
     try {
       for (const buffer of this.targets) { this.renderer.setRenderTarget(buffer); this.renderer.clear(); }
       for (const id of ROOM_IDS) {
         const room = this.rooms[id];
-        this.lightTransfer.bind(id); this.renderer.initTexture(this.lightTransfer.fields[id].texture);
+        this.lightTransfer.bind(id);
+        for (const buffer of this.lightTransfer.fields[id].buffers) this.renderer.initTexture(buffer.texture);
         this.renderer.setRenderTarget(target);
         // Allocate and calculate every room's shadow maps before enabling play.
         this.renderer.render(room.scene, camera);
@@ -319,11 +330,24 @@ export class SpaceRenderer {
           object.visible = true; object.frustumCulled = false;
         });
         try {
+          this.lightTransfer.bind(id, true);
           // Upload both wall variants and currently empty sockets too. A first
           // visit or placement must not trigger a geometry/texture upload.
           this.renderer.render(room.scene, camera);
+          // compileAsync prepares GLSL programs, but drivers can still defer the
+          // framebuffer/MSAA pipeline until its first draw. Exercise the actual
+          // sRGB canvas too, rather than only the linear offscreen target.
+          this.renderer.setRenderTarget(null);
+          this.renderer.setViewport(0, 0, 64, 64); this.renderer.setScissor(0, 0, 64, 64); this.renderer.setScissorTest(true);
+          try { this.renderer.render(room.scene, camera); }
+          finally { this.renderer.setScissorTest(false); this.renderer.setViewport(0, 0, this.width, this.height); }
         } finally {
+          this.lightTransfer.bind(id);
           for (const { object, visible, culled } of originals) { object.visible = visible; object.frustumCulled = culled; }
+        }
+        // Exercise updating an already sampled volume during loading as well.
+        for (const buffer of this.lightTransfer.fields[id].buffers) {
+          buffer.texture.needsUpdate = true; this.renderer.initTexture(buffer.texture);
         }
         // Let the loading UI paint and the GPU consume the previous room's work.
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
@@ -560,7 +584,7 @@ export class SpaceRenderer {
   }
   render() {
     if (this.compiling) return;
-    this.updateCamera(); this.passes = 0; this.portalPixels = 0; this.occludedPortals = 0; this.renderer.info.reset();
+    this.updateCamera(); this.passes = 0; this.portalPixels = 0; this.shadowPixels = 0; this.occludedPortals = 0; this.renderer.info.reset();
     this.gpuTiming.begin();
     try { this.renderRoom(this.game.player.room, this.camera, 0, FULL, null); this.preparePendingShadow(); }
     finally { this.gpuTiming.end(); }

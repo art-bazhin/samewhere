@@ -4,6 +4,7 @@ import { withDistanceFade } from './visibility';
 
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
 export function createMaterials(renderer: THREE.WebGLRenderer) {
+  const optimizations = { value: true };
   const loader = new THREE.TextureLoader(), textures = new Set<THREE.Texture>(), pending: Promise<unknown>[] = [];
   const anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
   function texture(name: string, metersPerTile: number) {
@@ -53,12 +54,27 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   };
   materials.pedestal.customProgramCacheKey = () => 'pedestal-contact';
   for (const material of Object.values(materials)) withDistanceFade(material);
-  return { materials, textures, ready: Promise.all(pending).then(() => {}) };
+  return { materials, textures, optimizations, ready: Promise.all(pending).then(() => {}) };
 }
 export type MaterialSet = ReturnType<typeof createMaterials>['materials'];
 
+/** Skip work whose direct-light contribution is exactly zero on these opaque PBR surfaces. */
+export function optimizeLighting(material: THREE.MeshStandardMaterial, enabled: THREE.IUniform<boolean>) {
+  const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
+  const lighting = THREE.ShaderChunk.lights_fragment_begin.replace(
+    /(getSpotLightInfo\( spotLight, geometryPosition, directLight \);)([\s\S]*?RE_Direct\( directLight,[^;]+;)/,
+    '$1\n if (!surfaceOptimizations || (directLight.visible && dot(geometryNormal, directLight.direction) > 0.)) { $2\n }',
+  );
+  material.onBeforeCompile = (shader, renderer) => {
+    before(shader, renderer); shader.uniforms.surfaceOptimizations = enabled;
+    shader.fragmentShader = 'uniform bool surfaceOptimizations;\n' + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_begin>', lighting);
+  };
+  material.customProgramCacheKey = () => `${key}:unlit-surfaces`;
+}
+
 /** Shade contacts in linear light, so the main view and portal buffers agree. */
-export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: PedestalDefinition[]) {
+export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: PedestalDefinition[], enabled: THREE.IUniform<boolean>) {
   const material = base.clone();
   const contacts = pedestals.map((p, index) => {
     if (ROOMS[p.controls].outline) {
@@ -83,8 +99,17 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
     return `vec2 local${index} = contactPosition - vec2(${p.x.toFixed(4)}, ${p.z.toFixed(4)});
       float edge${index} = -100.; ${edges}
       shade *= 1. - .55 * exp(-max(edge${index}, 0.) * 18.);`;
+  }).map((contact, index) => {
+    const outline = pedestalOutline(pedestals[index].controls), padding = ROOMS[pedestals[index].controls].outline ? 1 : 2;
+    const xs = outline.map(p => p.x), zs = outline.map(p => p.z), p = pedestals[index];
+    // Beyond this box the discarded factor is below float32 color precision.
+    // Concave silhouettes use Euclidean edge distance; convex ones use planes.
+    const min = [p.x + Math.min(...xs) - padding, p.z + Math.min(...zs) - padding];
+    const max = [p.x + Math.max(...xs) + padding, p.z + Math.max(...zs) + padding];
+    return `if (!boundedContacts || (all(greaterThan(contactPosition, vec2(${min.map(v => v.toFixed(6)).join(',')}))) && all(lessThan(contactPosition, vec2(${max.map(v => v.toFixed(6)).join(',')}))))) { ${contact} }`;
   }).join('\n');
   material.onBeforeCompile = shader => {
+    shader.uniforms.boundedContacts = enabled;
     // The floor and passage halves already end at each terminal portal plane.
     // Clipping again discards MSAA edge pixels whose centers lie outside the
     // plane even though some covered samples are inside, leaving a dotted seam.
@@ -92,7 +117,7 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
     shader.vertexShader = 'varying vec2 contactPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
       contactPosition = (modelMatrix * vec4(transformed, 1.)).xz;`);
-    shader.fragmentShader = 'varying vec2 contactPosition;\n' + shader.fragmentShader;
+    shader.fragmentShader = 'varying vec2 contactPosition; uniform bool boundedContacts;\n' + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
       float shade = 1.; ${contacts}
       reflectedLight.indirectDiffuse *= shade; reflectedLight.directDiffuse *= shade;`);
