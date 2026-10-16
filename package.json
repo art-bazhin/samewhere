@@ -11,7 +11,8 @@
     "test:browser": "playwright test",
     "profile": "node scripts/profile-turns.mjs",
     "profile:pacing": "node scripts/profile-pacing.mjs",
-    "profile:interactions": "node scripts/profile-interactions.mjs"
+    "profile:interactions": "node scripts/profile-interactions.mjs",
+    "profile:lighting": "node scripts/profile-light-transfer.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"

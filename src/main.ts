@@ -210,7 +210,7 @@ try {
   const playButton = $<HTMLButtonElement>('play-button'), playLabel = playButton.querySelector('span')!;
   playButton.disabled = true; playLabel.textContent = 'Загрузка пространства…';
   void space.ready.then(() => { playButton.disabled = false; playLabel.textContent = 'Войти в пространство'; }).catch(error => {
-    console.error(error); $('error').hidden = false; $('error').textContent = 'Не удалось загрузить материалы. Обновите страницу.';
+    console.error(error); $('error').hidden = false; $('error').textContent = 'Не удалось подготовить пространство. Обновите страницу.';
   });
   // Development-only inspection surface for reproducible browser acceptance checks.
   if (import.meta.env.DEV) Object.assign(window, { __samewhere: { game, space, sync, reset, undo, pause, timing, mouseLook, mouseEvent, get fps() { return fps; }, get mouseInput() { return mouseInput; } } });

@@ -1,17 +1,18 @@
 import * as THREE from 'three';
 import { GpuTiming } from './gpu-timing';
 import { RoomShadows } from './shadows';
+import { LightTransfer } from './light-transfer';
+import { CEILING_LIGHT } from './lighting';
 import { createMaterials, floorWithContacts, surfaceUV, type MaterialSet } from './materials';
 import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBILITY_END } from './visibility';
 import { offsetOutline } from './geometry';
-import { ballAt, CEILING_TILE_SIZE, destination, DOOR_HEIGHT, DOOR_WIDTH, EYE_HEIGHT, Game, pedestalOutline, portalAngle, portalDistance, portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomOutline, roomWalls, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
+import { ballAt, CEILING_TILE_SIZE, destination, DOOR_HEIGHT, DOOR_WIDTH, EYE_HEIGHT, Game, PEDESTAL_HEIGHT, pedestalOutline, portalAngle, portalDistance, portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomOutline, roomWalls, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
 
 const PALETTE = { background: 0x000000 };
 const plane = new THREE.PlaneGeometry(1, 1);
 const BALL_RADIUS = 0.04;
 const sphere = new THREE.SphereGeometry(BALL_RADIUS, 24, 16);
 const SOCKET_OPENING = 0.055;
-const PEDESTAL_HEIGHT = 1.2;
 const SOCKET_DEPTH = 0.01625;
 const SOCKET_RECESS = 0.005;
 const socketGeometry = new THREE.CircleGeometry(SOCKET_OPENING, 32);
@@ -123,8 +124,8 @@ function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
   scene.add(new THREE.HemisphereLight(0xfff8df, 0xc2a568, 1), new THREE.AmbientLight(0xfff6dd, 0.12));
   const shadowLights: THREE.SpotLight[] = [];
   for (const { x, z } of definition.pedestals) {
-    const light = new THREE.SpotLight(0xfff5d7, 14, 18, 1.28, 0.65, 2);
-    light.position.set(x, ROOM_HEIGHT - 0.015, z); light.target.position.set(x, 0, z);
+    const light = new THREE.SpotLight(CEILING_LIGHT.color, CEILING_LIGHT.intensity, CEILING_LIGHT.distance, CEILING_LIGHT.angle, CEILING_LIGHT.penumbra, 2);
+    light.position.set(x, CEILING_LIGHT.height, z); light.target.position.set(x, 0, z);
     light.castShadow = true; light.shadow.mapSize.set(1024, 1024);
     light.shadow.camera.near = 0.1; light.shadow.camera.far = 18;
     light.shadow.bias = -0.00002; light.shadow.normalBias = 0.0015;
@@ -223,6 +224,7 @@ export class SpaceRenderer {
   rooms: Record<RoomId, RoomVisual>;
   readonly assets: ReturnType<typeof createMaterials>;
   readonly ready: Promise<void>;
+  readonly lightTransfer: LightTransfer;
   targets: THREE.WebGLRenderTarget[] = [];
   cameras = Array.from({ length: MAX_DEPTH + 2 }, () => new THREE.PerspectiveCamera());
   passes = 0;
@@ -268,6 +270,12 @@ export class SpaceRenderer {
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.assets = createMaterials(this.renderer);
     this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials)])) as Record<RoomId, RoomVisual>;
+    this.lightTransfer = new LightTransfer();
+    const litMaterials = new Set<THREE.Material>(Object.values(this.assets.materials));
+    for (const room of Object.values(this.rooms)) room.scene.traverse(object => {
+      if (object instanceof THREE.Mesh) for (const material of Array.isArray(object.material) ? object.material : [object.material]) litMaterials.add(material);
+    });
+    for (const material of litMaterials) if (material instanceof THREE.MeshStandardMaterial) this.lightTransfer.install(material);
     const shadowScenes = new Map(Object.values(this.rooms).map(room => [room.scene, room.shadows.scene]));
     const renderShadows = this.renderer.shadowMap.render.bind(this.renderer.shadowMap);
     // Three's shadow pass accepts a separate scene. Use the prebatched exact
@@ -277,7 +285,7 @@ export class SpaceRenderer {
     this.preparationLight.castShadow = true;
     this.preparationScene.add(this.preparationLight, this.preparationLight.target);
     this.resize(); this.sync();
-    this.ready = this.assets.ready.then(async () => {
+    this.ready = Promise.all([this.assets.ready, this.lightTransfer.ready]).then(async () => {
       // Initialize clipping/shadows, then compile each room's light count while
       // the menu is loading. Shared materials must not be rebound by rendering
       // another scene while compileAsync waits for its programs to finish.
@@ -301,6 +309,7 @@ export class SpaceRenderer {
       for (const buffer of this.targets) { this.renderer.setRenderTarget(buffer); this.renderer.clear(); }
       for (const id of ROOM_IDS) {
         const room = this.rooms[id];
+        this.lightTransfer.bind(id); this.renderer.initTexture(this.lightTransfer.fields[id].texture);
         this.renderer.setRenderTarget(target);
         // Allocate and calculate every room's shadow maps before enabling play.
         this.renderer.render(room.scene, camera);
@@ -405,6 +414,7 @@ export class SpaceRenderer {
         if (visible) room.pickables.push(object);
       }
     }
+    this.lightTransfer.sync(world);
   }
   updateCamera() {
     const p = this.game.player;
@@ -528,6 +538,7 @@ export class SpaceRenderer {
       this.clipPlane.setComponents(-normal.x, 0, -normal.z, room.portals[incoming].distance - 0.00001);
     }
     this.renderer.setRenderTarget(target);
+    this.lightTransfer.bind(id);
     this.renderer.render(room.scene, camera);
   }
   private preparePendingShadow() {
@@ -557,6 +568,7 @@ export class SpaceRenderer {
   }
   dispose() {
     this.gpuTiming.dispose();
+    this.lightTransfer.dispose();
     for (const target of this.targets) target.dispose();
     this.preparationTarget.dispose();
     for (const room of Object.values(this.rooms)) for (const light of room.shadowLights) light.shadow.dispose();

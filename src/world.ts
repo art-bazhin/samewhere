@@ -46,6 +46,7 @@ export const DOOR_WIDTH = 1.8;
 export const DOOR_HEIGHT = 2.6;
 export const PLAYER_RADIUS = 0.22;
 export const PEDESTAL_APOTHEM = 0.325;
+export const PEDESTAL_HEIGHT = 1.2;
 export const SOCKET_RADIUS = 0.235;
 export const roomOutline = (room: RoomId) => outlines[room];
 export const roomWalls = (room: RoomId) => boundaries[room];
