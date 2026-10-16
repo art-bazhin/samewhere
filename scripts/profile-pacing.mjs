@@ -26,7 +26,7 @@ try {
       if (mode.includes('no-portals')) { for (const ball of app.game.world.balls) ball.socket = null; app.sync(); }
       document.querySelector('#hud').style.display = mode === 'no-hud' ? 'none' : '';
       document.querySelector('#overlay').hidden = true; document.body.classList.remove('paused');
-      for (const element of document.querySelectorAll('.inventory,.location,.objective')) element.style.backdropFilter = mode === 'no-blur' ? 'none' : '';
+      for (const element of document.querySelectorAll('.inventory,.location')) element.style.backdropFilter = mode === 'no-blur' ? 'none' : '';
       app.space.renderer.setPixelRatio(mode === 'ratio-1' ? 1 : 1.5); app.space.resize();
     }, mode);
     await page.waitForTimeout(500);

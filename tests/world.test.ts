@@ -82,23 +82,25 @@ test('adjacent portals transform residual movement and undo restores a safe sour
   const forward = { x: -Math.sin(game.player.yaw), z: -Math.cos(game.player.yaw) }; close(forward.x, -1); close(forward.z, 0);
   assert.ok(game.undo()); assert.equal(game.player.room, 'A'); assert.ok(game.player.z >= -5 + PLAYER_RADIUS); close(game.player.x, 0.4);
 });
-test('closed walls, door jambs, pedestals and the partition resist a large movement step', () => {
-  const game = new Game('puzzle'); game.interact({ room: 'A', side: 0 });
+test('closed walls, door jambs and pedestals resist a large movement step', () => {
+  const game = new Game(); game.interact({ room: 'A', side: 0 });
   atWall(game, 'A', 0); game.move({ x: 0, z: -10 }); assert.ok(game.player.z >= -5 + PLAYER_RADIUS - 1e-8);
   atWall(game, 'A', 3, 0.82); game.move({ x: -1, z: 0 }); assert.equal(game.transitions, 0); assert.ok(game.player.x >= -5 + PLAYER_RADIUS - 1e-8);
-  Object.assign(game.player, { x: -1, z: 1 }); game.move({ x: 3, z: -3 }); assert.ok((game.player.z - game.player.x) / Math.SQRT2 >= PLAYER_RADIUS + WALL_THICKNESS / 2 - 1e-8);
   const free = new Game(); Object.assign(free.player, { x: -1.5, z: 3 }); free.move({ x: 0, z: -1.2 }); assert.ok(Math.hypot(free.player.x + 1.5, free.player.z - 1.5) >= PEDESTAL_APOTHEM / Math.cos(Math.PI / 4) + PLAYER_RADIUS - 1e-8);
 });
-test('the partition reference solution reaches B, returns and can undo both legs', () => {
-  const game = new Game('puzzle');
+test('the room diagonal can be crossed freely in both directions', () => {
+  const game = new Game(); Object.assign(game.player, { x: -1, z: 1 });
+  game.move({ x: 1.5, z: -1.5 }); close(game.player.x, .5); close(game.player.z, -.5);
+  game.move({ x: -1.5, z: 1.5 }); close(game.player.x, -1); close(game.player.z, 1);
+});
+test('a link reaches B, returns and can undo both legs', () => {
+  const game = new Game();
   game.interact({ room: 'A', side: 0 });
-  atWall(game, 'A', 3); walkOut(game, 3); assert.ok(game.player.z < game.player.x);
   game.interact({ room: 'B', side: 0 });
-  atWall(game, 'A', 1); walkOut(game, 1); assert.ok(game.player.z > game.player.x);
-  atWall(game, 'A', 2); walkOut(game, 2); assert.equal(game.player.room, 'B'); assert.ok(game.world.visitedB); assert.ok(!game.world.solved);
-  game.move({ x: 0, z: -0.6 }); assert.equal(game.player.room, 'A'); assert.ok(game.world.solved);
-  game.undo(); assert.equal(game.player.room, 'B'); assert.ok(!game.world.solved);
-  game.undo(); assert.equal(game.player.room, 'A'); assert.ok(!game.world.visitedB);
+  atWall(game, 'A', 2); walkOut(game, 2); assert.equal(game.player.room, 'B');
+  game.move({ x: 0, z: -0.6 }); assert.equal(game.player.room, 'A');
+  game.undo(); assert.equal(game.player.room, 'B');
+  game.undo(); assert.equal(game.player.room, 'A');
 });
 test('100 continuous loops have bounded state/history and no position drift', () => {
   const game = new Game(); Object.assign(game.player, { x: 0.4, z: 0 });
@@ -106,9 +108,9 @@ test('100 continuous loops have bounded state/history and no position drift', ()
   assert.equal(game.transitions, 100); close(game.player.z, 0, 1e-6); close(game.player.x, 0.4, 1e-6);
   assert.equal(game.history.length, 100); validateWorld(game.world);
 });
-test('reset preserves the mode, restores inventory/pose and clears history', () => {
-  const game = new Game('puzzle'); game.interact({ room: 'A', side: 0 }); game.reset();
-  assert.equal(game.world.mode, 'puzzle'); assert.equal(game.history.length, 0); assert.equal(connections(game.world).length, 2); close(game.player.x, -3); close(game.player.z, 3);
+test('reset restores inventory, pose and initial links and clears history', () => {
+  const game = new Game(); game.interact({ room: 'A', side: 0 }); game.world.selected = 'blue'; game.reset();
+  assert.equal(game.world.selected, 'red'); assert.equal(game.history.length, 0); assert.equal(connections(game.world).length, 2); close(game.player.x, -3); close(game.player.z, 3);
 });
 
 test('a doorway takes 30 cm to cross between inner wall faces and reverses continuously', () => {

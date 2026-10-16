@@ -58,7 +58,7 @@ function polygonShape(sides: number, apothem: number) {
 
 interface Portal { side: number; mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; to: SocketRef | null; transform: THREE.Matrix4; normal: { x: number; z: number }; distance: number; receivingDistance: number }
 interface SocketVisual { ref: SocketRef; hit: THREE.Mesh; ball: THREE.Mesh }
-export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; partition: THREE.Group; walls: { solid: THREE.Group; open: THREE.Group }[]; shadowLights: THREE.SpotLight[] }
+export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; walls: { solid: THREE.Group; open: THREE.Group }[]; shadowLights: THREE.SpotLight[] }
 
 function portalMaterial() {
   // Keep the aperture rasterizable while the eye is closer than the normal near
@@ -171,11 +171,8 @@ function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
     portals.push({ side, mesh: portal, to: null, transform: new THREE.Matrix4(), normal: n, distance: portalDistance(id), receivingDistance: 0 }); walls.push({ solid, open });
   }
   for (const p of definition.pedestals) pedestal(scene, p.x, p.z, p.controls, sockets, blockers, materials);
-  const partition = new THREE.Group(); scene.add(partition);
-  const divider = box(partition, materials.wall, [Math.sqrt(200) + WALL_THICKNESS, ROOM_HEIGHT, WALL_THICKNESS], [0, ROOM_HEIGHT / 2, 0]); divider.rotation.y = -Math.PI / 4; blockers.push(divider);
-  partition.visible = false;
   scene.updateMatrixWorld(true);
-  return { scene, portals, sockets, blockers, pickables: [], partition, walls, shadowLights };
+  return { scene, portals, sockets, blockers, pickables: [], walls, shadowLights };
 }
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number };
@@ -284,7 +281,7 @@ export class SpaceRenderer {
     const world = this.game.world;
     const materials = this.assets.materials;
     for (const id of ['A', 'B'] as const) {
-      const room = this.rooms[id]; room.partition.visible = id === 'A' && world.mode === 'puzzle';
+      const room = this.rooms[id];
       for (const light of room.shadowLights) light.shadow.needsUpdate = true;
       for (let side = 0; side < ROOMS[id].sides; side++) {
         const portal = room.portals[side];

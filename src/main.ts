@@ -1,5 +1,5 @@
 import './style.css';
-import { ballAt, connections, Game, inventoryCount, type Mode } from './world';
+import { ballAt, connections, Game, inventoryCount } from './world';
 import { SpaceRenderer } from './scene';
 import { Sound } from './audio';
 import { FrameTiming } from './timing';
@@ -20,7 +20,6 @@ let space: SpaceRenderer;
 let locked = false, started = false, debug = false, disposed = false;
 let fullscreenPending = false;
 let sweep: { yaw: number; pitch: number; start: number } | null = null;
-let chosenMode: Mode = 'explore';
 let toastTimeout: ReturnType<typeof setTimeout>;
 const keys = new Set<string>();
 document.body.classList.add('paused');
@@ -37,14 +36,9 @@ function updateHUD() {
   const world = game.world;
   $('room-name').textContent = game.player.room === 'A' ? 'Квадратная комната' : 'Пятиугольная комната';
   $('room-shape').className = `shape ${game.player.room === 'A' ? 'square' : 'pentagon'}`;
-  $('mode-label').textContent = world.mode === 'explore' ? 'Исследование' : 'Перегородка';
   $('red-count').textContent = String(inventoryCount(world, 'red')); $('blue-count').textContent = String(inventoryCount(world, 'blue'));
   $('select-red').classList.toggle('selected', world.selected === 'red'); $('select-blue').classList.toggle('selected', world.selected === 'blue');
   $('select-red').setAttribute('aria-pressed', String(world.selected === 'red')); $('select-blue').setAttribute('aria-pressed', String(world.selected === 'blue'));
-  $('objective').hidden = world.mode !== 'puzzle';
-  $('objective').classList.toggle('solved', world.solved);
-  $('objective-text').textContent = world.solved ? 'Вы нашли другую комнату и вернулись. Пространство подчиняется вам.' : 'Найдите путь в пятиугольную комнату и вернитесь.';
-  $('visit-step').classList.toggle('done', world.visitedB); $('return-step').classList.toggle('done', world.solved);
 }
 function sync() { space.sync(); space.pick(); updateHUD(); }
 function stopSweep() {
@@ -57,12 +51,9 @@ function toggleSweep() {
   sweep = { yaw: game.player.yaw, pitch: game.player.pitch, start: performance.now() };
   toast('Тест плавности: 6 секунд без мыши · F4 — остановить');
 }
-function reset(mode = game.world.mode) {
+function reset() {
   stopSweep(); mouseLook.reset();
-  game.reset(mode); chosenMode = mode; sync(); updateModeButtons(); toast(mode === 'explore' ? 'Исследование · начальное состояние' : 'Перегородка · найдите путь в другую комнату');
-}
-function updateModeButtons() {
-  document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(button => { button.classList.toggle('active', button.dataset.mode === chosenMode); button.setAttribute('aria-pressed', String(button.dataset.mode === chosenMode)); });
+  game.reset(); sync(); toast('Начальное состояние');
 }
 function undo() {
   stopSweep(); mouseLook.reset();
@@ -95,7 +86,6 @@ async function toggleFullscreen() {
 }
 async function play() {
   if (!space) return;
-  if (game.world.mode !== chosenMode) reset(chosenMode);
   sound.unlock();
   try {
     try { await canvas.requestPointerLock({ unadjustedMovement: true }); mouseInput = 'raw'; }
@@ -112,7 +102,6 @@ document.querySelectorAll<HTMLButtonElement>('[data-fullscreen]').forEach(button
 document.addEventListener('fullscreenchange', updateFullscreenButtons);
 updateFullscreenButtons();
 $('help-button').addEventListener('click', () => { pause(); $<HTMLDetailsElement>('help').open = true; });
-document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(button => button.addEventListener('click', () => { chosenMode = button.dataset.mode as Mode; updateModeButtons(); }));
 for (const color of ['red', 'blue'] as const) $(`select-${color}`).addEventListener('click', () => { game.world.selected = color; updateHUD(); });
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas; keys.clear();
@@ -124,7 +113,6 @@ document.addEventListener('pointerlockchange', () => {
   if (!locked && started) {
     $('play-button').firstElementChild!.textContent = 'Вернуться в пространство';
     $('menu-title').innerHTML = 'Вы всё ещё<br>в том же <em>месте.</em>';
-    chosenMode = game.world.mode; updateModeButtons();
   }
 });
 document.addEventListener(mouseEvent, event => {
@@ -139,7 +127,6 @@ document.addEventListener(mouseEvent, event => {
 document.addEventListener('keydown', event => {
   if (event.code === 'KeyF') { event.preventDefault(); if (!event.repeat) void toggleFullscreen(); return; }
   if (event.code === 'F3') { event.preventDefault(); debug = !debug; $('debug').hidden = !debug; return; }
-  if (event.code === 'F2') { event.preventDefault(); if (space) reset(game.world.mode === 'explore' ? 'puzzle' : 'explore'); return; }
   if (event.code === 'F4') { event.preventDefault(); if (locked && !event.repeat) toggleSweep(); return; }
   if (!locked) return;
   if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(event.code)) event.preventDefault();
@@ -193,10 +180,9 @@ function frame(time: number) {
     if (length && !sweep) {
       forward /= length; sideways /= length;
       const yaw = game.player.yaw, speed = MOVE_SPEED * dt;
-      const oldTransitions = game.transitions, solved = game.world.solved;
+      const oldTransitions = game.transitions;
       game.move({ x: (-Math.sin(yaw) * forward + Math.cos(yaw) * sideways) * speed, z: (-Math.cos(yaw) * forward - Math.sin(yaw) * sideways) * speed });
-      if (game.transitions !== oldTransitions) { updateHUD(); sound.play('portal'); }
-      if (!solved && game.world.solved) { sound.play('success'); toast('Маршрут найден. Вы вернулись.'); }
+      if (game.transitions !== oldTransitions) updateHUD();
     }
     const socket = space.pick();
     const message = socket ? (ballAt(game.world, socket) ? 'ЛКМ · Забрать шар' : `ЛКМ · Положить ${game.world.selected === 'red' ? 'красный' : 'синий'} шар`) : '';
@@ -214,7 +200,7 @@ function frame(time: number) {
     $('frame-time').title = `Интервал JS: p95 ${stats.p95Ms.toFixed(1)} / пик ${stats.maxMs.toFixed(1)} мс; CPU p95 ${stats.cpuP95Ms.toFixed(1)} мс; GPU p95 ${gpu.p95Ms?.toFixed(1) ?? 'недоступно'} / пик ${gpu.maxMs?.toFixed(1) ?? '—'} мс; долгих кадров ${stats.slowFrames}`;
     if (debug) {
       const p = game.player;
-      $('debug').textContent = `SAMEWHERE / DEBUG\nКомната ${p.room} · ${game.world.mode}\nПозиция ${p.x.toFixed(2)}, ${p.z.toFixed(2)}\nYaw ${p.yaw.toFixed(2)} · Pitch ${p.pitch.toFixed(2)}\n${fps} FPS · ${space.passes}/${space.maxPasses} проходов · дальность ${space.visibilityDistance} м\nКадр: p95 ${stats.p95Ms.toFixed(1)} / max ${stats.maxMs.toFixed(1)} мс\nCPU p95 ${stats.cpuP95Ms.toFixed(1)} мс · долгих ${stats.slowFrames}/120\nGPU p95 ${gpu.p95Ms?.toFixed(1) ?? '—'} / max ${gpu.maxMs?.toFixed(1) ?? '—'} мс · очередь ${gpu.pending}\nМышь: ${mouseInput === 'raw' ? 'raw input' : 'обычный ввод'}\nGPU: ${space.renderer.info.memory.geometries} геометрий / ${space.renderer.info.memory.textures} текстур\n${space.drawCalls} draw calls · пул ${space.targets.length}/${space.maxPasses - 1}\nПорталы: ${(space.portalPixels / 1e6).toFixed(2)} Мпикс / кадр\nПереходов ${game.transitions} · история ${game.history.length}/256\n\n${game.world.balls.map(b => `${b.id}: ${b.socket ? b.socket.room + b.socket.side : 'инвентарь'}`).join('\n')}\n\n${connections(game.world).map(c => `${c.color}: ${c.ends.map(e => e.room + e.side).join(' ↔ ')}`).join('\n')}`;
+      $('debug').textContent = `SAMEWHERE / DEBUG\nКомната ${p.room}\nПозиция ${p.x.toFixed(2)}, ${p.z.toFixed(2)}\nYaw ${p.yaw.toFixed(2)} · Pitch ${p.pitch.toFixed(2)}\n${fps} FPS · ${space.passes}/${space.maxPasses} проходов · дальность ${space.visibilityDistance} м\nКадр: p95 ${stats.p95Ms.toFixed(1)} / max ${stats.maxMs.toFixed(1)} мс\nCPU p95 ${stats.cpuP95Ms.toFixed(1)} мс · долгих ${stats.slowFrames}/120\nGPU p95 ${gpu.p95Ms?.toFixed(1) ?? '—'} / max ${gpu.maxMs?.toFixed(1) ?? '—'} мс · очередь ${gpu.pending}\nМышь: ${mouseInput === 'raw' ? 'raw input' : 'обычный ввод'}\nGPU: ${space.renderer.info.memory.geometries} геометрий / ${space.renderer.info.memory.textures} текстур\n${space.drawCalls} draw calls · пул ${space.targets.length}/${space.maxPasses - 1}\nПорталы: ${(space.portalPixels / 1e6).toFixed(2)} Мпикс / кадр\nПереходов ${game.transitions} · история ${game.history.length}/256\n\n${game.world.balls.map(b => `${b.id}: ${b.socket ? b.socket.room + b.socket.side : 'инвентарь'}`).join('\n')}\n\n${connections(game.world).map(c => `${c.color}: ${c.ends.map(e => e.room + e.side).join(' ↔ ')}`).join('\n')}`;
     }
   }
 }

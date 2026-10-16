@@ -1,12 +1,11 @@
 /** Pure game rules and collision/portal math. No dependency on WebGL or the DOM. */
 export type RoomId = 'A' | 'B';
 export type BallColor = 'red' | 'blue';
-export type Mode = 'explore' | 'puzzle';
 export interface Vec2 { x: number; z: number }
 export interface SocketRef { room: RoomId; side: number }
 export interface BallState { id: string; color: BallColor; socket: SocketRef | null }
 export interface PlayerState extends Vec2 { room: RoomId; yaw: number; pitch: number }
-export interface WorldState { balls: BallState[]; selected: BallColor; mode: Mode; visitedB: boolean; solved: boolean }
+export interface WorldState { balls: BallState[]; selected: BallColor }
 export interface Snapshot { world: WorldState; player: PlayerState }
 export interface Connection { color: BallColor; ends: [SocketRef, SocketRef] }
 export interface PedestalDefinition extends Vec2 { controls: RoomId }
@@ -61,9 +60,9 @@ export function ballAt(world: WorldState, socket: SocketRef) {
 export function inventoryCount(world: WorldState, color: BallColor) {
   return world.balls.filter(b => b.color === color && !b.socket).length;
 }
-export function initialState(mode: Mode = 'explore'): Snapshot {
+export function initialState(): Snapshot {
   return {
-    world: { mode, selected: 'red', visitedB: false, solved: false, balls: [
+    world: { selected: 'red', balls: [
       { id: 'R1', color: 'red', socket: { room: 'A', side: 0 } },
       { id: 'R2', color: 'red', socket: { room: 'A', side: 2 } },
       { id: 'B1', color: 'blue', socket: { room: 'A', side: 1 } },
@@ -90,8 +89,8 @@ export class Game {
   player: PlayerState;
   history: Snapshot[] = [];
   transitions = 0;
-  constructor(mode: Mode = 'explore') {
-    const state = initialState(mode);
+  constructor() {
+    const state = initialState();
     this.world = state.world; this.player = state.player;
   }
   snapshot(): Snapshot { return structuredClone({ world: this.world, player: this.player }); }
@@ -109,8 +108,8 @@ export class Game {
     if (!last) return false;
     this.restore(last); return true;
   }
-  reset(mode = this.world.mode) {
-    this.restore(initialState(mode)); this.history = []; this.transitions = 0;
+  reset() {
+    this.restore(initialState()); this.history = []; this.transitions = 0;
   }
   interact(socket: SocketRef): 'take' | 'place' | null {
     if (!ROOMS[socket.room] || socket.side < 0 || socket.side >= ROOMS[socket.room].sides || !Number.isInteger(socket.side)) return null;
@@ -167,8 +166,6 @@ export class Game {
           this.player.yaw -= delta;
           this.player.room = to.room;
           this.transitions++;
-          if (to.room === 'B') this.world.visitedB = true;
-          if (this.world.mode === 'puzzle' && this.world.visitedB && to.room === 'A') this.world.solved = true;
           crossed = true; break;
         }
         if (!to && d1 > room.apothem - PLAYER_RADIUS) {
@@ -177,15 +174,6 @@ export class Game {
         }
       }
       if (!crossed) {
-        if (this.world.mode === 'puzzle' && room.id === 'A') {
-          const distance = (next.z - next.x) / Math.SQRT2;
-          const oldSide = old.z - old.x >= 0 ? 1 : -1;
-          const clearance = PLAYER_RADIUS + WALL_THICKNESS / 2;
-          if (distance * oldSide < clearance) {
-            const push = clearance * oldSide - distance;
-            next.x -= push / Math.SQRT2; next.z += push / Math.SQRT2;
-          }
-        }
         for (const pedestal of room.pedestals) {
           const dx = next.x - pedestal.x, dz = next.z - pedestal.z;
           const distance = Math.hypot(dx, dz), radius = PEDESTAL_APOTHEM / Math.cos(Math.PI / ROOMS[pedestal.controls].sides) + PLAYER_RADIUS;

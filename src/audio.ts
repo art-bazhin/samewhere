@@ -3,10 +3,10 @@ export class Sound {
   context: AudioContext | null = null;
   enabled = true;
   unlock() { this.context ??= new AudioContext(); void this.context.resume(); }
-  play(action: 'take' | 'place' | 'portal' | 'undo' | 'success') {
+  play(action: 'take' | 'place' | 'undo') {
     if (!this.enabled || !this.context) return;
     const context = this.context, time = context.currentTime;
-    const notes = { take: [520, 390], place: [390, 620], portal: [160, 240], undo: [350, 270], success: [392, 494, 587] }[action];
+    const notes = { take: [520, 390], place: [390, 620], undo: [350, 270] }[action];
     notes.forEach((frequency, i) => {
       const oscillator = context.createOscillator(), gain = context.createGain();
       oscillator.type = 'sine'; oscillator.frequency.value = frequency;

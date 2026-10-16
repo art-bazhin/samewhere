@@ -309,13 +309,15 @@ test('saucer recesses are closed and support centered balls; four tile lights ca
   }
 });
 
-test('partition blocks the ray; control solution is traversable in the rendered world', async ({ page }) => {
-  await ready(page); await page.locator('#play-button').click();
+test('single game has no mode switch and supports a full room round trip', async ({ page }) => {
+  await ready(page);
+  await expect(page.locator('[data-mode], #mode-label, #objective')).toHaveCount(0);
+  await page.locator('#play-button').click();
   await expect(page.locator('#overlay')).toBeHidden();
+  expect(await aim(page, 'B', 3, 0, 0.35)).toEqual({ room: 'B', side: 3 });
+  const before = await page.evaluate(() => window.__samewhere.game.snapshot());
   await page.keyboard.press('F2');
-  expect(await aim(page, 'B', 3, 0, 0.35)).toBeNull();
-  // The same ray reaches the socket after removing the partition, proving it is an occlusion test.
-  await page.keyboard.press('F2'); expect(await aim(page, 'B', 3, 0, 0.35)).toEqual({ room: 'B', side: 3 }); await page.keyboard.press('F2');
+  expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(before);
   await page.keyboard.press('KeyR');
   // Full reference route: no position teleports after resetting to the real start.
   await walkTo(page, -1.5, 3); await walkTo(page, -1.5, 2.75);
@@ -333,7 +335,6 @@ test('partition blocks the ray; control solution is traversable in the rendered 
   await page.screenshot({ path: 'test-results/04-pentagon.png' });
   await cross(page, Math.PI, true);
   await expect(page.locator('#room-name')).toHaveText('Квадратная комната');
-  await expect(page.locator('#objective')).toHaveClass(/solved/);
   await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Пятиугольная комната');
   await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Квадратная комната');
 });
