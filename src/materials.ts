@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { ROOM_HEIGHT, type Vec2 } from './world';
+import { PEDESTAL_APOTHEM, ROOM_HEIGHT, ROOMS, wallNormal, type PedestalDefinition } from './world';
+import { withDistanceFade } from './visibility';
 
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
 export function createMaterials(renderer: THREE.WebGLRenderer) {
@@ -42,14 +43,33 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
       reflectedLight.directDiffuse *= 1. - .12 * contact;`);
   };
   materials.wall.customProgramCacheKey = () => 'wall-contact';
+  materials.pedestal.onBeforeCompile = shader => {
+    shader.vertexShader = 'varying float baseHeight;\n' + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+      baseHeight = (modelMatrix * vec4(transformed, 1.)).y;`);
+    shader.fragmentShader = 'varying float baseHeight;\n' + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
+      float baseContact = 1. - .3 * exp(-max(baseHeight, 0.) * 35.);
+      reflectedLight.indirectDiffuse *= baseContact; reflectedLight.directDiffuse *= baseContact;`);
+  };
+  materials.pedestal.customProgramCacheKey = () => 'pedestal-contact';
+  for (const material of Object.values(materials)) withDistanceFade(material);
   return { materials, textures, ready: Promise.all(pending).then(() => {}) };
 }
 export type MaterialSet = ReturnType<typeof createMaterials>['materials'];
 
 /** Shade contacts in linear light, so the main view and portal buffers agree. */
-export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: Vec2[]) {
+export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: PedestalDefinition[]) {
   const material = base.clone();
-  const contacts = pedestals.map(p => `shade *= 1. - .3 * (1. - smoothstep(.35, 1.4, distance(contactPosition, vec2(${p.x.toFixed(4)}, ${p.z.toFixed(4)}))));`).join('\n');
+  const contacts = pedestals.map((p, index) => {
+    const edges = Array.from({ length: ROOMS[p.controls].sides }, (_, side) => {
+      const n = wallNormal(p.controls, side);
+      return `edge${index} = max(edge${index}, dot(local${index}, vec2(${n.x.toFixed(5)}, ${n.z.toFixed(5)})) - ${PEDESTAL_APOTHEM.toFixed(4)});`;
+    }).join('\n');
+    return `vec2 local${index} = contactPosition - vec2(${p.x.toFixed(4)}, ${p.z.toFixed(4)});
+      float edge${index} = -100.; ${edges}
+      shade *= 1. - .55 * exp(-max(edge${index}, 0.) * 18.);`;
+  }).join('\n');
   material.onBeforeCompile = shader => {
     shader.vertexShader = 'varying vec2 contactPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
@@ -60,7 +80,7 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: V
       reflectedLight.indirectDiffuse *= shade; reflectedLight.directDiffuse *= shade;`);
   };
   material.customProgramCacheKey = () => `floor-contacts:${contacts}`;
-  return material;
+  return withDistanceFade(material);
 }
 
 /** A 60 cm acoustic tile with a flat T-grid; no extra wall or ceiling geometry. */

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { MAX_PORTAL_PASSES } from '../../src/visibility';
 import { portalAngle, portalDistance, transformPoint, WALL_THICKNESS, wallNormal, type SocketRef } from '../../src/world';
 
 declare global { interface Window { __samewhere: any } }
@@ -152,7 +153,7 @@ test('textured architecture loads locally and paired wall halves form a 30 cm pa
       const texture = materials[key][map]; return [texture.image.width, texture.image.height];
     }));
     space.render();
-    return { depths, ceilingBounds, maps, lines, shadows: space.rooms.A.shadowLight.shadow.map.width, glError: space.renderer.getContext().getError() };
+    return { depths, ceilingBounds, maps, lines, shadows: space.rooms.A.shadowLights.map((light: any) => light.shadow.map.width), glError: space.renderer.getContext().getError() };
   });
   for (const depth of result.depths) {
     expect(depth.solid).toBeCloseTo(WALL_THICKNESS, 5);
@@ -161,24 +162,23 @@ test('textured architecture loads locally and paired wall halves form a 30 cm pa
   for (const bound of result.ceilingBounds) expect(bound.actual).toBeCloseTo(bound.expected, 5);
   expect(result.maps).toHaveLength(6);
   for (const [width, height] of result.maps) { expect(width).toBeGreaterThanOrEqual(1024); expect(height).toBeGreaterThanOrEqual(1024); }
-  expect(result.lines).toBe(0); expect(result.shadows).toBe(1024);
+  expect(result.lines).toBe(0); expect(result.shadows).toEqual([1024, 1024, 1024, 1024]);
   expect(result.glError).toBe(0); expect(external).toEqual([]);
 });
 
-test('distant saturated colors stay clear through a portal without a gray fog layer', async ({ page }) => {
+test('near colors stay saturated and distant surfaces fade smoothly to black through portals', async ({ page }) => {
   await ready(page);
-  const result = await page.evaluate(async () => {
-    const modulePath = '/node_modules/three/build/three.module.js', THREE = await import(modulePath);
+  const samples = await page.evaluate(async () => {
+    const threePath = '/node_modules/three/build/three.module.js', visibilityPath = '/src/visibility.ts';
+    const THREE = await import(threePath), { withDistanceFade } = await import(visibilityPath);
     const app = window.__samewhere, space = app.space;
     app.game.world.balls[0].socket = { room: 'A', side: 0 };
     app.game.world.balls[1].socket = { room: 'B', side: 0 };
     app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
-    // Isolate color transport from room lighting. At nearly 30 m the old scene
-    // fog washed this reference surface gray, even with an unlit material.
     for (const room of Object.values(space.rooms) as any[]) room.scene.traverse((object: any) => { if (object.isMesh) object.visible = false; });
     space.rooms.A.portals[0].mesh.visible = true;
-    const geometry = new THREE.PlaneGeometry(8, 8), material = new THREE.MeshBasicMaterial({ color: 0xff3500 });
-    const reference = new THREE.Mesh(geometry, material); reference.position.set(0, 1.65, 24); reference.rotation.y = Math.PI;
+    const geometry = new THREE.PlaneGeometry(8, 8), material = withDistanceFade(new THREE.MeshBasicMaterial({ color: 0xff3500 }));
+    const reference = new THREE.Mesh(geometry, material); reference.position.y = 1.65; reference.rotation.y = Math.PI;
     space.rooms.B.scene.add(reference);
     const gl = space.renderer.getContext(), pixel = new Uint8Array(4);
     const read = () => {
@@ -186,15 +186,61 @@ test('distant saturated colors stay clear through a portal without a gray fog la
       return Array.from(pixel);
     };
     try {
-      Object.assign(app.game.player, { room: 'A', x: 0, z: -4.5, yaw: 0, pitch: 0 });
-      const portal = read();
-      Object.assign(app.game.player, { room: 'B', z: -5.8, yaw: Math.PI });
-      return { portal, direct: read(), glError: gl.getError() };
+      return [15, 28, 38, 48, 60].map(distance => {
+        reference.position.z = distance - 5.8;
+        Object.assign(app.game.player, { room: 'A', x: 0, z: -4.5, yaw: 0, pitch: 0 }); const portal = read();
+        Object.assign(app.game.player, { room: 'B', z: -5.8, yaw: Math.PI });
+        return { distance, portal, direct: read() };
+      });
     } finally { space.rooms.B.scene.remove(reference); geometry.dispose(); material.dispose(); }
   });
-  expect(result.direct[0]).toBe(255); expect(result.direct[1]).toBeCloseTo(53, 0); expect(result.direct[2]).toBe(0);
-  for (let i = 0; i < 4; i++) expect(Math.abs(result.portal[i] - result.direct[i])).toBeLessThanOrEqual(1);
-  expect(result.glError).toBe(0);
+  expect(samples[0].direct.slice(0, 3)).toEqual([255, 53, 0]);
+  expect(samples[1].direct.slice(0, 3)).toEqual([255, 53, 0]);
+  expect(samples[2].direct[0]).toBeGreaterThan(185); expect(samples[2].direct[0]).toBeLessThan(190);
+  for (const sample of samples) {
+    // A linear RGBA8 intermediate can round dim sRGB channels by two levels.
+    for (let i = 0; i < 4; i++) expect(Math.abs(sample.portal[i] - sample.direct[i]), JSON.stringify(sample)).toBeLessThanOrEqual(2);
+    expect(sample.direct[2]).toBe(0);
+    if (sample.distance >= 48) expect(sample.direct.slice(0, 3)).toEqual([0, 0, 0]);
+  }
+});
+
+test('recess walls and bottoms are opaque from the inside; four tile lights cast from their visible panels', async ({ page }) => {
+  await ready(page);
+  const result = await page.evaluate(async () => {
+    const path = '/node_modules/three/build/three.module.js', THREE = await import(path);
+    const space = window.__samewhere.space, ray = new THREE.Raycaster(), point = new THREE.Vector3();
+    const wallDistances: number[] = [], bottomDistances: number[] = [], fixtures: any[] = [];
+    for (const room of Object.values(space.rooms) as any[]) {
+      room.scene.updateMatrixWorld(true);
+      const pedestals: any[] = [], lamps: any[] = [];
+      room.scene.traverse((object: any) => {
+        if (object.name === 'pedestal-body' || object.name === 'recess-bottom') pedestals.push(object);
+        if (object.name === 'ceiling-lamp') lamps.push(object);
+      });
+      for (const socket of room.sockets) {
+        socket.hit.getWorldPosition(point); point.y = .99;
+        for (const direction of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+          ray.set(point, new THREE.Vector3(...direction));
+          wallDistances.push(ray.intersectObjects(pedestals, false)[0]?.distance ?? Infinity);
+        }
+        ray.set(point, new THREE.Vector3(0, -1, 0));
+        bottomDistances.push(ray.intersectObjects(pedestals, false)[0]?.distance ?? Infinity);
+      }
+      fixtures.push({ sizes: lamps.map(lamp => [lamp.geometry.parameters.width, lamp.geometry.parameters.height]),
+        offsets: room.shadowLights.map((light: any) => Math.min(...lamps.map(lamp => light.position.distanceTo(lamp.position)))),
+        casts: room.shadowLights.every((light: any) => light.castShadow),
+        baseY: Math.max(...pedestals.filter(p => p.name === 'pedestal-body').map(p => (p.geometry.computeBoundingBox(), p.geometry.boundingBox.min.y))) });
+    }
+    return { wallDistances, bottomDistances, fixtures };
+  });
+  for (const distance of result.wallDistances) { expect(distance).toBeGreaterThan(.15); expect(distance).toBeLessThan(.18); }
+  for (const distance of result.bottomDistances) { expect(distance).toBeGreaterThan(.03); expect(distance).toBeLessThan(.05); }
+  for (const fixture of result.fixtures) {
+    expect(fixture.sizes).toEqual([[.55, .55], [.55, .55], [.55, .55], [.55, .55]]);
+    for (const offset of fixture.offsets) expect(offset).toBeLessThan(.02);
+    expect(fixture.casts).toBe(true); expect(fixture.baseY).toBeLessThan(0);
+  }
 });
 
 test('partition blocks the ray; control solution is traversable in the rendered world', async ({ page }) => {
@@ -254,7 +300,7 @@ test('adjacent A portals, A–B and B self-loops render, with bounded GPU resour
     await page.evaluate(distance => { const app = window.__samewhere; app.game.move({ x: 0, z: -distance }); app.space.render(); }, 2 * portalDistance('A'));
   }
   const after = await page.evaluate(() => { const app = window.__samewhere; return { memory: { ...app.space.renderer.info.memory }, targets: app.space.targets.length, passes: app.space.passes, transitions: app.game.transitions }; });
-  expect(after.transitions).toBe(100); expect(after.targets).toBeLessThanOrEqual(23); expect(after.passes).toBeLessThanOrEqual(24);
+  expect(after.transitions).toBe(100); expect(after.targets).toBeLessThanOrEqual(MAX_PORTAL_PASSES - 1); expect(after.passes).toBeLessThanOrEqual(MAX_PORTAL_PASSES);
   expect(after.memory.geometries).toBe(before.geometries); expect(after.memory.textures).toBeLessThanOrEqual(before.textures + 1);
   console.log('Resources after 100 loops:', after);
   expect(errors).toEqual([]);

@@ -1,15 +1,17 @@
 import * as THREE from 'three';
 import { GpuTiming } from './gpu-timing';
-import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { createMaterials, floorWithContacts, surfaceUV, type MaterialSet } from './materials';
+import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBILITY_END } from './visibility';
 import { ballAt, destination, DOOR_HEIGHT, DOOR_WIDTH, EYE_HEIGHT, Game, PEDESTAL_APOTHEM, portalAngle, portalDistance, ROOM_HEIGHT, ROOMS, SOCKET_RADIUS, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef } from './world';
 
-const PALETTE = { background: 0x302610 };
+const PALETTE = { background: 0x000000 };
 const plane = new THREE.PlaneGeometry(1, 1);
 const sphere = new THREE.SphereGeometry(0.145, 24, 16);
 const SOCKET_OPENING = 0.165;
 const PEDESTAL_HEIGHT = 1.02;
+const SOCKET_DEPTH = 0.065;
 const socketGeometry = new THREE.CircleGeometry(SOCKET_OPENING, 32);
+const socketFloorGeometry = new THREE.CircleGeometry(SOCKET_OPENING + 0.002, 48);
 function box(parent: THREE.Object3D, material: THREE.Material, size: number[], position: number[]) {
   const mesh = new THREE.Mesh(surfaceUV(new THREE.BoxGeometry(size[0], size[1], size[2])), material);
   mesh.position.set(position[0], position[1], position[2]); mesh.castShadow = mesh.receiveShadow = true;
@@ -28,13 +30,13 @@ function polygonShape(sides: number, apothem: number) {
 
 interface Portal { side: number; mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; to: SocketRef | null; transform: THREE.Matrix4; normal: { x: number; z: number }; distance: number; receivingDistance: number }
 interface SocketVisual { ref: SocketRef; hit: THREE.Mesh; ball: THREE.Mesh }
-export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; partition: THREE.Group; walls: { solid: THREE.Group; open: THREE.Group }[]; shadowLight: THREE.SpotLight }
+export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; partition: THREE.Group; walls: { solid: THREE.Group; open: THREE.Group }[]; shadowLights: THREE.SpotLight[] }
 
 function portalMaterial() {
   // Keep the aperture rasterizable while the eye is closer than the normal near
   // plane. Restore its actual depth per fragment so foreground objects still occlude it.
   return new THREE.ShaderMaterial({
-    uniforms: { image: { value: null }, viewOrigin: { value: new THREE.Vector2() }, imageRect: { value: new THREE.Vector4(0, 0, 1, 1) }, hasImage: { value: false }, mainView: { value: false }, apertureOffset: { value: 0 }, endColor: { value: new THREE.Color(0xb9a44f) } },
+    uniforms: { image: { value: null }, viewOrigin: { value: new THREE.Vector2() }, imageRect: { value: new THREE.Vector4(0, 0, 1, 1) }, hasImage: { value: false }, mainView: { value: false }, apertureOffset: { value: 0 }, endColor: { value: new THREE.Color(0) } },
     vertexShader: `#include <clipping_planes_pars_vertex>
       varying vec2 portalDepth; uniform bool mainView; uniform float apertureOffset;
       void main() { vec3 aperture = position; aperture.z -= apertureOffset;
@@ -63,16 +65,26 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
   const shape = polygonShape(sides, PEDESTAL_APOTHEM);
   for (let side = 0; side < sides; side++) {
     const n = wallNormal(controls, side), hole = new THREE.Path();
-    hole.absarc(n.x * SOCKET_RADIUS, -n.z * SOCKET_RADIUS, SOCKET_OPENING, 0, Math.PI * 2, true);
+    hole.absarc(n.x * SOCKET_RADIUS, -n.z * SOCKET_RADIUS, SOCKET_OPENING, 0, Math.PI * 2, false);
     shape.holes.push(hole);
   }
-  const bodyGeometry = new THREE.ExtrudeGeometry(shape, { depth: PEDESTAL_HEIGHT, bevelEnabled: false, steps: 1, curveSegments: 16 });
-  bodyGeometry.rotateX(-Math.PI / 2);
-  const body = new THREE.Mesh(surfaceUV(bodyGeometry), materials.pedestal); body.castShadow = body.receiveShadow = true; group.add(body); blockers.push(body);
+  // Keep the exterior a single continuous prism. Only the inner bore walls
+  // stop at the recess floor; opaque disks close the shallow wells below.
+  const baseHeight = PEDESTAL_HEIGHT - SOCKET_DEPTH;
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth: PEDESTAL_HEIGHT + .006, bevelEnabled: false, steps: 1, curveSegments: 24 });
+  geometry.rotateX(-Math.PI / 2); geometry.translate(0, -.006, 0);
+  const positions = geometry.getAttribute('position'), normals = geometry.getAttribute('normal');
+  for (let i = 0; i < positions.count; i++) {
+    if (Math.abs(normals.getY(i)) < .1 && Math.hypot(positions.getX(i), positions.getZ(i)) < PEDESTAL_APOTHEM) {
+      positions.setY(i, Math.max(positions.getY(i), baseHeight));
+    }
+  }
+  const body = new THREE.Mesh(surfaceUV(geometry), materials.pedestal); body.name = 'pedestal-body';
+  body.castShadow = body.receiveShadow = true; group.add(body); blockers.push(body);
   for (let side = 0; side < sides; side++) {
     const n = wallNormal(controls, side), socket = new THREE.Group();
     socket.position.set(n.x * SOCKET_RADIUS, PEDESTAL_HEIGHT, n.z * SOCKET_RADIUS); group.add(socket);
-    const bottom = new THREE.Mesh(socketGeometry, materials.socket); bottom.rotation.x = -Math.PI / 2; bottom.position.y = -0.055; socket.add(bottom);
+    const bottom = new THREE.Mesh(socketFloorGeometry, materials.socket); bottom.rotation.x = -Math.PI / 2; bottom.position.y = -SOCKET_DEPTH + 0.0005; bottom.name = 'recess-bottom'; bottom.castShadow = bottom.receiveShadow = true; socket.add(bottom); blockers.push(bottom);
     const hit = new THREE.Mesh(socketGeometry, materials.hit); hit.rotation.x = -Math.PI / 2; hit.position.y = 0.001; socket.add(hit);
     const ball = new THREE.Mesh(sphere, materials.red); ball.position.y = 0.11; ball.castShadow = ball.receiveShadow = true; socket.add(ball);
     const ref = { room: controls, side };
@@ -84,23 +96,20 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
 function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
   const definition = ROOMS[id], scene = new THREE.Scene();
   scene.background = new THREE.Color(PALETTE.background);
-  scene.add(new THREE.HemisphereLight(0xfff8df, 0xc2a568, 1.35), new THREE.AmbientLight(0xfff6dd, 0.25));
-  const shadowLight = new THREE.SpotLight(0xfff1c4, 40, 18, 1.25, 0.8, 2);
-  shadowLight.position.set(0, ROOM_HEIGHT - 0.12, 0); shadowLight.target.position.set(0, 0, 0);
-  shadowLight.castShadow = true; shadowLight.shadow.mapSize.set(1024, 1024);
-  shadowLight.shadow.camera.near = 0.1; shadowLight.shadow.camera.far = 18;
-  shadowLight.shadow.bias = -0.00015; shadowLight.shadow.normalBias = 0.02; shadowLight.shadow.radius = 3;
-  shadowLight.shadow.autoUpdate = false; shadowLight.shadow.needsUpdate = true;
-  scene.add(shadowLight, shadowLight.target);
-  for (const x of [-2, 2]) {
-    const light = new THREE.RectAreaLight(0xfff5cd, 2.4, 1.18, 3.6);
-    light.position.set(x, ROOM_HEIGHT - 0.015, 0); light.rotation.x = -Math.PI / 2; scene.add(light);
-    for (const z of [-1.5, 1.5]) {
-      const frame = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.6), materials.lampFrame);
-      frame.rotation.x = Math.PI / 2; frame.position.set(x < 0 ? -1.8 : 1.8, ROOM_HEIGHT - 0.002, z); scene.add(frame);
-      const lens = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 0.55), materials.lamp);
-      lens.rotation.x = Math.PI / 2; lens.position.set(x < 0 ? -1.8 : 1.8, ROOM_HEIGHT - 0.004, z); scene.add(lens);
-    }
+  scene.add(new THREE.HemisphereLight(0xfff8df, 0xc2a568, 1), new THREE.AmbientLight(0xfff6dd, 0.12));
+  const shadowLights: THREE.SpotLight[] = [];
+  for (const x of [-1.5, 1.5]) for (const z of [-1.5, 1.5]) {
+    const light = new THREE.SpotLight(0xfff5d7, 14, 18, 1.28, 0.65, 2);
+    light.position.set(x, ROOM_HEIGHT - 0.015, z); light.target.position.set(x, 0, z);
+    light.castShadow = true; light.shadow.mapSize.set(1024, 1024);
+    light.shadow.camera.near = 0.1; light.shadow.camera.far = 18;
+    light.shadow.bias = -0.00002; light.shadow.normalBias = 0.0015;
+    light.shadow.autoUpdate = false; light.shadow.needsUpdate = true;
+    scene.add(light, light.target); shadowLights.push(light);
+    const frame = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.6), materials.lampFrame);
+    frame.rotation.x = Math.PI / 2; frame.position.set(x, ROOM_HEIGHT - 0.002, z); scene.add(frame);
+    const lens = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.55), materials.lamp); lens.name = 'ceiling-lamp';
+    lens.rotation.x = Math.PI / 2; lens.position.set(x, ROOM_HEIGHT - 0.004, z); scene.add(lens);
   }
   const floorGeometry = new THREE.ShapeGeometry(polygonShape(definition.sides, definition.apothem)); floorGeometry.rotateX(-Math.PI / 2); surfaceUV(floorGeometry);
   const floor = new THREE.Mesh(floorGeometry, floorWithContacts(materials.floor, definition.pedestals)); floor.name = 'floor'; floor.receiveShadow = true; scene.add(floor);
@@ -137,13 +146,11 @@ function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
   const divider = box(partition, materials.wall, [Math.sqrt(200) + WALL_THICKNESS, ROOM_HEIGHT, WALL_THICKNESS], [0, ROOM_HEIGHT / 2, 0]); divider.rotation.y = -Math.PI / 4; blockers.push(divider);
   partition.visible = false;
   scene.updateMatrixWorld(true);
-  return { scene, portals, sockets, blockers, pickables: [], partition, walls, shadowLight };
+  return { scene, portals, sockets, blockers, pickables: [], partition, walls, shadowLights };
 }
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number };
 const FULL: Rect = { minX: -1, minY: -1, maxX: 1, maxY: 1 };
-const MAX_DEPTH = 4;
-const MAX_PASSES = 24;
 const TARGET_BLOCK = 128;
 const MIN_APERTURE_DISTANCE = 0.0001;
 interface PortalView { portal: Portal; rect: Rect; image: THREE.WebGLRenderTarget | null; area: number }
@@ -173,6 +180,8 @@ export class SpaceRenderer {
   hovered: SocketVisual | null = null;
   drawCalls = 0;
   portalPixels = 0;
+  readonly maxPasses = MAX_PASSES;
+  readonly visibilityDistance = VISIBILITY_END;
   private readonly center = new THREE.Vector2();
   private readonly bufferSize = new THREE.Vector2();
   private readonly hits: THREE.Intersection[] = [];
@@ -197,7 +206,6 @@ export class SpaceRenderer {
     // One shared world-space clip plane is rebound for each recursive scene.
     this.renderer.clippingPlanes = [this.clipPlane];
     this.renderer.info.autoReset = false;
-    RectAreaLightUniformsLib.init();
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.assets = createMaterials(this.renderer); this.ready = this.assets.ready;
     this.rooms = { A: createRoom('A', this.assets.materials), B: createRoom('B', this.assets.materials) };
@@ -248,7 +256,7 @@ export class SpaceRenderer {
     const materials = this.assets.materials;
     for (const id of ['A', 'B'] as const) {
       const room = this.rooms[id]; room.partition.visible = id === 'A' && world.mode === 'puzzle';
-      room.shadowLight.shadow.needsUpdate = true;
+      for (const light of room.shadowLights) light.shadow.needsUpdate = true;
       for (let side = 0; side < ROOMS[id].sides; side++) {
         const portal = room.portals[side];
         portal.to = destination(world, { room: id, side });
@@ -292,6 +300,8 @@ export class SpaceRenderer {
     const n = portal.normal;
     const distance = portal.distance - n.x * camera.position.x - n.z * camera.position.z;
     if (distance < -0.025) return false;
+    const sideDistance = Math.max(0, Math.abs(-n.z * camera.position.x + n.x * camera.position.z) - DOOR_WIDTH / 2);
+    if (Math.hypot(distance, sideDistance) >= VISIBILITY_END) return false;
     // The projection of a plane through the eye is degenerate. From inside the
     // aperture its forward view fills the frame; keep a complete image available.
     const lateral = -n.z * camera.position.x + n.x * camera.position.z;
@@ -391,7 +401,7 @@ export class SpaceRenderer {
   dispose() {
     this.gpuTiming.dispose();
     for (const target of this.targets) target.dispose();
-    for (const room of Object.values(this.rooms)) room.shadowLight.shadow.dispose();
+    for (const room of Object.values(this.rooms)) for (const light of room.shadowLights) light.shadow.dispose();
     const geometries = new Set<THREE.BufferGeometry>(), mats = new Set<THREE.Material>();
     for (const room of Object.values(this.rooms)) room.scene.traverse(object => {
       if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Sprite) {
