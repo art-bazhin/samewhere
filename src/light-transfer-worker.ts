@@ -1,18 +1,22 @@
-import { bakeTransfer } from './light-transfer-field';
-import { compressTransfer, type PreparedTransfer } from './light-transfer-cache';
-import { ROOM_IDS, ROOMS } from './world';
+import { decodeTransferAsset } from './light-transfer-asset';
+import type { PreparedTransfer } from './light-transfer-cache';
 
-export interface TransferResult { elapsedMs: number; fields: PreparedTransfer[] }
-const scope = self as unknown as { onmessage: () => void; postMessage: (data: TransferResult, transfer: Transferable[]) => void };
-scope.onmessage = () => {
-  const start = performance.now(), fields: PreparedTransfer[] = [];
-  const sockets = ROOM_IDS.flatMap(room => Array.from({ length: ROOMS[room].sides }, (_, side) => ({ room, side })));
-  // Geometry and lamps are static. Prepare every directed connection once,
-  // before play, instead of racing the door opening with an on-demand bake.
-  for (const receiver of sockets) for (const source of sockets) {
-    if (receiver.room === source.room && receiver.side === source.side) continue;
-    const key = `${receiver.room}${receiver.side}<${source.room}${source.side}`;
-    fields.push(compressTransfer(receiver.room, key, bakeTransfer(receiver, source)));
+export interface TransferRequest { url: string; sourceHash: string }
+export type TransferResult = { elapsedMs: number; fields: PreparedTransfer[] } | { error: string };
+const scope = self as unknown as { onmessage: (event: MessageEvent<TransferRequest>) => Promise<void>; postMessage: (data: TransferResult, transfer?: Transferable[]) => void };
+scope.onmessage = async ({ data }) => {
+  try {
+    const start = performance.now(), response = await fetch(data.url);
+    if (!response.ok || !response.body) throw new Error(`Cannot load prepared lighting: HTTP ${response.status}`);
+    // Some hosts (including Vite) serve .gz as Content-Encoding: gzip, which
+    // fetch already decompresses. Others return the compressed file verbatim.
+    const decodedByBrowser = response.headers.get('content-encoding')?.split(',').some(encoding => encoding.trim().toLowerCase() === 'gzip');
+    const body = decodedByBrowser ? response.body : response.body.pipeThrough(new DecompressionStream('gzip'));
+    const buffer = await new Response(body).arrayBuffer();
+    const fields = decodeTransferAsset(buffer, data.sourceHash);
+    // Every typed array is a view into this single buffer: transfer it once.
+    scope.postMessage({ elapsedMs: performance.now() - start, fields }, [buffer]);
+  } catch (error) {
+    scope.postMessage({ error: error instanceof Error ? error.message : String(error) });
   }
-  scope.postMessage({ elapsedMs: performance.now() - start, fields }, fields.flatMap(field => [field.runs.buffer as ArrayBuffer, field.values.buffer as ArrayBuffer]));
 };

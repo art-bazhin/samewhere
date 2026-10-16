@@ -2,11 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DataUtils } from 'three';
 import { combineTransfers, compressTransfer } from '../src/light-transfer-cache';
-import { bakeTransfer, TRANSFER_AXES, TRANSFER_GRIDS, TRANSFER_SPACING, transferAt, transferPathBlocked } from '../src/light-transfer-field';
-import { portalPosition, ROOM_IDS } from '../src/world';
+import { transferAt, transferPathBlocked } from '../src/light-transfer-sampling';
+import { bakingLayout, surfaceSamples } from '../src/lightmap-layout';
+import { bakeSurfaceTransfer } from '../src/surface-lightmap';
+import manifest from '../src/light-transfer-manifest.json';
+import { ROOM_IDS } from '../src/world';
 
 test('sparse prepared fields reproduce the original summed lighting bit for bit', () => {
-  const sources = ['C', 'G'].map(room => bakeTransfer({ room: 'A', side: 0 }, { room: room as 'C' | 'G', side: 0 }));
+  const layout = bakingLayout('A'), samples = surfaceSamples(layout);
+  const sources = ['C', 'G'].map(room => bakeSurfaceTransfer({ room: 'A', side: 0 }, { room: room as 'C' | 'G', side: 0 }, samples, layout.width * layout.height));
   const prepared = sources.map((values, index) => compressTransfer('A', `A0<${index}`, values));
   const scratch = new Float32Array(sources[0].length), actual = new Uint16Array(scratch.length), reference = new Uint16Array(scratch.length);
   for (let i = 0; i < reference.length; i++) reference[i] = DataUtils.toHalfFloat(Math.fround(sources[0][i] + sources[1][i]));
@@ -45,19 +49,31 @@ test('pedestals block transported light at their actual height and retain concav
   assert.equal(transferPathBlocked('G', { x: -.05, y: .5, z: .3 }, { x: .05, y: .5, z: .3 }, 0), false);
 });
 
-test('six filtered directions have finite values and bounded half-float texture storage', () => {
-  const grid = TRANSFER_GRIDS.A, count = grid.size.x * grid.size.y * grid.size.z;
-  const result = bakeTransfer({ room: 'A', side: 0 }, { room: 'G', side: 0 });
-  assert.equal(result.length, count * TRANSFER_AXES);
-  assert.ok(result.every(value => Number.isFinite(value) && value >= 0));
-  const x = Math.round(-grid.origin.x / TRANSFER_SPACING), z = Math.round((-4 - grid.origin.z) / TRANSFER_SPACING);
-  assert.ok(result[x + grid.size.x * grid.size.y * z + count * 2] > 0);
-  let bytes = 0;
-  for (const room of ROOM_IDS) {
-    const { origin, size } = TRANSFER_GRIDS[room], portal = portalPosition(room, 0);
-    assert.ok(portal.x >= origin.x && portal.x <= origin.x + (size.x - 1) * TRANSFER_SPACING);
-    assert.ok(portal.z >= origin.z && portal.z <= origin.z + (size.z - 1) * TRANSFER_SPACING);
-    bytes += size.x * size.y * size.z * TRANSFER_AXES * 2;
+test('one scalar per surface texel preserves aperture lighting with bounded 2D storage', () => {
+  const layout = bakingLayout('A'), samples = surfaceSamples(layout);
+  const result = bakeSurfaceTransfer({ room: 'A', side: 0 }, { room: 'G', side: 0 }, samples, layout.width * layout.height);
+  assert.equal(result.length, layout.width * layout.height);
+  assert.ok(result.every(value => Number.isFinite(value) && value >= 0)); assert.equal(result[0], 0);
+  const floor = Array.from(samples.texels).find(i => Math.abs(samples.positions[i * 3]) < .01 && Math.abs(samples.positions[i * 3 + 2] + 4) < .01 && samples.normals[i * 3 + 1] > .99)!;
+  assert.ok(result[floor] > .1);
+  const bytes = ROOM_IDS.reduce((sum, room) => sum + manifest.atlases[room][0] * manifest.atlases[room][1] * 2 * 2, 0);
+  assert.ok(bytes < 2 * 1024 * 1024, 'Both 2D buffers for all seven rooms fit within 2 MiB');
+});
+
+test('surface UVs are deterministic and floor/thresholds share a padded chart', () => {
+  const first = bakingLayout('A'), second = bakingLayout('A');
+  const signature = (layout: typeof first) => layout.charts.map(chart => ({ x: chart.x, y: chart.y, width: chart.width, height: chart.height, min: chart.min.toArray(), max: chart.max.toArray() }));
+  assert.deepEqual(signature(first), signature(second));
+  const floor = first.charts.find(chart => chart.triangles.some(triangle => triangle.mesh.name === 'floor'))!;
+  assert.ok(floor.triangles.some(triangle => triangle.mesh.name === 'threshold'));
+  assert.equal(new Set(floor.triangles.filter(triangle => triangle.mesh.name === 'threshold').map(triangle => triangle.mesh)).size, 4);
+  const uv = floor.triangles[0].mesh.geometry.getAttribute('transferUv');
+  for (let i = 0; i < uv.count; i++) { assert.ok(uv.getX(i) > 0 && uv.getX(i) < 1); assert.ok(uv.getY(i) > 0 && uv.getY(i) < 1); }
+  const curved = first.charts.filter(chart => chart.curvedMesh).map(chart => chart.curvedMesh!);
+  const balls = curved.filter(mesh => mesh.name === 'socket-ball'), bowls = curved.filter(mesh => mesh.name === 'socket-bowl');
+  for (const objects of [balls, bowls]) {
+    assert.ok(objects.length > 1);
+    assert.equal(objects[0].geometry.getAttribute('position'), objects[1].geometry.getAttribute('position'), 'Repeated shapes share vertex buffers');
+    assert.notEqual(objects[0].geometry.getAttribute('transferUv'), objects[1].geometry.getAttribute('transferUv'));
   }
-  assert.ok(bytes < 6 * 1024 * 1024, 'All seven cached lighting volumes fit within 6 MiB');
 });

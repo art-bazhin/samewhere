@@ -1,0 +1,37 @@
+{
+  "sourceHash": "9173064f1b880478d96568c727900461329bcf9fc21c6cf7f061a9becf9c080a",
+  "url": "lighting/transfer-9173064f1b880478.bin.gz",
+  "fields": 812,
+  "atlases": {
+    "A": [
+      256,
+      256
+    ],
+    "B": [
+      256,
+      128
+    ],
+    "C": [
+      256,
+      256
+    ],
+    "D": [
+      256,
+      256
+    ],
+    "E": [
+      256,
+      128
+    ],
+    "F": [
+      256,
+      256
+    ],
+    "G": [
+      256,
+      256
+    ]
+  },
+  "compressedBytes": 1420588,
+  "uncompressedBytes": 3562072
+}

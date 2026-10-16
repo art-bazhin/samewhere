@@ -1,22 +1,6 @@
 import { insideOutline } from './geometry';
 import { CEILING_LIGHT } from './lighting';
-import { DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomOutline, roomWalls, transformPoint, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
-
-// A small directional irradiance volume. Fine surface detail still comes from
-// the regular PBR lights; the transported diffuse component is softly filtered.
-export const TRANSFER_SPACING = .25;
-export const TRANSFER_AXES = 6;
-export interface TransferGrid { origin: { x: number; y: number; z: number }; size: { x: number; y: number; z: number } }
-export const TRANSFER_GRIDS = Object.fromEntries(ROOM_IDS.map(id => {
-  const outline = roomOutline(id), minX = Math.min(...outline.map(p => p.x)), minZ = Math.min(...outline.map(p => p.z));
-  const x = Math.floor(minX / TRANSFER_SPACING) * TRANSFER_SPACING - TRANSFER_SPACING;
-  const z = Math.floor(minZ / TRANSFER_SPACING) * TRANSFER_SPACING - TRANSFER_SPACING;
-  return [id, { origin: { x, y: 0, z }, size: {
-    x: Math.ceil((Math.max(...outline.map(p => p.x)) - x) / TRANSFER_SPACING) + 2,
-    y: Math.ceil(ROOM_HEIGHT / TRANSFER_SPACING) + 1,
-    z: Math.ceil((Math.max(...outline.map(p => p.z)) - z) / TRANSFER_SPACING) + 2,
-  } }];
-})) as Record<RoomId, TransferGrid>;
+import { DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_IDS, ROOMS, roomWalls, transformPoint, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
 
 interface Point extends Vec2 { y: number }
 const pedestalShapes = Object.fromEntries(ROOM_IDS.map(id => [id, ROOMS[id].pedestals.map(p => pedestalOutline(p.controls).map(v => ({ x: v.x + p.x, z: v.z + p.z })))])) as Record<RoomId, Vec2[][]>;
@@ -55,7 +39,7 @@ export function transferPathBlocked(room: RoomId, a: Point, b: Point, exit: numb
 }
 
 /** Direct diffuse transport from the source's lamps through exactly one passage. */
-function transferSampler(receiver: SocketRef, source: SocketRef) {
+export function createTransferSampler(receiver: SocketRef, source: SocketRef) {
   const n = wallNormal(receiver.room, receiver.side), distance = portalDistance(receiver.room, receiver.side), center = portalPosition(receiver.room, receiver.side);
   const cone = Math.cos(CEILING_LIGHT.angle), penumbra = Math.cos(CEILING_LIGHT.angle * (1 - CEILING_LIGHT.penumbra));
   const lamps = ROOMS[source.room].pedestals.map(lamp => ({ ...lamp, virtual: transformPoint(lamp, source, receiver) }));
@@ -96,20 +80,7 @@ function transferSampler(receiver: SocketRef, source: SocketRef) {
   };
 }
 
-export function transferAt(receiver: SocketRef, source: SocketRef, point: Point, result = new Float32Array(TRANSFER_AXES)) {
-  return transferSampler(receiver, source)(point, result);
+export function transferAt(receiver: SocketRef, source: SocketRef, point: Point, result = new Float32Array(6)) {
+  return createTransferSampler(receiver, source)(point, result);
 }
 
-export function bakeTransfer(receiver: SocketRef, source: SocketRef) {
-  const grid = TRANSFER_GRIDS[receiver.room], { x: nx, y: ny, z: nz } = grid.size;
-  const count = nx * ny * nz, values = new Float32Array(count * TRANSFER_AXES), sample = new Float32Array(TRANSFER_AXES);
-  const sampleTransfer = transferSampler(receiver, source);
-  const point = { x: 0, y: 0, z: 0 };
-  for (let z = 0; z < nz; z++) for (let y = 0; y < ny; y++) for (let x = 0; x < nx; x++) {
-    point.x = grid.origin.x + x * TRANSFER_SPACING; point.y = y * TRANSFER_SPACING; point.z = grid.origin.z + z * TRANSFER_SPACING;
-    sampleTransfer(point, sample);
-    const index = x + nx * (y + ny * z);
-    for (let axis = 0; axis < TRANSFER_AXES; axis++) values[index + axis * count] = sample[axis];
-  }
-  return values;
-}

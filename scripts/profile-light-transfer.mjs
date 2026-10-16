@@ -58,8 +58,8 @@ try {
               gpu: stats(gpu.filter(s => s.enabled).map(s => s.ms)), cpu: stats(samples.filter(s => s.enabled).map(s => s.cpu)),
               gpuAction: stats(gpu.filter(s => s.enabled && s.action).map(s => s.ms)),
               draws: stats(samples.filter(s => s.enabled).map(s => s.draws)), passes: stats(samples.filter(s => s.enabled).map(s => s.passes)),
-            }, newJobs: light.jobs - jobs, newPrograms: space.renderer.info.programs.length - programs, bakeMs: light.lastBakeMs,
-              volumeBytes: Object.values(light.fields).reduce((sum, field) => sum + field.buffers.reduce((sum, buffer) => sum + buffer.texture.image.data.byteLength, 0), 0), error: gl.getError() });
+            }, newJobs: light.jobs - jobs, newPrograms: space.renderer.info.programs.length - programs, loadMs: light.lastLoadMs,
+              lightmapBytes: Object.values(light.fields).reduce((sum, field) => sum + field.buffers.reduce((sum, buffer) => sum + buffer.texture.image.data.byteLength, 0), 0), error: gl.getError() });
           }
         };
       });

@@ -23,8 +23,8 @@ try {
       space.gpuTiming.begin = space.gpuTiming.end = () => {};
       const samples = [], pending = []; let frame = 0, previous = 0, crossing = -100, opening = -100;
       let uploads = 0;
-      const upload = gl.texSubImage3D.bind(gl);
-      gl.texSubImage3D = (...args) => { uploads++; return upload(...args); };
+      const upload = gl.texSubImage2D.bind(gl);
+      gl.texSubImage2D = (...args) => { uploads++; return upload(...args); };
       const programs = space.renderer.info.programs.length, targets = space.targetAllocations;
       const jobs = space.lightTransfer.jobs; let immediateLight = true;
       app.game.world.balls.forEach(ball => { ball.socket = null; });
@@ -71,11 +71,11 @@ try {
           if (query) { gl.endQuery(ext.TIME_ELAPSED_EXT); pending.push({ query, sample }); }
           previous = start;
           if (++frame === 460) {
-            space.render = render; space.gpuTiming.begin = begin; space.gpuTiming.end = end; gl.texSubImage3D = upload;
+            space.render = render; space.gpuTiming.begin = begin; space.gpuTiming.end = end; gl.texSubImage2D = upload;
             for (const { query } of pending) gl.deleteQuery(query);
             const report = list => ({ cpu: stats(list.map(s => s.cpu)), gpu: stats(list.flatMap(s => s.gpu === undefined ? [] : [s.gpu])), intervals: stats(list.map(s => s.interval)), draws: stats(list.map(s => s.draws)) });
             resolve({ reference, fullShadows, reconnect, noTransfer, noShadowUpdates, immediateLight, newLightJobs: space.lightTransfer.jobs - jobs,
-              bakeMs: space.lightTransfer.lastBakeMs, preparedBytes: space.lightTransfer.preparedBytes,
+              loadMs: space.lightTransfer.lastLoadMs, preparedBytes: space.lightTransfer.preparedBytes,
               canvas: [gl.drawingBufferWidth, gl.drawingBufferHeight], opening: report(samples.filter(s => s.opening)), events: samples.filter(s => s.event), openSteady: report(samples.filter(s => s.phase === 'open' && s.frame >= 80)), crossing: report(samples.filter(s => s.frame >= crossing - 3 && s.frame <= crossing + 3)),
               hub: report(samples.filter(s => s.phase === 'hub')), spikes: samples.filter(s => s.phase !== 'warmup' && (s.cpu > 4 || s.gpu > 17 || s.uploads || s.opening || s.crossing)),
               newPrograms: space.renderer.info.programs.length - programs, newTargets: space.targetAllocations - targets, error: gl.getError() });
