@@ -1,45 +1,97 @@
 import { test, expect } from '@playwright/test';
-import { fileURLToPath } from 'node:url';
-import manifest from '../../src/light-transfer-manifest.json' with { type: 'json' };
 
-test('each launch loads saved lighting without ray tracing', async ({ page }) => {
-  const errors: string[] = [], requests: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
-  page.on('request', request => { if (/\/lighting\/transfer-.*\.bin\.gz$/.test(request.url())) requests.push(request.url()); });
-  const launches = [];
-  for (let launch = 0; launch < 2; launch++) {
-    // Exercise both HTTP gzip (decoded by fetch) and a raw .gz file on a
-    // static host (decoded by the worker), across separate launches.
-    if (launch === 1) await page.route('**/lighting/transfer-*.bin.gz', route => route.fulfill({
-      path: fileURLToPath(new URL(`../../public/${manifest.url}`, import.meta.url)), contentType: 'application/gzip',
-    }));
-    await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
-    await page.evaluate(() => window.__samewhere.space.ready);
-    await expect(page.locator('#play-button')).toBeEnabled();
-    launches.push(await page.evaluate(() => {
-      const light = window.__samewhere.space.lightTransfer;
-      const buffers: any[] = Object.values(light.fields).flatMap((field: any) => field.buffers);
-      return { fields: light.cacheSize, jobs: light.jobs, loadMs: light.lastLoadMs, bytes: light.preparedBytes,
-        twoDimensional: buffers.every(buffer => buffer.texture.isDataTexture && !buffer.texture.isData3DTexture),
-        textureBytes: buffers.reduce((sum, buffer) => sum + buffer.texture.image.data.byteLength, 0) };
-    }));
-  }
-  console.log('Loading saved lighting:', launches);
-  for (const launch of launches) {
-    expect(launch.fields).toBe(812); expect(launch.jobs).toBe(0); expect(launch.loadMs).toBeGreaterThan(0);
-    expect(launch.bytes).toBeLessThan(4 * 1024 * 1024);
-    expect(launch.twoDimensional).toBe(true); expect(launch.textureBytes).toBe(1572864);
-  }
-  expect(requests).toHaveLength(2); expect(new Set(requests).size).toBe(1); expect(errors).toEqual([]);
+test('startup preparation keeps the displayed room visible without black frames', async ({ page }) => {
+  await page.addInitScript(() => {
+    const samples: { time: number; luma: number; preparing: boolean }[] = [];
+    Object.assign(window, { __startupFrames: samples });
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    (HTMLCanvasElement.prototype as any).getContext = function(this: HTMLCanvasElement, ...args: any[]) {
+      const gl = (getContext as any).apply(this, args);
+      if (this.id !== 'game' || args[0] !== 'webgl2' || !gl) return gl;
+      let pending = false;
+      const sample = () => {
+        if (pending || gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING) !== null) return;
+        pending = true;
+        // Observe the complete synchronous draw, before browser compositing can
+        // discard a non-preserved WebGL drawing buffer. Offscreen work is ignored.
+        queueMicrotask(() => {
+          pending = false;
+          const previous = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING), pixel = new Uint8Array(4);
+          gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+          let total = 0;
+          for (const x of [.2, .5, .8]) for (const y of [.25, .5, .75]) {
+            gl.readPixels(Math.floor(gl.drawingBufferWidth * x), Math.floor(gl.drawingBufferHeight * y), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+            total += pixel[0] + pixel[1] + pixel[2];
+          }
+          gl.bindFramebuffer(gl.READ_FRAMEBUFFER, previous);
+          samples.push({ time: performance.now(), luma: total / 27, preparing: !!window.__samewhere?.space?.compiling });
+        });
+      };
+      for (const name of ['clear', 'drawArrays', 'drawElements']) {
+        const original = gl[name].bind(gl);
+        gl[name] = (...parameters: any[]) => { const result = original(...parameters); sample(); return result; };
+      }
+      return gl;
+    };
+  });
+  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+  await page.evaluate(() => window.__samewhere.space.ready);
+  const result = await page.evaluate(() => {
+    const frames = (window as any).__startupFrames as { time: number; luma: number; preparing: boolean }[];
+    const firstVisible = frames.findIndex(frame => frame.luma > 5), visible = frames.slice(firstVisible);
+    return { frames: frames.length, firstVisible, preparingFrames: frames.filter(frame => frame.preparing).length,
+      black: visible.filter(frame => frame.luma < 1), last: frames.at(-1) };
+  });
+  console.log('Startup frame continuity:', result);
+  expect(result.firstVisible).toBeGreaterThanOrEqual(0); expect(result.preparingFrames).toBeGreaterThanOrEqual(5);
+  expect(result.black).toEqual([]); expect(result.last!.luma).toBeGreaterThan(5);
 });
 
-test('missing lighting data reports a startup error instead of silently recalculating', async ({ page }) => {
-  await page.route('**/lighting/transfer-*.bin.gz', route => route.fulfill({ status: 404, body: 'Not found' }));
+test('each launch computes all lighting in one worker without fetching an asset', async ({ page }) => {
+  const errors: string[] = [], requests: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => { if (/\/lighting\/|\.bin\.gz(?:\?|$)/.test(request.url())) requests.push(request.url()); });
+  const launches = [];
+  for (let launch = 0; launch < 2; launch++) {
+    await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+    await expect(page.locator('#play-button')).toBeDisabled();
+    const responsiveFrames = await page.evaluate(async () => {
+      const light = window.__samewhere.space.lightTransfer;
+      let frames = 0, pending = true;
+      const heartbeat = () => { if (pending) { frames++; requestAnimationFrame(heartbeat); } };
+      requestAnimationFrame(heartbeat);
+      await light.ready; pending = false; return frames;
+    });
+    await page.evaluate(() => window.__samewhere.space.ready);
+    await expect(page.locator('#play-button')).toBeEnabled();
+    launches.push({ responsiveFrames, ...await page.evaluate(() => {
+      const light = window.__samewhere.space.lightTransfer;
+      const buffers: any[] = Object.values(light.fields).flatMap((field: any) => field.buffers);
+      return { fields: light.cacheSize, jobs: light.jobs, bakeMs: light.lastBakeMs, bytes: light.preparedBytes,
+        twoDimensional: buffers.every(buffer => buffer.texture.isDataTexture && !buffer.texture.isData3DTexture),
+        textureBytes: buffers.reduce((sum, buffer) => sum + buffer.texture.image.data.byteLength, 0) };
+    }) });
+  }
+  console.log('Startup lighting calculation:', launches);
+  for (const launch of launches) {
+    expect(launch.fields).toBe(812); expect(launch.jobs).toBe(1); expect(launch.bakeMs).toBeGreaterThan(0);
+    expect(launch.responsiveFrames).toBeGreaterThan(0); expect(launch.bytes).toBeLessThan(4 * 1024 * 1024);
+    expect(launch.twoDimensional).toBe(true); expect(launch.textureBytes).toBe(1572864);
+  }
+  expect(requests).toEqual([]); expect(errors).toEqual([]);
+});
+
+test('a calculation failure reports an error and keeps entry disabled', async ({ page }) => {
+  await page.route(url => url.pathname.endsWith('/light-transfer-worker.ts') && url.searchParams.has('worker_file'),
+    route => route.fulfill({ contentType: 'text/javascript', body: "self.onmessage = () => self.postMessage({ error: 'Test lighting failure' });" }));
   await page.goto('/');
   await expect(page.locator('#error')).toBeVisible();
   await expect(page.locator('#error')).toContainText('Не удалось подготовить пространство');
   await expect(page.locator('#play-button')).toBeDisabled();
-  expect(await page.evaluate(() => window.__samewhere.space.lightTransfer.jobs)).toBe(0);
+  const result = await page.evaluate(() => {
+    const light = window.__samewhere.space.lightTransfer; return { jobs: light.jobs, fields: light.cacheSize };
+  });
+  expect(result).toEqual({ jobs: 1, fields: 0 });
 });
 
 test('neighbor light changes the receiving floor without extra render passes or walking-time updates', async ({ page }) => {
@@ -78,7 +130,7 @@ test('neighbor light changes the receiving floor without extra render passes or 
     await light.whenSettled(); app.undo(); await light.whenSettled(); light.bind('A');
     return { meanAdded: sum / on.length, changed, max, offPasses, onPasses, offDraws, onDraws, unchanged, unrelatedUnchanged, unconnectedGain, closedGain,
       restoredGain: light.uniforms.transferGain.value, maps: Object.values(space.rooms).reduce((sum: number, room: any) => sum + room.shadowLights.length, 0),
-      loadMs: light.lastLoadMs, cache: light.cacheSize, error: gl.getError() };
+      bakeMs: light.lastBakeMs, cache: light.cacheSize, error: gl.getError() };
   });
   console.log('Neighbor diffuse lighting:', result);
   expect(result.meanAdded).toBeGreaterThan(.05); expect(result.changed).toBeGreaterThan(1000); expect(result.max).toBeGreaterThan(4);

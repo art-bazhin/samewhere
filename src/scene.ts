@@ -124,6 +124,8 @@ export class SpaceRenderer {
         }
         await this.prepareRooms();
       } finally { this.renderer.setRenderTarget(previousTarget); this.compiling = false; }
+      // Entry becomes available only after a complete, final-lit main view.
+      this.render();
     });
   }
   private async prepareRooms() {
@@ -131,11 +133,11 @@ export class SpaceRenderer {
     // texture does not warm the driver's multisampled linear-light pipeline.
     const target = new THREE.WebGLRenderTarget(64, 64, { samples: this.portalSamples, resolveDepthBuffer: false }), camera = this.camera.clone();
     camera.position.set(0, EYE_HEIGHT, 0); camera.updateMatrixWorld(true);
-    this.clipPlane.setComponents(0, 1, 0, 1);
     try {
       for (const buffer of this.targets) { this.renderer.setRenderTarget(buffer); this.renderer.clear(); }
       for (const id of ROOM_IDS) {
         const room = this.rooms[id];
+        this.clipPlane.setComponents(0, 1, 0, 1);
         this.lightTransfer.bind(id);
         for (const buffer of this.lightTransfer.fields[id].buffers) this.renderer.initTexture(buffer.texture);
         this.renderer.setRenderTarget(target);
@@ -166,6 +168,10 @@ export class SpaceRenderer {
         for (const buffer of this.lightTransfer.fields[id].buffers) {
           buffer.texture.needsUpdate = true; this.renderer.initTexture(buffer.texture);
         }
+        // A non-preserved canvas loses the rest of its drawing buffer when a
+        // 64x64 warmup is presented. Restore the complete normal view in this
+        // same task, before yielding to the compositor or the loading UI.
+        this.renderFrame();
         // Let the loading UI paint and the GPU consume the previous room's work.
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
       }
@@ -401,6 +407,9 @@ export class SpaceRenderer {
   }
   render() {
     if (this.compiling) return;
+    this.renderFrame();
+  }
+  private renderFrame() {
     this.updateCamera(); this.passes = 0; this.portalPixels = 0; this.shadowPixels = 0; this.occludedPortals = 0; this.renderer.info.reset();
     this.gpuTiming.begin();
     try { this.renderRoom(this.game.player.room, this.camera, 0, FULL, null); this.preparePendingShadow(); }

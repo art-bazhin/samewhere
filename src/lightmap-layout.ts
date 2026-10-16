@@ -161,7 +161,7 @@ function* chartTriangles(chart: SurfaceChart): Generator<Triangle> {
   }
 }
 
-/** Reuse the exact room geometry for offline baking, without DOM or textures. */
+/** Reuse the exact room geometry for startup baking, without DOM or textures. */
 export function bakingLayout(room: RoomId) {
   const standard = new THREE.MeshStandardMaterial(), basic = new THREE.MeshBasicMaterial();
   const materials = { wall: standard, floor: standard, ceiling: standard, pedestal: standard, socket: standard,

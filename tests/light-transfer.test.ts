@@ -5,7 +5,6 @@ import { combineTransfers, compressTransfer } from '../src/light-transfer-cache'
 import { transferAt, transferPathBlocked } from '../src/light-transfer-sampling';
 import { bakingLayout, surfaceSamples } from '../src/lightmap-layout';
 import { bakeSurfaceTransfer } from '../src/surface-lightmap';
-import manifest from '../src/light-transfer-manifest.json';
 import { ROOM_IDS } from '../src/world';
 
 test('sparse prepared fields reproduce the original summed lighting bit for bit', () => {
@@ -56,7 +55,7 @@ test('one scalar per surface texel preserves aperture lighting with bounded 2D s
   assert.ok(result.every(value => Number.isFinite(value) && value >= 0)); assert.equal(result[0], 0);
   const floor = Array.from(samples.texels).find(i => Math.abs(samples.positions[i * 3]) < .01 && Math.abs(samples.positions[i * 3 + 2] + 4) < .01 && samples.normals[i * 3 + 1] > .99)!;
   assert.ok(result[floor] > .1);
-  const bytes = ROOM_IDS.reduce((sum, room) => sum + manifest.atlases[room][0] * manifest.atlases[room][1] * 2 * 2, 0);
+  const bytes = ROOM_IDS.reduce((sum, room) => { const atlas = bakingLayout(room); return sum + atlas.width * atlas.height * 2 * 2; }, 0);
   assert.ok(bytes < 2 * 1024 * 1024, 'Both 2D buffers for all seven rooms fit within 2 MiB');
 });
 

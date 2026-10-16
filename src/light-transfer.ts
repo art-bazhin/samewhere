@@ -3,13 +3,12 @@ import { CEILING_LIGHT } from './lighting';
 import { prepareSurfaceLayout } from './lightmap-layout';
 import { combineTransfers, type PreparedTransfer } from './light-transfer-cache';
 import { connections, ROOM_IDS, type RoomId, type WorldState } from './world';
-import type { TransferRequest, TransferResult } from './light-transfer-worker';
-import manifest from './light-transfer-manifest.json';
+import type { TransferResult } from './light-transfer-worker';
 
 interface FieldBuffer { texture: THREE.DataTexture; key: string }
 interface RoomField extends FieldBuffer { scratch: Float32Array; expected: string; buffers: FieldBuffer[] }
 
-/** Precomputed one-hop diffuse lighting; no additional lights or render passes. */
+/** Startup-baked one-hop diffuse lighting; no additional lights or render passes. */
 export class LightTransfer {
   enabled = true;
   readonly ready: Promise<void>;
@@ -19,8 +18,8 @@ export class LightTransfer {
     transferColor: { value: new THREE.Color(CEILING_LIGHT.color) }, transferGain: { value: 0 },
   };
   revision = 0;
-  readonly jobs = 0; // Runtime ray-tracing jobs: all connections ship with the game.
-  lastLoadMs = 0;
+  readonly jobs = 1; // One startup job; interactions never submit another bake.
+  lastBakeMs = 0;
   cacheSize = 0;
   preparedBytes = 0;
   private readonly prepared = new Map<string, PreparedTransfer>();
@@ -31,7 +30,6 @@ export class LightTransfer {
   constructor(rooms: Record<RoomId, { scene: THREE.Scene }>) {
     this.fields = Object.fromEntries(ROOM_IDS.map(room => {
       const layout = prepareSurfaceLayout(rooms[room].scene), { width, height } = layout;
-      if (width !== manifest.atlases[room][0] || height !== manifest.atlases[room][1]) throw new Error('Outdated surface lighting layout. Run npm run bake:lighting.');
       const buffers = Array.from({ length: 2 }, () => {
         const texture = new THREE.DataTexture(new Uint16Array(width * height), width, height, THREE.RedFormat, THREE.HalfFloatType);
         texture.minFilter = texture.magFilter = THREE.LinearFilter; texture.needsUpdate = true;
@@ -45,14 +43,19 @@ export class LightTransfer {
       this.worker.onmessage = ({ data }: MessageEvent<TransferResult>) => {
         this.worker.terminate();
         if ('error' in data) { reject(new Error(data.error)); return; }
-        this.lastLoadMs = data.elapsedMs; this.cacheSize = data.fields.length;
+        for (const room of ROOM_IDS) {
+          const image = this.fields[room].texture.image;
+          if (image.width !== data.atlases[room][0] || image.height !== data.atlases[room][1]) {
+            reject(new Error(`Lighting layout mismatch in room ${room}`)); return;
+          }
+        }
+        this.lastBakeMs = data.elapsedMs; this.cacheSize = data.fields.length;
         for (const field of data.fields) {
           this.prepared.set(field.key, field); this.preparedBytes += field.values.byteLength + field.runs.byteLength;
         }
         this.initialized = true; this.apply(); resolve();
       };
-      const request: TransferRequest = { url: new URL(import.meta.env.BASE_URL + manifest.url, document.baseURI).href, sourceHash: manifest.sourceHash };
-      this.worker.postMessage(request);
+      this.worker.postMessage(null);
     });
   }
   sync(world: WorldState) {

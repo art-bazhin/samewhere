@@ -75,7 +75,7 @@ try {
             for (const { query } of pending) gl.deleteQuery(query);
             const report = list => ({ cpu: stats(list.map(s => s.cpu)), gpu: stats(list.flatMap(s => s.gpu === undefined ? [] : [s.gpu])), intervals: stats(list.map(s => s.interval)), draws: stats(list.map(s => s.draws)) });
             resolve({ reference, fullShadows, reconnect, noTransfer, noShadowUpdates, immediateLight, newLightJobs: space.lightTransfer.jobs - jobs,
-              loadMs: space.lightTransfer.lastLoadMs, preparedBytes: space.lightTransfer.preparedBytes,
+              bakeMs: space.lightTransfer.lastBakeMs, preparedBytes: space.lightTransfer.preparedBytes,
               canvas: [gl.drawingBufferWidth, gl.drawingBufferHeight], opening: report(samples.filter(s => s.opening)), events: samples.filter(s => s.event), openSteady: report(samples.filter(s => s.phase === 'open' && s.frame >= 80)), crossing: report(samples.filter(s => s.frame >= crossing - 3 && s.frame <= crossing + 3)),
               hub: report(samples.filter(s => s.phase === 'hub')), spikes: samples.filter(s => s.phase !== 'warmup' && (s.cpu > 4 || s.gpu > 17 || s.uploads || s.opening || s.crossing)),
               newPrograms: space.renderer.info.programs.length - programs, newTargets: space.targetAllocations - targets, error: gl.getError() });

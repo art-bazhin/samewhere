@@ -208,7 +208,7 @@ function frame(time: number) {
 try {
   space = new SpaceRenderer(canvas, game); updateHUD(); requestAnimationFrame(frame);
   const playButton = $<HTMLButtonElement>('play-button'), playLabel = playButton.querySelector('span')!;
-  playButton.disabled = true; playLabel.textContent = 'Загрузка пространства…';
+  playButton.disabled = true; playLabel.textContent = 'Подготовка пространства…';
   void space.ready.then(() => { playButton.disabled = false; playLabel.textContent = 'Войти в пространство'; }).catch(error => {
     console.error(error); $('error').hidden = false; $('error').textContent = 'Не удалось подготовить пространство. Обновите страницу.';
   });

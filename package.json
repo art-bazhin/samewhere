@@ -4,10 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "bake:lighting": "node --import tsx scripts/bake-light-transfer.ts",
-    "predev": "npm run bake:lighting",
     "dev": "vite --host 127.0.0.1",
-    "prebuild": "npm run bake:lighting",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --import tsx --test tests/*.test.ts",
