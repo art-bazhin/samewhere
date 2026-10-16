@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GpuTiming } from './gpu-timing';
+import { RoomShadows } from './shadows';
 import { createMaterials, floorWithContacts, surfaceUV, type MaterialSet } from './materials';
 import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBILITY_END } from './visibility';
 import { offsetOutline } from './geometry';
@@ -55,7 +56,7 @@ function footprintShape(outline: Vec2[]) {
 
 interface Portal { side: number; mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; to: SocketRef | null; transform: THREE.Matrix4; normal: Vec2; center: Vec2; distance: number; receivingDistance: number }
 interface SocketVisual { ref: SocketRef; hit: THREE.Mesh; ball: THREE.Mesh }
-export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; walls: { solid: THREE.Group; open: THREE.Group }[]; shadowLights: THREE.SpotLight[] }
+export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; walls: { solid: THREE.Group; open: THREE.Group }[]; shadowLights: THREE.SpotLight[]; shadows: RoomShadows }
 
 function portalMaterial() {
   // Keep the aperture rasterizable while the eye is closer than the normal near
@@ -180,13 +181,31 @@ function createRoom(id: RoomId, materials: MaterialSet): RoomVisual {
   }
   for (const p of definition.pedestals) pedestal(scene, p.x, p.z, p.controls, sockets, blockers, materials);
   scene.updateMatrixWorld(true);
-  return { scene, portals, sockets, blockers, pickables: [], walls, shadowLights };
+  const shadows = new RoomShadows(scene, shadowLights, new Set([...walls.flatMap(w => [w.solid, w.open]), ...sockets.map(s => s.ball)]));
+  // Architecture, fixtures and socket positions never move. Visibility and ball
+  // color can change without recomputing hundreds of world matrices per view.
+  scene.traverse(object => { object.matrixAutoUpdate = false; });
+  return { scene, portals, sockets, blockers, pickables: [], walls, shadowLights, shadows };
 }
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number };
 const FULL: Rect = { minX: -1, minY: -1, maxX: 1, maxY: 1 };
 const TARGET_BLOCK = 128;
 const MIN_APERTURE_DISTANCE = 0.0001;
+const occluders = Object.fromEntries(ROOM_IDS.map(id => [id, roomWalls(id).map(wall => {
+  const dx = (wall.b.x - wall.a.x) / wall.width * DOOR_WIDTH / 2, dz = (wall.b.z - wall.a.z) / wall.width * DOOR_WIDTH / 2;
+  return { ...wall, left: { x: wall.center.x - dx, z: wall.center.z - dz }, right: { x: wall.center.x + dx, z: wall.center.z + dz } };
+})])) as Record<RoomId, (ReturnType<typeof roomWalls>[number] & { left: Vec2; right: Vec2 })[]>;
+
+function blockedRay(eye: Vec2, target: Vec2, a: Vec2, b: Vec2) {
+  const dx = target.x - eye.x, dz = target.z - eye.z, wx = b.x - a.x, wz = b.z - a.z;
+  const determinant = dx * wz - dz * wx;
+  if (Math.abs(determinant) < 1e-8) return false;
+  const ax = a.x - eye.x, az = a.z - eye.z;
+  const ray = (ax * wz - az * wx) / determinant, wall = (ax * dz - az * dx) / determinant;
+  // Leave grazing corners visible: a conservative test must never remove pixels.
+  return ray > .0001 && ray < .9999 && wall > .0001 && wall < .9999;
+}
 interface PortalView { portal: Portal; rect: Rect; image: THREE.WebGLRenderTarget | null; area: number }
 function clipDistance(point: THREE.Vector4, plane: number) {
   switch (plane) {
@@ -214,6 +233,7 @@ export class SpaceRenderer {
   hovered: SocketVisual | null = null;
   drawCalls = 0;
   portalPixels = 0;
+  occludedPortals = 0;
   readonly maxPasses = MAX_PASSES;
   readonly visibilityDistance = VISIBILITY_END;
   private readonly center = new THREE.Vector2();
@@ -225,6 +245,10 @@ export class SpaceRenderer {
   private readonly clipPointsA = Array.from({ length: 12 }, () => new THREE.Vector4());
   private readonly clipPointsB = Array.from({ length: 12 }, () => new THREE.Vector4());
   private readonly views: PortalView[][] = Array.from({ length: MAX_DEPTH + 2 }, () => []);
+  private readonly preparationScene = new THREE.Scene();
+  private readonly preparationLight = new THREE.SpotLight();
+  private readonly preparationTarget = new THREE.WebGLRenderTarget(1, 1);
+  private preparationRoom: RoomVisual | null = null;
   private compiling = false;
   constructor(public canvas: HTMLCanvasElement, public game: Game) {
     // Create the context explicitly: this Three.js release requests alpha:true
@@ -244,6 +268,14 @@ export class SpaceRenderer {
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.assets = createMaterials(this.renderer);
     this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials)])) as Record<RoomId, RoomVisual>;
+    const shadowScenes = new Map(Object.values(this.rooms).map(room => [room.scene, room.shadows.scene]));
+    const renderShadows = this.renderer.shadowMap.render.bind(this.renderer.shadowMap);
+    // Three's shadow pass accepts a separate scene. Use the prebatched exact
+    // casters, while the regular pass and ray picking retain the original meshes.
+    this.renderer.shadowMap.render = (lights, scene, camera) => renderShadows(lights,
+      scene === this.preparationScene ? this.preparationRoom!.shadows.scene : shadowScenes.get(scene) ?? scene, camera);
+    this.preparationLight.castShadow = true;
+    this.preparationScene.add(this.preparationLight, this.preparationLight.target);
     this.resize(); this.sync();
     this.ready = this.assets.ready.then(async () => {
       // Initialize clipping/shadows, then compile each room's light count while
@@ -257,8 +289,51 @@ export class SpaceRenderer {
           this.renderer.setRenderTarget(target);
           for (const id of ROOM_IDS) await this.renderer.compileAsync(this.rooms[id].scene, this.camera);
         }
+        await this.prepareRooms();
       } finally { this.renderer.setRenderTarget(previousTarget); this.compiling = false; }
     });
+  }
+  private async prepareRooms() {
+    const target = new THREE.WebGLRenderTarget(64, 64), camera = this.camera.clone();
+    camera.position.set(0, EYE_HEIGHT, 0); camera.updateMatrixWorld(true);
+    this.clipPlane.setComponents(0, 1, 0, 1);
+    try {
+      for (const buffer of this.targets) { this.renderer.setRenderTarget(buffer); this.renderer.clear(); }
+      for (const id of ROOM_IDS) {
+        const room = this.rooms[id];
+        this.renderer.setRenderTarget(target);
+        // Allocate and calculate every room's shadow maps before enabling play.
+        this.renderer.render(room.scene, camera);
+        const originals: { object: THREE.Object3D; visible: boolean; culled: boolean }[] = [];
+        room.scene.traverse(object => {
+          originals.push({ object, visible: object.visible, culled: object.frustumCulled });
+          object.visible = true; object.frustumCulled = false;
+        });
+        try {
+          // Upload both wall variants and currently empty sockets too. A first
+          // visit or placement must not trigger a geometry/texture upload.
+          this.renderer.render(room.scene, camera);
+        } finally {
+          for (const { object, visible, culled } of originals) { object.visible = visible; object.frustumCulled = culled; }
+        }
+        // Let the loading UI paint and the GPU consume the previous room's work.
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      }
+      // Complete uploads and the initial shadows before play, without a blocking
+      // gl.finish/readback on the UI thread.
+      const gl = this.renderer.getContext() as WebGL2RenderingContext, fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      if (fence) {
+        gl.flush();
+        try {
+          let status = gl.clientWaitSync(fence, 0, 0);
+          while (status === gl.TIMEOUT_EXPIRED) {
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            status = gl.clientWaitSync(fence, 0, 0);
+          }
+          if (status === gl.WAIT_FAILED) throw new Error('GPU preparation failed');
+        } finally { gl.deleteSync(fence); }
+      }
+    } finally { target.dispose(); }
   }
   resize() {
     this.width = innerWidth; this.height = innerHeight;
@@ -305,7 +380,6 @@ export class SpaceRenderer {
     const materials = this.assets.materials;
     for (const id of ROOM_IDS) {
       const room = this.rooms[id];
-      for (const light of room.shadowLights) light.shadow.needsUpdate = true;
       for (let side = 0; side < ROOMS[id].sides; side++) {
         const portal = room.portals[side];
         portal.to = destination(world, { room: id, side });
@@ -323,13 +397,13 @@ export class SpaceRenderer {
         const ball = ballAt(world, socket.ref); socket.ball.visible = !!ball;
         if (ball) socket.ball.material = materials[ball.color];
       }
+      room.shadows.sync();
       room.pickables.length = 0;
       for (const object of [...room.blockers, ...room.sockets.flatMap(s => [s.hit, s.ball])]) {
         let visible = true;
         for (let parent: THREE.Object3D | null = object; parent; parent = parent.parent) if (!parent.visible) { visible = false; break; }
         if (visible) room.pickables.push(object);
       }
-      room.scene.updateMatrixWorld(true);
     }
   }
   updateCamera() {
@@ -388,6 +462,21 @@ export class SpaceRenderer {
     this.matrix.multiplyMatrices(portal.transform, camera.matrixWorld).decompose(child.position, child.quaternion, child.scale); child.updateMatrixWorld(true);
     return child;
   }
+  private portalOccluded(id: RoomId, portal: Portal, camera: THREE.PerspectiveCamera, incoming?: number) {
+    const eye = { x: camera.position.x, z: camera.position.z }, n = portal.normal, center = portal.center;
+    const left = { x: center.x + n.z * DOOR_WIDTH / 2, z: center.z - n.x * DOOR_WIDTH / 2 };
+    const right = { x: center.x - n.z * DOOR_WIDTH / 2, z: center.z + n.x * DOOR_WIDTH / 2 };
+    const blocks = (a: Vec2, b: Vec2) => blockedRay(eye, left, a, b) && blockedRay(eye, right, a, b);
+    for (const wall of occluders[id]) {
+      if (wall.portal !== null && (wall.portal === portal.side || wall.portal === incoming)) continue;
+      // Both horizontal aperture edges must be behind the same floor-to-ceiling
+      // wall segment. Open passages contribute only their opaque jambs.
+      if (wall.portal !== null && this.rooms[id].portals[wall.portal].to) {
+        if (blocks(wall.a, wall.left) || blocks(wall.right, wall.b)) return true;
+      } else if (blocks(wall.a, wall.b)) return true;
+    }
+    return false;
+  }
   private renderRoom(id: RoomId, camera: THREE.PerspectiveCamera, depth: number, clip: Rect, target: THREE.WebGLRenderTarget | null, incoming?: number, hops = 0) {
     const room = this.rooms[id];
     const views = this.views[depth]; let count = 0;
@@ -395,6 +484,7 @@ export class SpaceRenderer {
       if (!portal.to || portal.side === incoming) continue;
       const view = views[count] ??= { portal, rect: { ...FULL }, image: null, area: 0 };
       if (!this.portalRect(portal, camera, clip, view.rect)) continue;
+      if (this.portalOccluded(id, portal, camera, incoming)) { this.occludedPortals++; continue; }
       view.portal = portal; view.image = null; view.area = (view.rect.maxX - view.rect.minX) * (view.rect.maxY - view.rect.minY); count++;
     }
     // At most five candidates; sort only the live prefix without allocating arrays.
@@ -440,18 +530,37 @@ export class SpaceRenderer {
     this.renderer.setRenderTarget(target);
     this.renderer.render(room.scene, camera);
   }
+  private preparePendingShadow() {
+    // Visible rooms have already updated their shadows. Prepare at most one
+    // remaining map per frame, so walking to a changed room does not defer all
+    // its shadow work until the first visible frame.
+    for (const id of ROOM_IDS) {
+      const room = this.rooms[id], light = room.shadowLights.find(light => light.shadow.needsUpdate);
+      if (!light) continue;
+      const proxy = this.preparationLight;
+      proxy.position.copy(light.position); proxy.target.position.copy(light.target.position);
+      proxy.angle = light.angle; proxy.distance = light.distance; proxy.shadow = light.shadow;
+      this.preparationRoom = room;
+      this.renderer.setRenderTarget(this.preparationTarget);
+      try { this.renderer.render(this.preparationScene, this.camera); }
+      finally { this.renderer.setRenderTarget(null); this.preparationRoom = null; }
+      return;
+    }
+  }
   render() {
     if (this.compiling) return;
-    this.updateCamera(); this.passes = 0; this.portalPixels = 0; this.renderer.info.reset();
+    this.updateCamera(); this.passes = 0; this.portalPixels = 0; this.occludedPortals = 0; this.renderer.info.reset();
     this.gpuTiming.begin();
-    try { this.renderRoom(this.game.player.room, this.camera, 0, FULL, null); }
+    try { this.renderRoom(this.game.player.room, this.camera, 0, FULL, null); this.preparePendingShadow(); }
     finally { this.gpuTiming.end(); }
     this.drawCalls = this.renderer.info.render.calls; this.passes++;
   }
   dispose() {
     this.gpuTiming.dispose();
     for (const target of this.targets) target.dispose();
+    this.preparationTarget.dispose();
     for (const room of Object.values(this.rooms)) for (const light of room.shadowLights) light.shadow.dispose();
+    for (const room of Object.values(this.rooms)) room.shadows.dispose();
     const geometries = new Set<THREE.BufferGeometry>(), mats = new Set<THREE.Material>();
     for (const room of Object.values(this.rooms)) room.scene.traverse(object => {
       if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Sprite) {

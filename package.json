@@ -10,7 +10,8 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "test:browser": "playwright test",
     "profile": "node scripts/profile-turns.mjs",
-    "profile:pacing": "node scripts/profile-pacing.mjs"
+    "profile:pacing": "node scripts/profile-pacing.mjs",
+    "profile:interactions": "node scripts/profile-interactions.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"
