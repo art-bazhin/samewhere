@@ -47,6 +47,9 @@ export function prepareSurfaceLayout(scene: THREE.Scene): SurfaceLayout {
       const normals = vertices.map(i => new THREE.Vector3().fromBufferAttribute(normal, i).applyMatrix3(normalMatrix).normalize());
       // Ceiling lamps cannot send light upward through the lower aperture.
       if (positions.every(p => p.y > DOOR_HEIGHT) || normals.every(n => n.y < -.999)) continue;
+      // The 2 mm edge rounds use the live lights/environment. Giving every tiny
+      // bevel facet an independent diffuse chart would waste atlas space.
+      if (mesh.name === 'pedestal-body' && normals.some(n => Math.abs(n.y) > .001 && Math.abs(n.y) < .999)) continue;
       // These five-millimeter inner lips are below the diffuse model's scale;
       // its solid pedestal occluders would suppress their contribution anyway.
       if (mesh.name === 'pedestal-body' && normals.every(n => Math.abs(n.y) < .01) &&
@@ -164,7 +167,7 @@ function* chartTriangles(chart: SurfaceChart): Generator<Triangle> {
 /** Reuse the exact room geometry for startup baking, without DOM or textures. */
 export function bakingLayout(room: RoomId) {
   const standard = new THREE.MeshStandardMaterial(), basic = new THREE.MeshBasicMaterial();
-  const materials = { wall: standard, floor: standard, ceiling: standard, pedestal: standard, socket: standard,
+  const materials = { wall: standard, floor: new THREE.MeshPhysicalMaterial(), ceiling: standard, pedestal: standard, socket: standard,
     red: standard, blue: standard, lampFrame: standard, hit: basic, lamp: basic };
   return prepareSurfaceLayout(createRoom(room, materials, { value: true }).scene);
 }

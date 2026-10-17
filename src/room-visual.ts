@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoomShadows } from './shadows';
-import { CEILING_LIGHT } from './lighting';
+import { CEILING_LIGHT, SPOT_LIGHT_SHARE } from './lighting';
 import { floorWithContacts, surfaceUV, type MaterialSet } from './materials';
 import { offsetOutline } from './geometry';
 import { CEILING_TILE_SIZE, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
@@ -87,6 +87,7 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
   const group = new THREE.Group(); group.position.set(x, 0, z); parent.add(group);
   const sides = ROOMS[controls].sides;
   const shape = footprintShape(pedestalOutline(controls));
+  const bevel = .002, curveSegments = 24;
   const centers = Array.from({ length: sides }, (_, side) => socketPosition(controls, side));
   for (let side = 0; side < sides; side++) {
     const p = centers[side], hole = new THREE.Path();
@@ -94,8 +95,10 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
     shape.holes.push(hole);
   }
   // Keep a short vertical lip above each recessed bowl, with no gap between them.
-  const geometry = new THREE.ExtrudeGeometry(shape, { depth: PEDESTAL_HEIGHT + .006, bevelEnabled: false, steps: 1, curveSegments: 24 });
-  geometry.rotateX(-Math.PI / 2); geometry.translate(0, -.006, 0);
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth: PEDESTAL_HEIGHT + .006 - bevel * 2, bevelEnabled: true,
+    bevelThickness: bevel, bevelSize: bevel, bevelOffset: -bevel, bevelSegments: 2, steps: 1, curveSegments });
+  // Round only 2 mm at the edges while retaining the exact floor/top heights.
+  geometry.rotateX(-Math.PI / 2); geometry.translate(0, -.006 + bevel, 0);
   const positions = geometry.getAttribute('position'), normals = geometry.getAttribute('normal');
   for (let i = 0; i < positions.count; i++) {
     const bore = Math.abs(normals.getY(i)) < .1 && centers.some(p => Math.hypot(positions.getX(i) - p.x, positions.getZ(i) - p.z) < SOCKET_OPENING + .001);
@@ -115,13 +118,14 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
   }
 }
 
-export function createRoom(id: RoomId, materials: MaterialSet, optimizations: THREE.IUniform<boolean>): RoomVisual {
+export function createRoom(id: RoomId, materials: MaterialSet, optimizations: THREE.IUniform<boolean>, environment?: THREE.Texture): RoomVisual {
   const definition = ROOMS[id], scene = new THREE.Scene();
   scene.background = new THREE.Color(PALETTE.background);
-  scene.add(new THREE.HemisphereLight(0xfff8df, 0xc2a568, 1), new THREE.AmbientLight(0xfff6dd, 0.12));
+  scene.environment = environment ?? null; scene.environmentIntensity = .2;
+  scene.add(new THREE.HemisphereLight(0xfff8df, 0xc2a568, .5), new THREE.AmbientLight(0xfff6dd, .04));
   const shadowLights: THREE.SpotLight[] = [];
   for (const { x, z } of definition.pedestals) {
-    const light = new THREE.SpotLight(CEILING_LIGHT.color, CEILING_LIGHT.intensity, CEILING_LIGHT.distance, CEILING_LIGHT.angle, CEILING_LIGHT.penumbra, 2);
+    const light = new THREE.SpotLight(CEILING_LIGHT.color, CEILING_LIGHT.intensity * SPOT_LIGHT_SHARE, CEILING_LIGHT.distance, CEILING_LIGHT.angle, CEILING_LIGHT.penumbra, 2);
     light.position.set(x, CEILING_LIGHT.height, z); light.target.position.set(x, 0, z);
     light.castShadow = true; light.shadow.mapSize.set(1024, 1024);
     light.shadow.camera.near = 0.1; light.shadow.camera.far = 18;

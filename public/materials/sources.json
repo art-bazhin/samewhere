@@ -22,5 +22,45 @@
       "meters_per_tile": 0.6,
       "source": "Procedural canvas texture in src/materials.ts"
     }
-  ]
+  ],
+  "rendering": {
+    "style_preserved": "Original Backrooms wallpaper and carpet, original warm palette and physical scale",
+    "normal_maps": {
+      "source": "Estimated from fine Sobel gradients of the existing albedo in src/material-detail.ts",
+      "resolution": [
+        1024,
+        1024
+      ],
+      "wallpaper_relief_meters": 0.00065,
+      "carpet_relief_meters": 0.003,
+      "color_space": "linear",
+      "wrapping": "Mirrored repeat with corrected tangent normal signs"
+    },
+    "roughness_maps": {
+      "source": "Estimated from existing albedo at startup",
+      "resolution": [
+        512,
+        512
+      ],
+      "color_space": "linear"
+    },
+    "carpet_finish": "MeshPhysicalMaterial sheen 0.25, sheen roughness 0.95; contact shading includes the sheen contribution",
+    "painted_pedestals": "Original beige color, fine procedural matte paint, 2 mm inward edge rounds, original dimensions retained",
+    "lamp_diffuser": "Procedural 512² opal/prismatic diffuser within the existing ceiling fixture",
+    "panel_light": "9 probes per existing 55 cm panel; 55% static diffuse plus 45% live spotlight contribution",
+    "bounce_light": "One coarse Lambertian reflection from floor and walls, with room/pedestal visibility; mean material colors",
+    "room_lightmaps": {
+      "format": "RGBA16F",
+      "count": 7,
+      "gpu_bytes": 3145728,
+      "channels": [
+        "static panel irradiance",
+        "reflected red",
+        "reflected green",
+        "reflected blue"
+      ],
+      "calculation": "At startup in the existing lighting worker; no per-frame bake"
+    },
+    "environment": "Shared PMREM, 128-pixel cube faces; soft warm reflections prepared once in src/room-environment.ts"
+  }
 }

@@ -1,33 +1,43 @@
 import * as THREE from 'three';
 import { CEILING_TILE_SIZE, pedestalOutline, PEDESTAL_APOTHEM, ROOM_HEIGHT, ROOMS, wallNormal, type PedestalDefinition } from './world';
 import { withDistanceFade } from './visibility';
+import { materialDetail, mirroredNormals } from './material-detail';
+import { createRoomEnvironment } from './room-environment';
 
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
 export function createMaterials(renderer: THREE.WebGLRenderer) {
   const optimizations = { value: true };
   const loader = new THREE.TextureLoader(), textures = new Set<THREE.Texture>(), pending: Promise<unknown>[] = [];
   const anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
-  function texture(name: string, metersPerTile: number) {
+  function texture(name: string, metersPerTile: number, relief: number, roughness: [number, number]) {
+    const detail = materialDetail(metersPerTile, relief, roughness, anisotropy);
+    textures.add(detail.normal); textures.add(detail.roughness);
     let result!: THREE.Texture;
     pending.push(new Promise((resolve, reject) => {
-      result = loader.load(`/materials/${name}.png`, resolve, undefined, reject);
+      result = loader.load(`/materials/${name}.png`, loaded => {
+        detail.update(loaded.image as HTMLImageElement); resolve(loaded);
+      }, undefined, reject);
     }));
     result.wrapS = result.wrapT = THREE.MirroredRepeatWrapping; result.anisotropy = anisotropy;
     result.repeat.setScalar(2 / metersPerTile); result.colorSpace = THREE.SRGBColorSpace;
-    textures.add(result); return result;
+    textures.add(result); return { color: result, ...detail };
   }
-  const wallpaper = texture('backrooms-wallpaper-color', 1.2), carpet = texture('backrooms-carpet-color', 1);
+  const wallpaper = texture('backrooms-wallpaper-color', 1.2, .00065, [.74, .96]), carpet = texture('backrooms-carpet-color', 1, .003, [.9, 1]);
   const ceiling = ceilingTile(); ceiling.anisotropy = anisotropy; textures.add(ceiling);
+  const diffuser = lampDiffuser(); textures.add(diffuser);
+  const paint = paintFinish(); textures.add(paint);
+  const environment = createRoomEnvironment(renderer, diffuser);
   const materials = {
-    wall: new THREE.MeshStandardMaterial({ map: wallpaper, bumpMap: wallpaper, bumpScale: 0.0015, roughness: 0.94 }),
-    floor: new THREE.MeshStandardMaterial({ map: carpet, bumpMap: carpet, bumpScale: 0.008, roughness: 1 }),
+    wall: new THREE.MeshStandardMaterial({ map: wallpaper.color, normalMap: wallpaper.normal, roughnessMap: wallpaper.roughness, roughness: 1 }),
+    floor: new THREE.MeshPhysicalMaterial({ map: carpet.color, normalMap: carpet.normal, roughnessMap: carpet.roughness, roughness: 1,
+      sheen: .25, sheenColor: 0xd8c69f, sheenRoughness: .95 }),
     ceiling: new THREE.MeshStandardMaterial({ map: ceiling, bumpMap: ceiling, bumpScale: 0.002, emissive: 0x3f3b28, roughness: 1, side: THREE.BackSide }),
-    pedestal: new THREE.MeshStandardMaterial({ color: 0xcdbb86, roughness: 0.87 }),
-    socket: new THREE.MeshStandardMaterial({ color: 0xcdbb86, roughness: 0.87, vertexColors: true }),
+    pedestal: new THREE.MeshStandardMaterial({ color: 0xcdbb86, map: paint, bumpMap: paint, bumpScale: .00015, roughness: .87 }),
+    socket: new THREE.MeshStandardMaterial({ color: 0xcdbb86, map: paint, bumpMap: paint, bumpScale: .00015, roughness: .87, vertexColors: true }),
     hit: new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }),
     red: new THREE.MeshStandardMaterial({ color: 0xc92530, roughness: 0.4, metalness: 0.02 }),
     blue: new THREE.MeshStandardMaterial({ color: 0x2466c9, roughness: 0.4, metalness: 0.02 }),
-    lamp: new THREE.MeshBasicMaterial({ color: 0xfffbd6 }),
+    lamp: new THREE.MeshBasicMaterial({ color: 0xfffbd6, map: diffuser }),
     lampFrame: new THREE.MeshStandardMaterial({ color: 0xd6cda6, roughness: 0.8 }),
   };
   // A small baked-contact approximation at wall/floor and wall/ceiling joins.
@@ -40,6 +50,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
     shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
       float contact = exp(-max(surfaceHeight, 0.) * 7.) + exp(-max(${ROOM_HEIGHT.toFixed(4)} - surfaceHeight, 0.) * 6.);
       reflectedLight.indirectDiffuse *= 1. - .24 * contact;
+      reflectedLight.indirectSpecular *= 1. - .3 * contact;
       reflectedLight.directDiffuse *= 1. - .12 * contact;`);
   };
   materials.wall.customProgramCacheKey = () => 'wall-contact';
@@ -50,11 +61,13 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
     shader.fragmentShader = 'varying float baseHeight;\n' + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
       float baseContact = 1. - .3 * exp(-max(baseHeight, 0.) * 35.);
-      reflectedLight.indirectDiffuse *= baseContact; reflectedLight.directDiffuse *= baseContact;`);
+      reflectedLight.indirectDiffuse *= baseContact; reflectedLight.directDiffuse *= baseContact;
+      reflectedLight.indirectSpecular *= baseContact;`);
   };
   materials.pedestal.customProgramCacheKey = () => 'pedestal-contact';
+  mirroredNormals(materials.wall); mirroredNormals(materials.floor);
   for (const material of Object.values(materials)) withDistanceFade(material);
-  return { materials, textures, optimizations, ready: Promise.all(pending).then(() => {}) };
+  return { materials, textures, environment, optimizations, ready: Promise.all(pending).then(() => {}) };
 }
 export type MaterialSet = ReturnType<typeof createMaterials>['materials'];
 
@@ -120,10 +133,41 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
     shader.fragmentShader = 'varying vec2 contactPosition; uniform bool boundedContacts;\n' + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
       float shade = 1.; ${contacts}
-      reflectedLight.indirectDiffuse *= shade; reflectedLight.directDiffuse *= shade;`);
+      reflectedLight.indirectDiffuse *= shade; reflectedLight.directDiffuse *= shade;
+      reflectedLight.indirectSpecular *= shade;
+      #ifdef USE_SHEEN
+        sheenSpecularIndirect *= shade; sheenSpecularDirect *= shade;
+      #endif`);
   };
   material.customProgramCacheKey = () => `floor-contacts:${contacts}`;
-  return withDistanceFade(material);
+  return withDistanceFade(mirroredNormals(material));
+}
+
+/** Fine matte paint; the original beige plinth color stays the same. */
+function paintFinish() {
+  const pixels = new Uint8Array(256 * 256 * 4); let seed = 27931;
+  for (let i = 0; i < pixels.length; i += 4) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    pixels[i] = pixels[i + 1] = pixels[i + 2] = 250 + Math.round(seed / 4294967296 * 5); pixels[i + 3] = 255;
+  }
+  const map = new THREE.DataTexture(pixels, 256, 256); map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = map.wrapT = THREE.RepeatWrapping; map.repeat.setScalar(2 / .128);
+  map.minFilter = THREE.LinearMipmapLinearFilter; map.magFilter = THREE.LinearFilter; map.generateMipmaps = true; map.needsUpdate = true; return map;
+}
+
+/** Subtle tubes behind an opal diffuser, entirely inside the existing light tile. */
+function lampDiffuser() {
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 512;
+  const context = canvas.getContext('2d')!, pixels = context.createImageData(512, 512);
+  for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) {
+    const u = (x + .5) / 512, v = (y + .5) / 512;
+    const tubes = Math.exp(-(((u - .27) / .16) ** 2)) + Math.exp(-(((u - .73) / .16) ** 2));
+    const end = Math.min(1, Math.min(v, 1 - v) / .08), prism = (x % 4 === 0 || y % 4 === 0) ? -.8 : .2;
+    const value = 230 + 19 * tubes * end + prism, i = (y * 512 + x) * 4;
+    pixels.data[i] = pixels.data[i + 1] = pixels.data[i + 2] = value; pixels.data[i + 3] = 255;
+  }
+  context.putImageData(pixels, 0, 0);
+  const map = new THREE.CanvasTexture(canvas); map.colorSpace = THREE.SRGBColorSpace; return map;
 }
 
 /** A 60 cm acoustic tile with a flat T-grid; no extra wall or ceiling geometry. */

@@ -6,7 +6,7 @@ import { connections, ROOM_IDS, type RoomId, type WorldState } from './world';
 import type { TransferResult } from './light-transfer-worker';
 
 interface FieldBuffer { texture: THREE.DataTexture; key: string }
-interface RoomField extends FieldBuffer { scratch: Float32Array; expected: string; buffers: FieldBuffer[] }
+interface RoomField extends FieldBuffer { scratch: Float32Array; expected: string; buffers: FieldBuffer[]; panel: THREE.DataTexture }
 
 /** Startup-baked one-hop diffuse lighting; no additional lights or render passes. */
 export class LightTransfer {
@@ -16,6 +16,7 @@ export class LightTransfer {
   readonly uniforms = {
     transferredLight: { value: null as THREE.DataTexture | null },
     transferColor: { value: new THREE.Color(CEILING_LIGHT.color) }, transferGain: { value: 0 },
+    panelLight: { value: null as THREE.DataTexture | null },
   };
   revision = 0;
   readonly jobs = 1; // One startup job; interactions never submit another bake.
@@ -35,9 +36,12 @@ export class LightTransfer {
         texture.minFilter = texture.magFilter = THREE.LinearFilter; texture.needsUpdate = true;
         return { texture, key: '' };
       });
-      return [room, { ...buffers[0], buffers, scratch: new Float32Array(width * height), expected: '' }];
+      const panel = new THREE.DataTexture(new Uint16Array(width * height * 4), width, height, THREE.RGBAFormat, THREE.HalfFloatType);
+      panel.minFilter = panel.magFilter = THREE.LinearFilter; panel.needsUpdate = true;
+      return [room, { ...buffers[0], buffers, scratch: new Float32Array(width * height), expected: '', panel }];
     })) as Record<RoomId, RoomField>;
     this.uniforms.transferredLight.value = this.fields.A.texture;
+    this.uniforms.panelLight.value = this.fields.A.panel;
     this.ready = new Promise<void>((resolve, reject) => {
       this.worker.onerror = event => { this.worker.terminate(); reject(new Error(event.message)); };
       this.worker.onmessage = ({ data }: MessageEvent<TransferResult>) => {
@@ -48,6 +52,7 @@ export class LightTransfer {
           if (image.width !== data.atlases[room][0] || image.height !== data.atlases[room][1]) {
             reject(new Error(`Lighting layout mismatch in room ${room}`)); return;
           }
+          this.fields[room].panel.image.data = data.panels[room]; this.fields[room].panel.needsUpdate = true;
         }
         this.lastBakeMs = data.elapsedMs; this.cacheSize = data.fields.length;
         for (const field of data.fields) {
@@ -91,6 +96,7 @@ export class LightTransfer {
   bind(room: RoomId, preparing = false) {
     const field = this.fields[room];
     this.uniforms.transferredLight.value = field.texture;
+    this.uniforms.panelLight.value = field.panel;
     this.uniforms.transferGain.value = preparing || this.enabled && !!field.key ? 1 : 0;
   }
   install(material: THREE.MeshStandardMaterial) {
@@ -101,8 +107,11 @@ export class LightTransfer {
       shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
         vTransferUv = transferUv;`);
       shader.fragmentShader = `varying vec2 vTransferUv;
-        uniform sampler2D transferredLight; uniform vec3 transferColor; uniform float transferGain;\n` + shader.fragmentShader;
+        uniform sampler2D transferredLight; uniform vec3 transferColor; uniform float transferGain;
+        uniform sampler2D panelLight;\n` + shader.fragmentShader;
       shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `
+        vec4 roomLight = texture2D(panelLight, vTransferUv);
+        reflectedLight.directDiffuse += (roomLight.r * transferColor + roomLight.gba) * BRDF_Lambert(material.diffuseColor);
         if (transferGain > 0.) {
           float transported = texture2D(transferredLight, vTransferUv).r;
           reflectedLight.directDiffuse += transferGain * transported * transferColor * BRDF_Lambert(material.diffuseColor);
@@ -111,5 +120,8 @@ export class LightTransfer {
     };
     material.customProgramCacheKey = () => `${key}:neighbor-surface-lightmap`;
   }
-  dispose() { this.worker.terminate(); this.prepared.clear(); for (const field of Object.values(this.fields)) for (const buffer of field.buffers) buffer.texture.dispose(); }
+  dispose() {
+    this.worker.terminate(); this.prepared.clear();
+    for (const field of Object.values(this.fields)) { field.panel.dispose(); for (const buffer of field.buffers) buffer.texture.dispose(); }
+  }
 }

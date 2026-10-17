@@ -197,9 +197,8 @@ test('textured architecture loads locally and paired wall halves form a 30 cm pa
       });
     }
     const materials = space.assets.materials;
-    const maps = ['wall', 'floor', 'ceiling'].flatMap(key => ['map', 'bumpMap'].map(map => {
-      const texture = materials[key][map]; return [texture.image.width, texture.image.height];
-    }));
+    const maps = ['wall', 'floor', 'ceiling'].flatMap(key => [materials[key].map, materials[key].normalMap ?? materials[key].bumpMap]
+      .map(texture => [texture.image.width, texture.image.height]));
     space.render();
     return { depths, ceilingBounds, maps, lines, shadows: space.rooms.A.shadowLights.map((light: any) => light.shadow.map.width), glError: space.renderer.getContext().getError() };
   });
@@ -285,7 +284,7 @@ test('wallpaper stays fixed when passages open, close, and reopen on every wall'
           const hit = ray.intersectObject(mesh, false)[0];
           if (!hit?.uv) throw new Error(`Missing wall at ${id}${side}: ${x}, ${y}`);
           const mapUV = hit.uv.clone(), bumpUV = hit.uv.clone();
-          mesh.material.map.transformUv(mapUV); mesh.material.bumpMap.transformUv(bumpUV);
+          mesh.material.map.transformUv(mapUV); (mesh.material.normalMap ?? mesh.material.bumpMap).transformUv(bumpUV);
           states.push([mapUV.x, mapUV.y, bumpUV.x, bumpUV.y]);
         }
         samples.push({ room: id, side, point: [x, y], states });

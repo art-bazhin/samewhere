@@ -87,7 +87,7 @@ export class SpaceRenderer {
     this.renderer.info.autoReset = false;
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.assets = createMaterials(this.renderer);
-    this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations)])) as Record<RoomId, RoomVisual>;
+    this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations, this.assets.environment.texture)])) as Record<RoomId, RoomVisual>;
     this.lightTransfer = new LightTransfer(this.rooms);
     const litMaterials = new Set<THREE.Material>(Object.values(this.assets.materials));
     for (const room of Object.values(this.rooms)) room.scene.traverse(object => {
@@ -140,6 +140,7 @@ export class SpaceRenderer {
         this.clipPlane.setComponents(0, 1, 0, 1);
         this.lightTransfer.bind(id);
         for (const buffer of this.lightTransfer.fields[id].buffers) this.renderer.initTexture(buffer.texture);
+        this.renderer.initTexture(this.lightTransfer.fields[id].panel);
         this.renderer.setRenderTarget(target);
         // Allocate and calculate every room's shadow maps before enabling play.
         this.renderer.render(room.scene, camera);
@@ -433,6 +434,7 @@ export class SpaceRenderer {
     for (const material of Object.values(this.assets.materials)) mats.add(material);
     geometries.forEach(g => g.dispose()); mats.forEach(m => m.dispose());
     this.assets.textures.forEach(texture => texture.dispose());
+    this.assets.environment.dispose();
     this.renderer.dispose();
   }
 }

@@ -1,9 +1,10 @@
 import { compressTransfer, type PreparedTransfer } from './light-transfer-cache';
 import { bakingLayout, surfaceSamples } from './lightmap-layout';
 import { bakeSurfaceTransfer } from './surface-lightmap';
+import { bakePanelLight } from './panel-light-bake';
 import { ROOM_IDS, ROOMS, type RoomId } from './world';
 
-export interface BakedLighting { elapsedMs: number; fields: PreparedTransfer[]; atlases: Record<RoomId, [number, number]> }
+export interface BakedLighting { elapsedMs: number; fields: PreparedTransfer[]; atlases: Record<RoomId, [number, number]>; panels: Record<RoomId, Uint16Array> }
 
 /** One startup job. No filesystem, assets, or DOM; runs in a Web Worker. */
 export function bakeLightTransfer(): BakedLighting {
@@ -19,5 +20,8 @@ export function bakeLightTransfer(): BakedLighting {
     fields.push(compressTransfer(receiver.room, key, bakeSurfaceTransfer(receiver, source, layout.samples, layout.width * layout.height)));
   }
   const atlases = Object.fromEntries(ROOM_IDS.map(room => [room, [layouts[room].width, layouts[room].height]])) as BakedLighting['atlases'];
-  return { elapsedMs: performance.now() - start, fields, atlases };
+  const panels = Object.fromEntries(ROOM_IDS.map(room => {
+    const layout = layouts[room]; return [room, bakePanelLight(room, layout.samples, layout.width * layout.height)];
+  })) as BakedLighting['panels'];
+  return { elapsedMs: performance.now() - start, fields, atlases, panels };
 }
