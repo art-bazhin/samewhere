@@ -6,7 +6,7 @@ export function materialDetail(meters: number, relief: number, range: [number, n
   for (let i = 0; i < normalData.length; i += 4) normalData.set([128, 128, 255, 255], i);
   const normal = new THREE.DataTexture(normalData, size, size), roughness = new THREE.DataTexture(roughData, 512, 512);
   for (const map of [normal, roughness]) {
-    map.wrapS = map.wrapT = THREE.MirroredRepeatWrapping; map.repeat.setScalar(2 / meters);
+    map.wrapS = map.wrapT = THREE.RepeatWrapping; map.repeat.setScalar(2 / meters);
     map.minFilter = THREE.LinearMipmapLinearFilter; map.magFilter = THREE.LinearFilter; map.generateMipmaps = true;
     map.anisotropy = anisotropy; map.flipY = true; map.needsUpdate = true;
   }
@@ -15,7 +15,8 @@ export function materialDetail(meters: number, relief: number, range: [number, n
     const context = canvas.getContext('2d')!; context.drawImage(image, 0, 0, size, size);
     const pixels = context.getImageData(0, 0, size, size).data, height = new Float32Array(size * size);
     for (let i = 0; i < height.length; i++) height[i] = (.2126 * pixels[i * 4] + .7152 * pixels[i * 4 + 1] + .0722 * pixels[i * 4 + 2]) / 255;
-    const at = (x: number, y: number) => height[Math.max(0, Math.min(size - 1, y)) * size + Math.max(0, Math.min(size - 1, x))];
+    // Derivatives cross the same periodic boundary as the color texture.
+    const at = (x: number, y: number) => height[(y & (size - 1)) * size + (x & (size - 1))];
     const scale = relief * size / meters;
     for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
       // Sobel gradients retain fine emboss/pile while rejecting broad discoloration.
@@ -33,15 +34,4 @@ export function materialDetail(meters: number, relief: number, range: [number, n
     }
     normal.needsUpdate = roughness.needsUpdate = true;
   } };
-}
-
-/** Mirrored image tiles need their normal's tangent axes mirrored as well. */
-export function mirroredNormals<T extends THREE.MeshStandardMaterial>(material: T): T {
-  const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
-  material.onBeforeCompile = (shader, renderer) => {
-    before(shader, renderer);
-    shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_maps>',
-      THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * (1. - 2. * mod(floor(vNormalMapUv), 2.));'));
-  };
-  material.customProgramCacheKey = () => `${key}:mirrored-normals`; return material;
 }

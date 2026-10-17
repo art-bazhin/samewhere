@@ -7,7 +7,33 @@
       "meters_per_tile": 1.2,
       "source": "Generated for Samewhere",
       "generator": "Built-in image_gen tool",
-      "prompt": "Use case: photorealistic-natural. Asset type: seamless physically based BASE COLOR texture for wallpaper in a first-person Backrooms-style game. Create one square full-bleed texture swatch viewed perfectly straight on, orthographic, of old pale mustard-yellow embossed vinyl wallpaper found in an empty late-1970s office. Fine, restrained vertical meandering pinstripes with tiny elongated diamond / leaf shapes, each only a few centimeters wide in the real material, densely repeating across the swatch. A subtle tactile paper grain and very slight age discoloration; predominantly yellow ochre and straw yellow, with the embossed pattern only slightly darker. The whole swatch represents about 1 meter by 1 meter. It should read as essentially yellow wallpaper at room-view distance, with the woven print visible close up. Natural photographic material detail, subdued pattern contrast, no plaster/concrete patches, no cracks or peeling. BASE COLOR ONLY: diffuse neutral uniform frontal illumination, no directional light or shading, no ambient occlusion, no shadows, no specular highlights, no vignetting, no blur, no fog, no grey veil. Seamlessly repeatable on left/right and top/bottom edges, consistent density across edges, no obvious center motif. Texture fills the entire image edge to edge, no borders, room, architecture, objects, text, symbols, watermark or labels. Output a high-detail square raster texture."
+      "prompt": "Use case: photorealistic-natural. Asset type: seamless physically based BASE COLOR texture for wallpaper in a first-person Backrooms-style game. Create one square full-bleed texture swatch viewed perfectly straight on, orthographic, of old pale mustard-yellow embossed vinyl wallpaper found in an empty late-1970s office. Fine, restrained vertical meandering pinstripes with tiny elongated diamond / leaf shapes, each only a few centimeters wide in the real material, densely repeating across the swatch. A subtle tactile paper grain and very slight age discoloration; predominantly yellow ochre and straw yellow, with the embossed pattern only slightly darker. The whole swatch represents about 1 meter by 1 meter. It should read as essentially yellow wallpaper at room-view distance, with the woven print visible close up. Natural photographic material detail, subdued pattern contrast, no plaster/concrete patches, no cracks or peeling. BASE COLOR ONLY: diffuse neutral uniform frontal illumination, no directional light or shading, no ambient occlusion, no shadows, no specular highlights, no vignetting, no blur, no fog, no grey veil. Seamlessly repeatable on left/right and top/bottom edges, consistent density across edges, no obvious center motif. Texture fills the entire image edge to edge, no borders, room, architecture, objects, text, symbols, watermark or labels. Output a high-detail square raster texture.",
+      "seam_repair": {
+        "method": "Half-tile cyclic offset, built-in image_gen repair of the central seam cross, restoration of the original mean linear RGB, and 24-pixel smooth periodic edge reconciliation. Translation-only repetition; no mirrored or rotated tiles.",
+        "edit_prompt": "Use case: precise-object-edit. Input image 1 is the EDIT TARGET: an existing wallpaper tile cyclically offset by exactly half its width and height for seam repair. There is a visible HORIZONTAL CUT at exactly y=50% and a VERTICAL CUT at exactly x=50%. Repair these two central cut lines: reconnect every interrupted vertical wavy pinstripe and every small leaf/diamond ornament across the horizontal center, and make the background and motifs continuous across the vertical center. Redraw only narrow strips about 5% of image width around this central cross. Preserve ALL surrounding artwork, especially the outer 20% perimeter, exactly; the outer edges already tile correctly and must not change. Keep the same yellow and ochre colors, exposure, fine paper grain, motif sizes, density, positions away from the repaired cross, sharp photographic texture, and flat uniform base-color lighting. No recoloring, yellow saturation boost, smoothing, global redraw, new pattern design, mirror symmetry, reflections or rotations. The objective is invisible repaired joins in the center of this single square swatch. Output the repaired square image at the same size and framing, no border, text, watermark or tiled preview.",
+        "resolution": [
+          1254,
+          1254
+        ],
+        "periodic_edge_max_rgb_difference": 0,
+        "flat_field_repair": {
+          "generator": "Built-in image_gen tool with frequency-preserving flat-field postprocessing",
+          "edit_prompt": "Use case: lighting-weather. Asset type: repeating wallpaper PBR BASE COLOR texture, edit of the provided image. Remove ONLY broad uneven illumination and rectangular/square patch contours from the wallpaper background. Make its large-scale background color/exposure spatially uniform in a warm straw/mustard yellow. Keep every fine vertical wavy ochre pinstripe, tiny leaf/diamond motif, its physical size, arrangement, contrast and fine realistic paper grain as closely as possible. This is texture de-lighting / flat-field correction, not new artwork. Eliminate broad light/dark patches, tile-sized panels, box-shaped bands, quadrants, vignettes and gradients. Keep opposite edges seamless with ordinary translation-only repetition. Do not mirror, rotate, add symmetry, blur the fine artwork, redraw motifs, introduce walls/objects/text, change saturation or create directional shadows. Output one square flat uniformly illuminated wallpaper texture swatch matching the source.",
+          "method": "Periodic log-linear RGB frequency separation preserves the existing high-frequency pinstripes, ornaments and paper grain. Broad shading is replaced with 10% of the de-lit reference's low-frequency field; the original arithmetic mean linear RGB is restored. Gaussian approximation sigma 24.5 pixels; four-pixel periodic edge reconciliation. Saved into the PNG; no runtime processing.",
+          "broad_luminance_std_before": 0.466,
+          "broad_luminance_std_after": 0.0854,
+          "measured_frequency_radius": 5
+        },
+        "center_vertical_repair": {
+          "generator": "Built-in image_gen tool",
+          "method": "Masked local inpainting of the vertical seam at x=50%, inserted along minimum-error paths in unchanged context. Original artwork outside columns 505–771 is retained exactly; top/bottom periodicity is reconciled within a 24-pixel edge band.",
+          "edit_prompt": "Use case: precise-object-edit. Image 1 is the EDIT TARGET: a tall crop from an existing yellow embossed wallpaper texture. The VERTICAL WHITE MASK STRIP at the center marks a defective vertical join to replace. Completely inpaint this white vertical strip with matching wallpaper so there is no vertical seam or distinctive column. Continue the surrounding thin, gently wavy vertical ochre pinstripes and small leaf/diamond ornaments with natural, uniform spacing and the SAME size, rhythm, density, paper grain, warm yellow background, exposure and low contrast. The new pattern must flow naturally across BOTH the left and right boundaries of the filled strip. Do not create a central axis, symmetry, border, doubled stems, a blank yellow stripe, blurry smear or change of color. Keep the already visible artwork on both sides unchanged as closely as possible. The top and bottom of the crop will repeat vertically, so keep their motifs and color in phase and continuous too. This is a local repair of a VERTICAL seam halfway across the original image, not a horizontal seam repair and not a new wallpaper design. No global recoloring, smoothing, mirrors, reflections, rotations, lighting gradients, text, frames, objects, room or perspective. Output the repaired tall rectangular crop with the same framing and proportions.",
+          "changed_columns": [
+            505,
+            771
+          ]
+        }
+      }
     },
     {
       "name": "Beige office carpet",
@@ -47,7 +73,7 @@
       "carpet_relief_meters": 0.003,
       "ceiling_relief_meters": 0.0012,
       "color_space": "linear",
-      "wrapping": "Mirrored repeat with corrected tangent normal signs"
+      "wrapping": "Ordinary repeat without reflections; periodic Sobel gradients across tile boundaries"
     },
     "roughness_maps": {
       "source": "Estimated from existing albedo at startup",

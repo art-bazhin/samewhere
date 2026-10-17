@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BALL_RADIUS, CEILING_TILE_SIZE, pedestalOutline, PEDESTAL_APOTHEM, PEDESTAL_HEIGHT, ROOM_HEIGHT, ROOMS, SOCKET_DEPTH, SOCKET_RECESS, wallNormal, type PedestalDefinition } from './world';
 import { withDistanceFade } from './visibility';
-import { materialDetail, mirroredNormals } from './material-detail';
+import { materialDetail } from './material-detail';
 import { createRoomEnvironment } from './room-environment';
 import { CEILING_GRID_WIDTH, CEILING_LIGHT, CEILING_PANEL_SIZE } from './lighting';
 
@@ -21,7 +21,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
         detail.update(image); resolve(loaded);
       }, undefined, reject);
     }));
-    result.wrapS = result.wrapT = THREE.MirroredRepeatWrapping; result.anisotropy = anisotropy;
+    result.wrapS = result.wrapT = THREE.RepeatWrapping; result.anisotropy = anisotropy;
     result.repeat.setScalar(2 / metersPerTile); result.colorSpace = THREE.SRGBColorSpace;
     textures.add(result); return { color: result, ...detail };
   }
@@ -107,7 +107,6 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
       reflectedLight.indirectSpecular *= socketVisibility.y;`);
   };
   materials.socket.customProgramCacheKey = () => 'socket-ball-shadow';
-  for (const material of [materials.wall, materials.floor, materials.ceiling, materials.pedestal, materials.socket]) mirroredNormals(material);
   for (const material of Object.values(materials)) withDistanceFade(material);
   return { materials, textures, environment, optimizations, ready: Promise.all(pending).then(() => {}) };
 }
@@ -182,7 +181,7 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
       #endif`);
   };
   material.customProgramCacheKey = () => `floor-contacts:${contacts}`;
-  return withDistanceFade(mirroredNormals(material));
+  return withDistanceFade(material);
 }
 
 /** Submillimeter polish variation in linear roughness, without visible color grain. */
