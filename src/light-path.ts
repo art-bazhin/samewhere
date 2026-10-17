@@ -2,6 +2,9 @@ import { insideOutline } from './geometry';
 import { DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, ROOM_IDS, ROOMS, roomWalls, WALL_THICKNESS, type RoomId, type Vec2 } from './world';
 
 interface Point extends Vec2 { y: number }
+// Surface samples are stored as float32; a point exactly on a jamb must not
+// become an outside-aperture sample after transforming or rounding coordinates.
+export const APERTURE_EPSILON = .00001;
 const pedestalShapes = Object.fromEntries(ROOM_IDS.map(id => [id, ROOMS[id].pedestals.map(p => pedestalOutline(p.controls).map(v => ({ x: v.x + p.x, z: v.z + p.z })))])) as Record<RoomId, Vec2[][]>;
 
 function intersection(a: Vec2, b: Vec2, c: Vec2, d: Vec2) {
@@ -30,7 +33,7 @@ export function transferPathBlocked(room: RoomId, a: Point, b: Point, exit: numb
     if (!inPassage(a) && !inPassage(b)) return true;
     const x = a.x + (b.x - a.x) * t - wall.center.x, z = a.z + (b.z - a.z) * t - wall.center.z;
     const y = a.y + (b.y - a.y) * t;
-    if (Math.abs(-x * wall.normal.z + z * wall.normal.x) > DOOR_WIDTH / 2 || y < 0 || y > DOOR_HEIGHT) return true;
+    if (Math.abs(-x * wall.normal.z + z * wall.normal.x) > DOOR_WIDTH / 2 + APERTURE_EPSILON || y < -APERTURE_EPSILON || y > DOOR_HEIGHT + APERTURE_EPSILON) return true;
   }
   // The 8 cm balls and individual saucers are below this diffuse cache's scale.
   // Pedestal silhouettes use the actual regular/concave footprint, not a box.

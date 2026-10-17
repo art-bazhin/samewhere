@@ -5,6 +5,7 @@ import { createMaterials, optimizeLighting } from './materials';
 import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBILITY_END } from './visibility';
 import { ballAt, destination, DOOR_WIDTH, EYE_HEIGHT, Game, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, roomWalls, type RoomId, type SocketRef, type Vec2 } from './world';
 import { createRoom, type RoomVisual, type Portal, type SocketVisual } from './room-visual';
+import { preparePortalSurfaces } from './portal-surfaces';
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number };
 const FULL: Rect = { minX: -1, minY: -1, maxX: 1, maxY: 1 };
@@ -90,6 +91,7 @@ export class SpaceRenderer {
     this.assets = createMaterials(this.renderer);
     this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations, this.assets.environment.texture)])) as Record<RoomId, RoomVisual>;
     this.lightTransfer = new LightTransfer(this.rooms);
+    for (const room of Object.values(this.rooms)) preparePortalSurfaces(room);
     const litMaterials = new Set<THREE.Material>(Object.values(this.assets.materials));
     for (const room of Object.values(this.rooms)) room.scene.traverse(object => {
       if (object instanceof THREE.Mesh) for (const material of Array.isArray(object.material) ? object.material : [object.material]) litMaterials.add(material);

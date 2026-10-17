@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { CEILING_LIGHT } from './lighting';
-import { prepareSurfaceLayout } from './lightmap-layout';
+import { PASSAGE_LIGHT_DEPTH, PASSAGE_LIGHT_WIDTH, prepareSurfaceLayout } from './lightmap-layout';
 import { combineTransfers, type PreparedTransfer } from './light-transfer-cache';
-import { connections, ROOM_IDS, type RoomId, type WorldState } from './world';
+import { connections, portalPosition, ROOM_IDS, wallNormal, type RoomId, type WorldState } from './world';
 import type { TransferResult } from './light-transfer-worker';
 
 interface FieldBuffer { texture: THREE.DataTexture; key: string }
-interface RoomField extends FieldBuffer { scratch: Float32Array; expected: string; buffers: FieldBuffer[]; panel: THREE.DataTexture }
+interface RoomField extends FieldBuffer {
+  scratch: Float32Array; expected: string; buffers: FieldBuffer[]; panel: THREE.DataTexture;
+  passages: { frame: THREE.Vector4; atlas: THREE.Vector4 }[]; active: number[];
+}
 
 /** Startup-baked one-hop diffuse lighting; no additional lights or render passes. */
 export class LightTransfer {
@@ -17,6 +20,9 @@ export class LightTransfer {
     transferredLight: { value: null as THREE.DataTexture | null },
     transferColor: { value: new THREE.Color(CEILING_LIGHT.color) }, transferGain: { value: 0 },
     panelLight: { value: null as THREE.DataTexture | null },
+    passageCount: { value: 0 },
+    passageFrames: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
+    passageAtlases: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
   };
   revision = 0;
   readonly jobs = 1; // One startup job; interactions never submit another bake.
@@ -38,7 +44,15 @@ export class LightTransfer {
       });
       const panel = new THREE.DataTexture(new Uint16Array(width * height * 4), width, height, THREE.RGBAFormat, THREE.HalfFloatType);
       panel.minFilter = panel.magFilter = THREE.LinearFilter; panel.needsUpdate = true;
-      return [room, { ...buffers[0], buffers, scratch: new Float32Array(width * height * 4), expected: '', panel }];
+      const passages: RoomField['passages'] = [];
+      for (const chart of layout.charts) if (chart.passage !== undefined) {
+        const p = portalPosition(room, chart.passage), n = wallNormal(room, chart.passage);
+        passages[chart.passage] = { frame: new THREE.Vector4(n.x, n.z, p.x * n.x + p.z * n.z, -n.z * p.x + n.x * p.z),
+          atlas: new THREE.Vector4((chart.x + 1.5 - chart.min.x / chart.step.x) / width, (chart.y + 1.5 - chart.min.y / chart.step.y) / height,
+            1 / (chart.step.x * width), 1 / (chart.step.y * height)) };
+      }
+      const field: RoomField = { ...buffers[0], buffers, scratch: new Float32Array(width * height * 4), expected: '', panel, passages, active: [] };
+      return [room, field];
     })) as Record<RoomId, RoomField>;
     this.uniforms.transferredLight.value = this.fields.A.texture;
     this.uniforms.panelLight.value = this.fields.A.panel;
@@ -72,7 +86,10 @@ export class LightTransfer {
     if (state === this.state) return;
     this.state = state;
     const keys = Object.fromEntries(ROOM_IDS.map(room => [room, links.filter(link => link.receiver.room === room).map(link => link.key).join('|')])) as Record<RoomId, string>;
-    for (const room of ROOM_IDS) this.fields[room].expected = keys[room];
+    for (const room of ROOM_IDS) {
+      this.fields[room].expected = keys[room];
+      this.fields[room].active = links.filter(link => link.receiver.room === room).map(link => link.receiver.side);
+    }
     this.revision++; if (this.initialized) this.apply();
   }
   private apply() {
@@ -98,6 +115,11 @@ export class LightTransfer {
     this.uniforms.transferredLight.value = field.texture;
     this.uniforms.panelLight.value = field.panel;
     this.uniforms.transferGain.value = preparing || this.enabled && !!field.key ? 1 : 0;
+    this.uniforms.passageCount.value = this.enabled && field.key ? field.active.length : 0;
+    field.active.forEach((side, index) => {
+      this.uniforms.passageFrames.value[index].copy(field.passages[side].frame);
+      this.uniforms.passageAtlases.value[index].copy(field.passages[side].atlas);
+    });
   }
   install(material: THREE.MeshStandardMaterial) {
     const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
@@ -105,10 +127,14 @@ export class LightTransfer {
       before(shader, renderer); Object.assign(shader.uniforms, this.uniforms);
       shader.vertexShader = 'attribute vec2 transferUv; varying vec2 vTransferUv;\n' + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
-        vTransferUv = transferUv;`);
+        vTransferUv = transferUv;
+        #ifdef PORTAL_SURFACE_PADDING
+          vTransferUv += portalLightUvOffset;
+        #endif`);
       shader.fragmentShader = `varying vec2 vTransferUv;
         uniform sampler2D transferredLight; uniform vec3 transferColor; uniform float transferGain;
-        uniform sampler2D panelLight;\n` + shader.fragmentShader;
+        uniform sampler2D panelLight;
+        uniform int passageCount; uniform vec4 passageFrames[4]; uniform vec4 passageAtlases[4];\n` + shader.fragmentShader;
       shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `
         vec4 roomLight = texture2D(panelLight, vTransferUv);
         #ifdef SOCKET_BALL_SHADOW
@@ -120,6 +146,20 @@ export class LightTransfer {
           vec4 transported = texture2D(transferredLight, vTransferUv);
           reflectedLight.directDiffuse += transferGain * (transported.r * transferColor + transported.gba) * BRDF_Lambert(material.diffuseColor);
         }
+        #ifdef FLOOR_PASSAGE_LIGHTING
+          for (int passage = 0; passage < 4; passage++) {
+            if (passage >= passageCount) break;
+            vec4 frame = passageFrames[passage], atlas = passageAtlases[passage];
+            float depth = frame.z - dot(contactPosition, frame.xy);
+            float lateral = dot(contactPosition, vec2(-frame.y, frame.x)) - frame.w;
+            if (depth < -.0001 || depth >= ${PASSAGE_LIGHT_DEPTH.toFixed(4)} || abs(lateral) >= ${PASSAGE_LIGHT_WIDTH.toFixed(4)}) continue;
+            float blend = (1. - smoothstep(.15, ${PASSAGE_LIGHT_DEPTH.toFixed(4)}, depth)) * (1. - smoothstep(.9, ${PASSAGE_LIGHT_WIDTH.toFixed(4)}, abs(lateral)));
+            vec2 uv = atlas.xy + vec2(lateral, max(0., depth)) * atlas.zw;
+            vec4 joined = texture2D(panelLight, uv) + texture2D(transferredLight, uv);
+            vec3 diffuse = (joined.r * transferColor + joined.gba) * BRDF_Lambert(material.diffuseColor);
+            reflectedLight.directDiffuse = mix(reflectedLight.directDiffuse, diffuse, blend);
+          }
+        #endif
         #include <aomap_fragment>`);
     };
     material.customProgramCacheKey = () => `${key}:neighbor-surface-lightmap`;

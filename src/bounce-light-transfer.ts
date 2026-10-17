@@ -1,5 +1,5 @@
 import { bouncePatches } from './panel-light-bake';
-import { transferPathBlocked } from './light-path';
+import { APERTURE_EPSILON, transferPathBlocked } from './light-path';
 import { DOOR_HEIGHT, DOOR_WIDTH, portalAngle, portalDistance, portalPosition, rotate, transformPoint, WALL_THICKNESS, wallNormal, type SocketRef } from './world';
 
 interface Point { x: number; y: number; z: number }
@@ -41,7 +41,7 @@ export function createBounceTransferSampler(receiver: SocketRef, source: SocketR
       for (const face of [-WALL_THICKNESS / 2, WALL_THICKNESS / 2]) {
         const t = Math.max(0, (distance + face - signed) / step);
         const px = point.x + x * t, py = point.y + y * t, pz = point.z + z * t;
-        if (t >= 1 || py < 0 || py > DOOR_HEIGHT || Math.abs(-n.z * (px - center.x) + n.x * (pz - center.z)) > DOOR_WIDTH / 2) { visible = false; break; }
+        if (t >= 1 || py < -APERTURE_EPSILON || py > DOOR_HEIGHT + APERTURE_EPSILON || Math.abs(-n.z * (px - center.x) + n.x * (pz - center.z)) > DOOR_WIDTH / 2 + APERTURE_EPSILON) { visible = false; break; }
       }
       if (!visible) continue;
       const t = Math.max(0, (distance - signed) / step);

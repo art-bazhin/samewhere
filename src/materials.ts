@@ -4,6 +4,7 @@ import { withDistanceFade } from './visibility';
 import { materialDetail } from './material-detail';
 import { createRoomEnvironment } from './room-environment';
 import { CEILING_GRID_WIDTH, CEILING_LIGHT, CEILING_PANEL_SIZE } from './lighting';
+import { withPortalSurfacePadding } from './portal-surfaces';
 
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
 export function createMaterials(renderer: THREE.WebGLRenderer) {
@@ -107,10 +108,32 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
       reflectedLight.indirectSpecular *= socketVisibility.y;`);
   };
   materials.socket.customProgramCacheKey = () => 'socket-ball-shadow';
+  withPortalSurfacePadding(materials.wall);
+  for (const material of [materials.wall, materials.ceiling]) preservePortalCoverage(material);
   for (const material of Object.values(materials)) withDistanceFade(material);
   return { materials, textures, environment, optimizations, ready: Promise.all(pending).then(() => {}) };
 }
 export type MaterialSet = ReturnType<typeof createMaterials>['materials'];
+
+/** Keep MSAA-covered boundary fragments and the solid caps at the portal plane. */
+function preservePortalCoverage(material: THREE.MeshStandardMaterial) {
+  const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
+  const clipping = THREE.ShaderChunk.clipping_planes_fragment.replaceAll(
+    'dot( vClipPosition, plane.xyz ) > plane.w', 'outsidePortalClip( vClipPosition, plane )',
+  );
+  material.onBeforeCompile = (shader, renderer) => {
+    before(shader, renderer);
+    // A center-only discard can remove the whole fragment although some MSAA
+    // samples lie inside the room. The receiving image then leaks through the
+    // shared reveal edge. Retain that half-pixel footprint, plus float tolerance.
+    shader.fragmentShader = `bool outsidePortalClip(vec3 position, vec4 plane) {
+      float distance = dot(position, plane.xyz) - plane.w;
+      return distance > max(.00002, .5 * fwidth(distance));
+    }\n` + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', clipping);
+  };
+  material.customProgramCacheKey = () => `${key}:portal-coverage`;
+}
 
 /** Skip work whose direct-light contribution is exactly zero on these opaque PBR surfaces. */
 export function optimizeLighting(material: THREE.MeshStandardMaterial, enabled: THREE.IUniform<boolean>) {
@@ -171,7 +194,7 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
     shader.vertexShader = 'varying vec2 contactPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
       contactPosition = (modelMatrix * vec4(transformed, 1.)).xz;`);
-    shader.fragmentShader = 'varying vec2 contactPosition; uniform bool boundedContacts;\n' + shader.fragmentShader;
+    shader.fragmentShader = '#define FLOOR_PASSAGE_LIGHTING\n varying vec2 contactPosition; uniform bool boundedContacts;\n' + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
       float shade = 1.; ${contacts}
       reflectedLight.indirectDiffuse *= shade; reflectedLight.directDiffuse *= shade;

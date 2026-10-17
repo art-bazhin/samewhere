@@ -627,7 +627,8 @@ test('distant floor joins have no missing MSAA coverage at grazing angles', asyn
       // A uniform emissive floor exposes lost coverage independently of carpet,
       // lighting differences, or shadows. Keep the actual floor shader hooks.
       const material = room.scene.getObjectByName('floor').material;
-      material.map = material.bumpMap = null; material.color.set(0); material.emissive.set(0xff0000); material.needsUpdate = true;
+      material.map = material.bumpMap = null; material.sheen = 0;
+      material.color.set(0); material.emissive.set(0xff0000); material.needsUpdate = true;
       room.scene.traverse((object: any) => { if (object.name === 'pedestal-body') object.parent.visible = false; });
     }
     const routes = [
@@ -665,6 +666,103 @@ test('distant floor joins have no missing MSAA coverage at grazing angles', asyn
     return samples;
   });
   for (const sample of samples) expect(sample.minRed, JSON.stringify(sample)).toBeGreaterThanOrEqual(254);
+});
+
+test('upper doorway joins remain opaque at oblique and subpixel angles', async ({ page }) => {
+  // An odd viewport puts the sampled pixel center exactly on the camera ray.
+  await page.setViewportSize({ width: 1441, height: 961 });
+  await ready(page);
+  const samples = await page.evaluate(async () => {
+    const path = '/src/world.ts', { portalPosition, wallNormal, ROOMS, DOOR_HEIGHT, EYE_HEIGHT } = await import(path);
+    const app = window.__samewhere, space = app.space, gl = space.renderer.getContext();
+    // Keep the real material shader hooks. A lost wall sample shows the blue
+    // ceiling or green lamp behind the red reveal, independent of lighting.
+    const { wall, ceiling, lamp } = space.assets.materials;
+    for (const [material, color] of [[wall, 0xff0000], [ceiling, 0x0000ff]]) {
+      material.color.set(0); material.emissive.set(color);
+      material.map = material.emissiveMap = material.normalMap = material.roughnessMap = null; material.needsUpdate = true;
+    }
+    lamp.color.set(0x00ff00); lamp.map = null; lamp.needsUpdate = true;
+    const routes = [
+      [{ room: 'A', side: 0 }, { room: 'A', side: 2 }],
+      [{ room: 'A', side: 0 }, { room: 'A', side: 1 }],
+      [{ room: 'A', side: 2 }, { room: 'B', side: 0 }],
+      [{ room: 'B', side: 0 }, { room: 'B', side: 2 }],
+      [{ room: 'A', side: 1 }, { room: 'C', side: 0 }],
+      [{ room: 'C', side: 0 }, { room: 'D', side: 1 }],
+      [{ room: 'A', side: 0 }, { room: 'D', side: 0 }],
+      [{ room: 'C', side: 0 }, { room: 'C', side: 3 }],
+      [{ room: 'D', side: 0 }, { room: 'D', side: 2 }],
+      [{ room: 'D', side: 0 }, { room: 'E', side: 0 }],
+      [{ room: 'E', side: 0 }, { room: 'F', side: 0 }],
+      [{ room: 'E', side: 1 }, { room: 'G', side: 0 }],
+    ];
+    const pixel = new Uint8Array(4), samples = [];
+    for (const route of routes) for (const [from, to] of [route, [...route].reverse()]) {
+      app.game.world.balls[0].socket = from; app.game.world.balls[1].socket = to;
+      app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
+      const n = wallNormal(from.room, from.side), origin = portalPosition(from.room, from.side), corridor = !!ROOMS[from.room].outline;
+      const far = corridor ? 5 : 8.5, oblique = corridor ? .8 : 3.3;
+      for (const [distance, offset, lateral] of [[.025, -.65, .65], [.15, .65, -.65], [1, 0, 0], [far, -oblique, -.65], [far, oblique, .65]]) {
+        const x = origin.x - n.x * distance - n.z * offset, z = origin.z - n.z * distance + n.x * offset;
+        const targetX = origin.x - n.z * lateral, targetZ = origin.z + n.x * lateral;
+        const yaw = Math.atan2(x - targetX, z - targetZ), pitch = Math.atan2(DOOR_HEIGHT - EYE_HEIGHT, Math.hypot(x - targetX, z - targetZ));
+        for (const phase of [-.4, 0, .4]) {
+          const pixelAngle = 2 * Math.tan(space.camera.fov * Math.PI / 360) / gl.drawingBufferHeight;
+          Object.assign(app.game.player, { room: from.room, x, z, yaw, pitch: pitch + phase * pixelAngle }); space.render();
+          gl.readPixels(Math.floor(gl.drawingBufferWidth / 2), Math.floor(gl.drawingBufferHeight / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+          samples.push({ from, to, distance, offset, lateral, phase, rgb: Array.from(pixel.subarray(0, 3)) });
+        }
+      }
+    }
+    return samples;
+  });
+  for (const sample of samples) {
+    expect(sample.rgb[0], JSON.stringify(sample)).toBeGreaterThanOrEqual(254);
+    expect(Math.max(sample.rgb[1], sample.rgb[2]), JSON.stringify(sample)).toBeLessThanOrEqual(1);
+  }
+});
+
+test('lit side reveals have no dark cap line at the room join', async ({ page }) => {
+  await page.setViewportSize({ width: 1201, height: 901 });
+  await ready(page);
+  const result = await page.evaluate(async () => {
+    const path = '/src/world.ts', { portalPosition, wallNormal } = await import(path);
+    const app = window.__samewhere, space = app.space, gl = space.renderer.getContext();
+    const material = space.assets.materials.wall;
+    // Uniform albedo retains real PBR shading: an emissive test would hide the
+    // wrongly shaded end-cap sample, while wallpaper could hide a dark pixel.
+    material.color.set(0xffffff); material.map = material.normalMap = material.roughnessMap = null; material.needsUpdate = true;
+    const routes = [
+      [{ room: 'A', side: 0 }, { room: 'A', side: 2 }],
+      [{ room: 'A', side: 0 }, { room: 'B', side: 1 }],
+      [{ room: 'B', side: 2 }, { room: 'C', side: 4 }],
+      [{ room: 'C', side: 1 }, { room: 'D', side: 1 }],
+      [{ room: 'D', side: 0 }, { room: 'E', side: 2 }],
+      [{ room: 'E', side: 1 }, { room: 'F', side: 3 }],
+      [{ room: 'B', side: 4 }, { room: 'G', side: 0 }],
+    ];
+    const samples = [], pixels = new Uint8Array(7 * 4);
+    for (const route of routes) for (const [from, to] of [route, [...route].reverse()]) {
+      app.game.world.balls[0].socket = from; app.game.world.balls[1].socket = to;
+      app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
+      const p = portalPosition(from.room, from.side), n = wallNormal(from.room, from.side);
+      for (const sign of [-1, 1]) for (const distance of [.1, .5]) {
+        const x = p.x - n.x * distance - n.z * sign * .25, z = p.z - n.z * distance + n.x * sign * .25;
+        const yaw = Math.atan2(x - (p.x - n.z * sign * .9), z - (p.z + n.x * sign * .9));
+        Object.assign(app.game.player, { room: from.room, x, z, yaw, pitch: 0 }); space.render();
+        gl.readPixels(Math.floor(gl.drawingBufferWidth / 2) - 3, Math.floor(gl.drawingBufferHeight / 2), 7, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        const left = pixels[0], right = pixels[24], center = pixels[12];
+        samples.push({ from, to, sign, distance, center, dip: Math.min(left, right) - center });
+      }
+    }
+    return { samples, error: gl.getError() };
+  });
+  for (const sample of result.samples) {
+    expect(sample.center, JSON.stringify(sample)).toBeGreaterThan(10);
+    expect(sample.dip, JSON.stringify(sample)).toBeLessThanOrEqual(2);
+  }
+  expect(result.error).toBe(0);
 });
 
 test('rendered perspective remains continuous within 2 mm of every kind of seam', async ({ page }) => {

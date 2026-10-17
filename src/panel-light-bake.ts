@@ -27,6 +27,24 @@ export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE) {
   };
 }
 
+/** Analytic counterpart of the live spot's diffuse term, used at floor joins. */
+function spotLightSampler(room: RoomId) {
+  const cone = Math.cos(CEILING_LIGHT.angle), penumbra = Math.cos(CEILING_LIGHT.angle * (1 - CEILING_LIGHT.penumbra));
+  return (point: Point, normal: Point) => {
+    let light = 0;
+    const origin = { x: point.x + normal.x * .005, y: point.y + normal.y * .005, z: point.z + normal.z * .005 };
+    for (const lamp of ROOM_LIGHTS[room]) {
+      const source = { ...lamp, y: CEILING_LIGHT.height }, x = source.x - point.x, y = source.y - point.y, z = source.z - point.z;
+      const distance = Math.hypot(x, y, z), cosine = (normal.x * x + normal.y * y + normal.z * z) / distance;
+      if (cosine <= 0 || distance >= CEILING_LIGHT.distance || transferPathBlocked(room, origin, source, -1)) continue;
+      const spot = Math.max(0, Math.min(1, (y / distance - cone) / (penumbra - cone)));
+      const cutoff = Math.max(0, 1 - (distance / CEILING_LIGHT.distance) ** 4);
+      light += CEILING_LIGHT.intensity * SPOT_LIGHT_SHARE * spot * spot * (3 - 2 * spot) * cutoff * cutoff * cosine / Math.max(distance * distance, .01);
+    }
+    return light;
+  };
+}
+
 /** Coarse Lambertian patches approximate one warm diffuse reflection. */
 export function bouncePatches(room: RoomId) {
   const direct = panelLightSampler(room, 1), outline = roomOutline(room), patches: { point: Point; normal: Point; area: number; color: Color }[] = [];
@@ -55,13 +73,13 @@ export function bouncePatches(room: RoomId) {
 }
 
 export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount: number) {
-  const values = new Uint16Array(texelCount * 4), sample = panelLightSampler(room), patches = bouncePatches(room);
+  const values = new Uint16Array(texelCount * 4), sample = panelLightSampler(room), sampleSpot = spotLightSampler(room), patches = bouncePatches(room);
   const point = { x: 0, y: 0, z: 0 }, normal = { ...point };
   for (const texel of samples.texels) {
     const i = texel * 3;
     point.x = samples.positions[i]; point.y = samples.positions[i + 1]; point.z = samples.positions[i + 2];
     normal.x = samples.normals[i]; normal.y = samples.normals[i + 1]; normal.z = samples.normals[i + 2];
-    const out = texel * 4; values[out] = DataUtils.toHalfFloat(sample(point, normal));
+    const out = texel * 4; values[out] = DataUtils.toHalfFloat(sample(point, normal) + (samples.passages[texel] >= 0 ? sampleSpot(point, normal) : 0));
     const origin = { x: point.x + normal.x * .005, y: point.y + normal.y * .005, z: point.z + normal.z * .005 };
     let red = 0, green = 0, blue = 0;
     for (const patch of patches) {

@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DataUtils } from 'three';
 import { combineTransfers, compressTransfer } from '../src/light-transfer-cache';
-import { transferAt, transferPathBlocked } from '../src/light-transfer-sampling';
+import { createTransferSampler, transferAt, transferPathBlocked } from '../src/light-transfer-sampling';
 import { bakingLayout, surfaceSamples } from '../src/lightmap-layout';
 import { bakeSurfaceTransfer } from '../src/surface-lightmap';
-import { ROOM_IDS } from '../src/world';
+import { DOOR_WIDTH, portalPosition, ROOM_IDS, ROOMS, wallNormal } from '../src/world';
 
 test('sparse prepared fields reproduce the original summed lighting bit for bit', () => {
   const layout = bakingLayout('A'), samples = surfaceSamples(layout);
@@ -35,6 +35,26 @@ test('door jambs and the header block transport outside the aperture', () => {
     assert.ok(transferAt(receiver, source, p).every(value => value === 0));
   }
   assert.ok(transferAt(receiver, source, { x: 0, y: 0, z: -4 }).some(value => value > 0));
+});
+
+test('float32 probes on either jamb retain the light visible just inside the aperture', () => {
+  let lit = 0;
+  for (const room of ROOM_IDS) for (let side = 0; side < ROOMS[room].sides; side++) {
+    const p = portalPosition(room, side), n = wallNormal(room, side);
+    const sample = createTransferSampler({ room, side }, { room: room === 'G' ? 'C' : 'G', side: 0 }, true);
+    for (const sign of [-1, 1]) {
+      const at = (lateral: number, rounded = false) => {
+        const point = { x: p.x - n.z * lateral, y: .002, z: p.z + n.x * lateral };
+        if (rounded) { point.x = Math.fround(point.x); point.z = Math.fround(point.z); }
+        return sample(point, new Float32Array(6), { x: 0, y: 1, z: 0 })[0];
+      };
+      const inside = at(sign * (DOOR_WIDTH / 2 - .00001)), boundary = at(sign * DOOR_WIDTH / 2, true);
+      if (inside < .0001) continue;
+      lit++;
+      assert.ok(boundary >= inside * .99, `${room}${side}: rounded jamb sample ${boundary} vs ${inside}`);
+    }
+  }
+  assert.ok(lit > 20);
 });
 
 test('concave room walls prevent light from crossing the void between H corridors', () => {

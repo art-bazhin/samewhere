@@ -26,7 +26,7 @@ test('baked diffuse bounce visibly lights the ceiling without extra render passe
   expect(result.error).toBe(0); expect(errors).toEqual([]);
 });
 
-test('floor illumination stays continuous across polygonal passages and H entrances', async ({ page }) => {
+test('floor illumination stays continuous up to both jambs across every room shape', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   // Center a pixel on the sample ray. Nearby 1.5 mm probes isolate the seam
   // from a legitimate, stronger light gradient across a two-centimeter gap.
@@ -56,20 +56,21 @@ test('floor illumination stays continuous across polygonal passages and H entran
       return Array.from(pixels.subarray(0, 3));
     };
     const samples: any[] = [];
-    for (const room of ['B', 'C']) for (let side = 0; side < ROOMS[room].sides; side++) {
-      const from = { room, side }, to = { room: 'G', side: side % 4 };
+    for (const room of Object.keys(ROOMS)) for (let side = 0; side < ROOMS[room].sides; side++) {
+      const source = room === 'G' ? 'C' : 'G';
+      const from = { room, side }, to = { room: source, side: side % ROOMS[source].sides };
       app.game.world.balls[0].socket = from; app.game.world.balls[1].socket = to;
       app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
       for (let i = 0; i < 22; i++) space.render();
-      for (const lateral of [-.5, 0, .5]) {
+      for (const lateral of [-.895, -.88, -.8, -.5, 0, .5, .8, .88, .895]) {
         const before = read(from, lateral), after = read(to, -lateral);
         samples.push({ room, side, lateral, before, after, max: Math.max(...before.map((value, c) => Math.abs(value - after[c]))) });
       }
     }
     return { samples, error: gl.getError() };
   });
-  console.log('Passage lighting continuity:', result.samples.map(({ room, side, lateral, max }) => ({ room, side, lateral, max })));
-  expect(result.samples).toHaveLength(33);
+  console.log('Passage lighting continuity, worst cases:', [...result.samples].sort((a, b) => b.max - a.max).slice(0, 5));
+  expect(result.samples).toHaveLength(261);
   for (const sample of result.samples) expect(sample.max, JSON.stringify(sample)).toBeLessThanOrEqual(2);
   expect(result.error).toBe(0); expect(errors).toEqual([]);
 });

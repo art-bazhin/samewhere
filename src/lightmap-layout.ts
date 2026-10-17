@@ -1,17 +1,19 @@
 import * as THREE from 'three';
-import { DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, roomWalls, WALL_THICKNESS, type RoomId } from './world';
+import { DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, portalPosition, ROOMS, roomWalls, WALL_THICKNESS, wallNormal, type RoomId } from './world';
 import { createRoom } from './room-visual';
 import { closestOnSegment, insideOutline } from './geometry';
 
 export const LIGHTMAP_SPACING = .25;
+export const PASSAGE_LIGHT_SPACING = .1, PASSAGE_LIGHT_WIDTH = 1.1, PASSAGE_LIGHT_DEPTH = .6;
 const PADDING = 1;
 interface Triangle { mesh: THREE.Mesh; vertices: number[]; positions: THREE.Vector3[]; normals: THREE.Vector3[]; uv: THREE.Vector2[] }
 export interface SurfaceChart {
   triangles: Triangle[]; curved: boolean; curvedMesh?: THREE.Mesh; min: THREE.Vector2; max: THREE.Vector2; step: THREE.Vector2;
+  passage?: number;
   x: number; y: number; width: number; height: number;
 }
 export interface SurfaceLayout { room: RoomId; width: number; height: number; charts: SurfaceChart[] }
-export interface SurfaceSamples { positions: Float32Array; normals: Float32Array; texels: Uint32Array }
+export interface SurfaceSamples { positions: Float32Array; normals: Float32Array; texels: Uint32Array; passages: Int8Array }
 const powerOfTwo = (value: number) => 2 ** Math.ceil(Math.log2(value));
 const rounded = (value: number) => Math.round(value * 10000) / 10000;
 
@@ -83,12 +85,17 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId): SurfaceL
     }
   });
   const list = [...charts.values()];
+  // The two halves of a passage use the same small grid in doorway coordinates,
+  // independent of either room's polygon angle and coarse floor atlas.
+  for (let side = 0; side < ROOMS[room].sides; side++) list.push({ triangles: [], curved: false, passage: side,
+    min: new THREE.Vector2(-PASSAGE_LIGHT_WIDTH, 0), max: new THREE.Vector2(PASSAGE_LIGHT_WIDTH, PASSAGE_LIGHT_DEPTH),
+    step: new THREE.Vector2(), x: 0, y: 0, width: 0, height: 0 });
   for (const chart of list) {
     if (chart.curved) {
       chart.width = 10; chart.height = 8;
       chart.step.set((chart.max.x - chart.min.x) / (chart.width - PADDING * 2 - 1), (chart.max.y - chart.min.y) / (chart.height - PADDING * 2 - 1));
     } else {
-      const spacing = chart.triangles[0].mesh.name === 'ceiling' ? LIGHTMAP_SPACING * 2 : LIGHTMAP_SPACING;
+      const spacing = chart.passage !== undefined ? PASSAGE_LIGHT_SPACING : chart.triangles[0].mesh.name === 'ceiling' ? LIGHTMAP_SPACING * 2 : LIGHTMAP_SPACING;
       chart.min.x = Math.floor((chart.min.x + .00001) / spacing) * spacing;
       chart.min.y = Math.floor((chart.min.y + .00001) / spacing) * spacing;
       chart.step.setScalar(spacing);
@@ -126,9 +133,20 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId): SurfaceL
 /** Rasterize actual triangles once, including a one-texel edge dilation. */
 export function surfaceSamples(layout: SurfaceLayout): SurfaceSamples {
   const count = layout.width * layout.height, positions = new Float32Array(count * 3), normals = new Float32Array(count * 3);
+  const passages = new Int8Array(count).fill(-1);
   const distance = new Float32Array(count).fill(Infinity), weights = new THREE.Vector3(), point = new THREE.Vector3(), normal = new THREE.Vector3();
   const closest = new THREE.Vector2();
   const walls = roomWalls(layout.room), outline = walls.map(wall => wall.a);
+  for (const chart of layout.charts) if (chart.passage !== undefined) {
+    const origin = portalPosition(layout.room, chart.passage), n = wallNormal(layout.room, chart.passage);
+    for (let y = 0; y < chart.height; y++) for (let x = 0; x < chart.width; x++) {
+      const lateral = Math.max(chart.min.x, Math.min(chart.max.x, chart.min.x + (x - PADDING) * chart.step.x));
+      const depth = Math.max(0, Math.min(chart.max.y, (y - PADDING) * chart.step.y));
+      const texel = (chart.y + y) * layout.width + chart.x + x;
+      positions.set([origin.x - n.x * depth - n.z * lateral, .002, origin.z - n.z * depth + n.x * lateral], texel * 3);
+      normals[texel * 3 + 1] = 1; passages[texel] = chart.passage; distance[texel] = 0;
+    }
+  }
   for (const chart of layout.charts) for (const triangle of chartTriangles(chart)) {
     const uv = triangle.uv.map(p => new THREE.Vector2((p.x - chart.min.x) / chart.step.x + PADDING, (p.y - chart.min.y) / chart.step.y + PADDING));
     const [a, b, c] = uv, determinant = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
@@ -176,7 +194,7 @@ export function surfaceSamples(layout: SurfaceLayout): SurfaceSamples {
   }
   const texels: number[] = [];
   for (let i = 0; i < count; i++) if (Number.isFinite(distance[i])) texels.push(i);
-  return { positions, normals, texels: new Uint32Array(texels) };
+  return { positions, normals, texels: new Uint32Array(texels), passages };
 }
 
 function* chartTriangles(chart: SurfaceChart): Generator<Triangle> {

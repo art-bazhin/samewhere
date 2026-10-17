@@ -1,15 +1,17 @@
-import { CEILING_LIGHT, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
-import { transferPathBlocked } from './light-path';
+import { CEILING_LIGHT, ceilingPanelSamples, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
+import { APERTURE_EPSILON, transferPathBlocked } from './light-path';
 export { transferPathBlocked } from './light-path';
 import { DOOR_HEIGHT, DOOR_WIDTH, portalDistance, portalPosition, transformPoint, WALL_THICKNESS, wallNormal, type SocketRef, type Vec2 } from './world';
 
 interface Point extends Vec2 { y: number }
 
 /** Direct diffuse transport from the source's lamps through exactly one passage. */
-export function createTransferSampler(receiver: SocketRef, source: SocketRef) {
+export function createTransferSampler(receiver: SocketRef, source: SocketRef, detailed = false) {
   const n = wallNormal(receiver.room, receiver.side), distance = portalDistance(receiver.room, receiver.side), center = portalPosition(receiver.room, receiver.side);
   const cone = Math.cos(CEILING_LIGHT.angle), penumbra = Math.cos(CEILING_LIGHT.angle * (1 - CEILING_LIGHT.penumbra));
-  const lamps = ROOM_LIGHTS[source.room].map(lamp => ({ ...lamp, virtual: transformPoint(lamp, source, receiver) }));
+  const lamps = ROOM_LIGHTS[source.room].map(lamp => ({ ...lamp, virtual: transformPoint(lamp, source, receiver), spot: SPOT_LIGHT_SHARE, area: detailed ? 0 : 1 - SPOT_LIGHT_SHARE }));
+  if (detailed) lamps.push(...ROOM_LIGHTS[source.room].flatMap(lamp => ceilingPanelSamples(lamp).map(p =>
+    ({ ...p, virtual: transformPoint(p, source, receiver), spot: 0, area: (1 - SPOT_LIGHT_SHARE) / 9 }))));
   return (point: Point, result: Float32Array, normal?: Point) => {
     result.fill(0);
     for (const lamp of lamps) {
@@ -27,7 +29,7 @@ export function createTransferSampler(receiver: SocketRef, source: SocketRef) {
       for (const face of [-WALL_THICKNESS / 2, WALL_THICKNESS / 2]) {
         const t = Math.max(0, (distance + face - signed) / normalStep);
         const x = point.x + dx * t, y = point.y + dy * t, z = point.z + dz * t;
-        if (t >= 1 || y < 0 || y > DOOR_HEIGHT || Math.abs(-n.z * (x - center.x) + n.x * (z - center.z)) > DOOR_WIDTH / 2) { passes = false; break; }
+        if (t >= 1 || y < -APERTURE_EPSILON || y > DOOR_HEIGHT + APERTURE_EPSILON || Math.abs(-n.z * (x - center.x) + n.x * (z - center.z)) > DOOR_WIDTH / 2 + APERTURE_EPSILON) { passes = false; break; }
       }
       if (!passes) continue;
       // Extend probes a little beyond the transition plane. Bilinear filtering
@@ -40,9 +42,7 @@ export function createTransferSampler(receiver: SocketRef, source: SocketRef) {
       if (transferPathBlocked(source.room, { x: lamp.x, y: CEILING_LIGHT.height, z: lamp.z }, { ...q, y: aperture.y }, source.side)) continue;
       const spot = Math.max(0, Math.min(1, (dy / length - cone) / (penumbra - cone)));
       const cutoff = Math.max(0, 1 - (length / CEILING_LIGHT.distance) ** 4);
-      // Across a doorway the diffuser is already distant: its central probe
-      // retains the panel's cosine emission and the live spotlight's share.
-      const emission = SPOT_LIGHT_SHARE * spot * spot * (3 - 2 * spot) + (1 - SPOT_LIGHT_SHARE) * dy / length;
+      const emission = lamp.spot * spot * spot * (3 - 2 * spot) + lamp.area * dy / length;
       const energy = CEILING_LIGHT.intensity * emission * cutoff * cutoff / Math.max(length * length, .01);
       if (normal) { result[0] += energy * receive; continue; }
       result[dx < 0 ? 1 : 0] += energy * Math.abs(dx) / length;
