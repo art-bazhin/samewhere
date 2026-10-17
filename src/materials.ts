@@ -64,6 +64,23 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   materials.socket.shadowSide = THREE.FrontSide;
   withWallContacts(materials.wall);
   withPedestalContacts(materials.pedestal);
+  for (const material of [materials.red, materials.blue]) {
+    // Visible ceiling panels already supply the resin and clearcoat reflections
+    // through the environment map. Spots provide diffuse light and shadows only,
+    // otherwise each panel gains a second, circular highlight on the balls.
+    material.onBeforeCompile = shader => {
+      shader.fragmentShader = shader.fragmentShader.replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>
+        void RE_Direct_BallDiffuse(const in IncidentLight directLight, const in vec3 geometryPosition,
+          const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal,
+          const in PhysicalMaterial material, inout ReflectedLight reflectedLight) {
+          vec3 irradiance = saturate(dot(geometryNormal, directLight.direction)) * directLight.color;
+          reflectedLight.directDiffuse += irradiance * BRDF_Lambert(material.diffuseColor);
+        }
+        #undef RE_Direct
+        #define RE_Direct RE_Direct_BallDiffuse`);
+    };
+    material.customProgramCacheKey = () => 'ball-panel-reflections';
+  }
   materials.socket.onBeforeCompile = shader => {
     shader.vertexShader = 'attribute float socketOccupied; varying float vSocketOccupied; varying vec3 bowlPosition; varying vec2 socketOffset;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>

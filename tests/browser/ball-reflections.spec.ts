@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('ball reflections include the shaded saucer and retain bright ceiling highlights', async ({ page }) => {
+test('ball reflections include the shaded saucer and ceiling panels without duplicate spot highlights', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -16,34 +16,47 @@ test('ball reflections include the shaded saucer and retain bright ceiling highl
     const center = socket.ball.getWorldPosition(new THREE.Vector3());
     const camera = new THREE.PerspectiveCamera(35, 1, .001, 30);
     camera.position.copy(center).add(new THREE.Vector3(.12, .22625, .2)); camera.lookAt(center); camera.updateMatrixWorld(true);
-    const probe = { value: false }, material = socket.ball.material;
-    const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
-    material.onBeforeCompile = (shader: any, context: any) => {
-      before(shader, context); shader.uniforms.reflectionProbe = probe;
-      shader.fragmentShader = 'uniform bool reflectionProbe;\n' + shader.fragmentShader;
-      shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', `
-        if (reflectionProbe) outgoingLight = reflectedLight.indirectSpecular + material.clearcoat * clearcoatSpecularIndirect;
-        #include <opaque_fragment>`);
-    };
-    material.customProgramCacheKey = () => `${key}:ball-reflection-regression`; material.needsUpdate = true;
+    const probe = { value: 0 }, originalMaterial = socket.ball.material;
+    for (const material of [space.assets.materials.red, space.assets.materials.blue]) {
+      const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
+      material.onBeforeCompile = (shader: any, context: any) => {
+        before(shader, context); shader.uniforms.reflectionProbe = probe;
+        shader.fragmentShader = 'uniform int reflectionProbe;\n' + shader.fragmentShader;
+        shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', `
+          if (reflectionProbe == 1) outgoingLight = reflectedLight.indirectSpecular + material.clearcoat * clearcoatSpecularIndirect;
+          if (reflectionProbe == 2) outgoingLight = reflectedLight.directSpecular + material.clearcoat * clearcoatSpecularDirect;
+          if (reflectionProbe == 3) outgoingLight = reflectedLight.directDiffuse;
+          #include <opaque_fragment>`);
+      };
+      material.customProgramCacheKey = () => `${key}:ball-reflection-regression`; material.needsUpdate = true;
+    }
     const gl = renderer.getContext(), pixels = new Uint8Array(600 * 600 * 4);
-    const draw = (isolated: boolean) => {
-      probe.value = isolated; renderer.setRenderTarget(null); renderer.render(room.scene, camera);
+    const draw = (mode: number) => {
+      probe.value = mode; renderer.setRenderTarget(null); renderer.render(room.scene, camera);
       gl.readPixels(0, 0, 600, 600, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     };
-    draw(false);
-    const ray = new THREE.Raycaster(), lower: number[] = [];
-    let brightestWhite = 0;
+    const ray = new THREE.Raycaster(), lower: number[] = [], ballPixels: number[] = [];
     for (let y = 0; y < 600; y += 4) for (let x = 0; x < 600; x += 4) {
       ray.setFromCamera(new THREE.Vector2((x + .5) / 600 * 2 - 1, (y + .5) / 600 * 2 - 1), camera);
       const hit = ray.intersectObject(socket.ball, false)[0]; if (!hit) continue;
       const index = (y * 600 + x) * 4;
-      brightestWhite = Math.max(brightestWhite, Math.min(pixels[index], pixels[index + 1], pixels[index + 2]));
       const normal = hit.point.clone().sub(center).normalize(), view = camera.position.clone().sub(hit.point).normalize();
+      // Check ceiling highlights away from the MSAA silhouette and saucer lip.
+      if (normal.y > .05 && normal.dot(view) > .3) ballPixels.push(index);
       if (normal.y < -.25 && normal.dot(view) < .4) lower.push(index);
     }
+    const peak = (white: boolean) => ballPixels.reduce((max, index) => Math.max(max,
+      (white ? Math.min : Math.max)(pixels[index], pixels[index + 1], pixels[index + 2])), 0);
+    const highlights = [space.assets.materials.red, space.assets.materials.blue].map(material => {
+      socket.ball.material = material;
+      draw(1); const panel = peak(true);
+      draw(2); const spot = peak(false);
+      draw(3); const diffuse = peak(false);
+      return { panel, spot, diffuse };
+    });
+    socket.ball.material = originalMaterial;
     const lowerReflection = () => {
-      draw(true);
+      draw(1);
       return lower.reduce((sum, index) => sum + .2126 * pixels[index] + .7152 * pixels[index + 1] + .0722 * pixels[index + 2], 0) / lower.length;
     };
     const correct = lowerReflection();
@@ -56,11 +69,16 @@ test('ball reflections include the shaded saucer and retain bright ceiling highl
     try { space.prepareBallReflections(); }
     finally { source.ball.getWorldPosition = original; }
     const overPedestal = lowerReflection();
-    return { samples: lower.length, correct, overPedestal, brightestWhite, error: gl.getError() };
+    return { samples: lower.length, correct, overPedestal, highlights, error: gl.getError() };
   });
   console.log('Lower ball reflection:', result);
   expect(result.samples).toBeGreaterThan(20);
   expect(result.correct).toBeLessThan(result.overPedestal * .6);
-  expect(result.brightestWhite).toBeGreaterThan(210);
+  for (const highlight of result.highlights) {
+    // Measure panels alone; the former >210 full-image peak came from a spot.
+    expect(highlight.panel).toBeGreaterThan(180);
+    expect(highlight.spot).toBe(0);
+    expect(highlight.diffuse).toBeGreaterThan(100);
+  }
   expect(result.error).toBe(0); expect(errors).toEqual([]);
 });

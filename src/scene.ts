@@ -136,7 +136,13 @@ export class SpaceRenderer {
     // Capture the shaded saucer beneath the ball, rather than the lit concrete
     // at the pedestal's center, which produces a bright lower reflection rim.
     const position = source.ball.getWorldPosition(new THREE.Vector3());
-    const hidden = [...room.sockets.map(socket => socket.ball), ...room.portals.map(portal => portal.mesh)];
+    const panels = room.scene.children.filter(object => object.name === 'ceiling-lamp');
+    const overhead = panels.reduce((nearest, panel) =>
+      panel.position.distanceToSquared(position) < nearest.position.distanceToSquared(position) ? panel : nearest);
+    // This shared probe cannot place other fixtures correctly for every socket.
+    // Capture only the overhead diffuser; all lights still illuminate the room.
+    const hidden = [...room.sockets.map(socket => socket.ball), ...room.portals.map(portal => portal.mesh),
+      ...panels.filter(panel => panel !== overhead)];
     const visibility = hidden.map(object => object.visible), clipping = this.renderer.clippingPlanes;
     const lamp = this.assets.materials.lamp, color = lamp.color.clone(), generator = new THREE.PMREMGenerator(this.renderer);
     const surfaces = new Set<THREE.MeshStandardMaterial>();
