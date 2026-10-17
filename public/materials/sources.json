@@ -18,6 +18,14 @@
       "prompt": "Use case: photorealistic-natural. Asset type: seamless BASE COLOR texture for beige wall-to-wall office carpet in a first-person Backrooms-style game. Create a square full-bleed overhead orthographic macro photograph of plain short dense cut-pile commercial carpet, the type covering empty late-1970s office floors. Sandy beige, light camel, muted golden tan fibers. Soft irregular fine pile, tightly packed wool/nylon fibers, with subtle natural variation and a few faint wear marks, no large stains. The entire image represents 1 meter by 1 meter of carpet. Realistic individual fine fiber detail at close range; at a distance it must read as a quiet even beige carpet, not tiles, woven fabric, a rug, checkerboard, stripes, braids, stitching or a geometric pattern. Color is warm beige, not gray, green or orange. BASE COLOR ONLY: neutral, completely even diffuse lighting, no directional shadows, no ambient occlusion, no highlights, no baked shading, no depth of field, no fog or vignetting. Perfectly flat view, consistent detail scale, seamlessly repeatable on all four edges. No room, furniture, edges of a rug, border, objects, text, watermark or labels."
     },
     {
+      "name": "Warm fine cast concrete",
+      "file": "pedestal-concrete-color.jpg",
+      "meters_per_tile": 0.8,
+      "source": "Generated for Samewhere",
+      "generator": "Built-in image_gen tool",
+      "prompt": "Use case: photorealistic-natural. Asset type: one seamless PBR BASE COLOR texture for cast-concrete pedestals in a first-person Backrooms puzzle game. Primary request: a square, full-bleed, perfectly orthographic photograph of fine smooth cast architectural microconcrete, warm light limestone-beige grey. Represents exactly 0.8 meter by 0.8 meter of real material. Quiet subtle cloudy mineral variation, fine cement grain and sparsely distributed tiny pinhole pores about 0.2 to 1.2 millimeters across; solid cast stone with a matte unpolished finish, delicately visible small details up close but calm uniform material from a distance. Main color warm greige around sRGB #b8b3a3, naturally restrained low contrast, with no yellow ochre tint. No big holes, coarse stones, large aggregate, terrazzo, marble veins, brush strokes, trowel ridges, seams, formwork lines, cracks, scratches, damage, large stains, repeating motifs or directional grain. Uniform flat neutral diffuse frontal illumination, BASE COLOR ONLY, no baked directional shading, no ambient occlusion, shadows, highlights, gradients, vignette or blur. Seamlessly tileable at every edge. Texture fills image edge to edge. No actual pedestal, room, shapes, objects, frame, text, watermark, labels, grid or multiple panels. High resolution detailed square raster."
+    },
+    {
       "name": "Acoustic ceiling tile",
       "meters_per_tile": 0.6,
       "source": "Procedural canvas texture in src/materials.ts"
@@ -45,7 +53,12 @@
       "color_space": "linear"
     },
     "carpet_finish": "MeshPhysicalMaterial sheen 0.25, sheen roughness 0.95; contact shading includes the sheen contribution",
-    "painted_pedestals": "Original beige color, fine procedural matte paint, 2 mm inward edge rounds, original dimensions retained",
+    "concrete_pedestals": {
+      "finish": "Matte fine cast concrete, 0.8 m per tile, JPG base color with estimated linear normal and roughness maps; matching bowls, sharp edges without bevels, original dimensions retained",
+      "target_mean_color_srgb": "#cdbb86",
+      "texture_mean_linear_rgb": [0.504106, 0.443913, 0.362871],
+      "tint": "Material color multiplies the texture by target / measured texture mean in linear RGB, preserving the original beige palette and pore variation"
+    },
     "lamp_diffuser": "Procedural 512² opal/prismatic diffuser within the existing ceiling fixture",
     "panel_light": "9 probes per existing 55 cm panel; 55% static diffuse plus 45% live spotlight contribution",
     "bounce_light": "One coarse Lambertian reflection from floor and walls, with room/pedestal visibility; mean material colors",

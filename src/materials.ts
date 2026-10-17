@@ -9,12 +9,12 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   const optimizations = { value: true };
   const loader = new THREE.TextureLoader(), textures = new Set<THREE.Texture>(), pending: Promise<unknown>[] = [];
   const anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
-  function texture(name: string, metersPerTile: number, relief: number, roughness: [number, number]) {
+  function texture(file: string, metersPerTile: number, relief: number, roughness: [number, number]) {
     const detail = materialDetail(metersPerTile, relief, roughness, anisotropy);
     textures.add(detail.normal); textures.add(detail.roughness);
     let result!: THREE.Texture;
     pending.push(new Promise((resolve, reject) => {
-      result = loader.load(`/materials/${name}.png`, loaded => {
+      result = loader.load(`/materials/${file}`, loaded => {
         detail.update(loaded.image as HTMLImageElement); resolve(loaded);
       }, undefined, reject);
     }));
@@ -22,18 +22,22 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
     result.repeat.setScalar(2 / metersPerTile); result.colorSpace = THREE.SRGBColorSpace;
     textures.add(result); return { color: result, ...detail };
   }
-  const wallpaper = texture('backrooms-wallpaper-color', 1.2, .00065, [.74, .96]), carpet = texture('backrooms-carpet-color', 1, .003, [.9, 1]);
+  const wallpaper = texture('backrooms-wallpaper-color.png', 1.2, .00065, [.74, .96]), carpet = texture('backrooms-carpet-color.png', 1, .003, [.9, 1]);
+  const concrete = texture('pedestal-concrete-color.jpg', .8, .0007, [.78, .97]);
+  // Normalize the JPG's measured mean linear RGB to the original beige albedo.
+  // Keep its pore/color variation without darkening the original plinth color.
+  const concreteTint = new THREE.Color(0xcdbb86);
+  concreteTint.r /= .504106; concreteTint.g /= .443913; concreteTint.b /= .362871;
   const ceiling = ceilingTile(); ceiling.anisotropy = anisotropy; textures.add(ceiling);
   const diffuser = lampDiffuser(); textures.add(diffuser);
-  const paint = paintFinish(); textures.add(paint);
   const environment = createRoomEnvironment(renderer, diffuser);
   const materials = {
     wall: new THREE.MeshStandardMaterial({ map: wallpaper.color, normalMap: wallpaper.normal, roughnessMap: wallpaper.roughness, roughness: 1 }),
     floor: new THREE.MeshPhysicalMaterial({ map: carpet.color, normalMap: carpet.normal, roughnessMap: carpet.roughness, roughness: 1,
       sheen: .25, sheenColor: 0xd8c69f, sheenRoughness: .95 }),
     ceiling: new THREE.MeshStandardMaterial({ map: ceiling, bumpMap: ceiling, bumpScale: 0.002, emissive: 0x3f3b28, roughness: 1, side: THREE.BackSide }),
-    pedestal: new THREE.MeshStandardMaterial({ color: 0xcdbb86, map: paint, bumpMap: paint, bumpScale: .00015, roughness: .87 }),
-    socket: new THREE.MeshStandardMaterial({ color: 0xcdbb86, map: paint, bumpMap: paint, bumpScale: .00015, roughness: .87, vertexColors: true }),
+    pedestal: new THREE.MeshStandardMaterial({ color: concreteTint, map: concrete.color, normalMap: concrete.normal, roughnessMap: concrete.roughness, roughness: 1 }),
+    socket: new THREE.MeshStandardMaterial({ color: concreteTint, map: concrete.color, normalMap: concrete.normal, roughnessMap: concrete.roughness, roughness: 1, vertexColors: true }),
     hit: new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }),
     red: new THREE.MeshStandardMaterial({ color: 0xc92530, roughness: 0.4, metalness: 0.02 }),
     blue: new THREE.MeshStandardMaterial({ color: 0x2466c9, roughness: 0.4, metalness: 0.02 }),
@@ -65,7 +69,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
       reflectedLight.indirectSpecular *= baseContact;`);
   };
   materials.pedestal.customProgramCacheKey = () => 'pedestal-contact';
-  mirroredNormals(materials.wall); mirroredNormals(materials.floor);
+  for (const material of [materials.wall, materials.floor, materials.pedestal, materials.socket]) mirroredNormals(material);
   for (const material of Object.values(materials)) withDistanceFade(material);
   return { materials, textures, environment, optimizations, ready: Promise.all(pending).then(() => {}) };
 }
@@ -141,18 +145,6 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
   };
   material.customProgramCacheKey = () => `floor-contacts:${contacts}`;
   return withDistanceFade(mirroredNormals(material));
-}
-
-/** Fine matte paint; the original beige plinth color stays the same. */
-function paintFinish() {
-  const pixels = new Uint8Array(256 * 256 * 4); let seed = 27931;
-  for (let i = 0; i < pixels.length; i += 4) {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    pixels[i] = pixels[i + 1] = pixels[i + 2] = 250 + Math.round(seed / 4294967296 * 5); pixels[i + 3] = 255;
-  }
-  const map = new THREE.DataTexture(pixels, 256, 256); map.colorSpace = THREE.SRGBColorSpace;
-  map.wrapS = map.wrapT = THREE.RepeatWrapping; map.repeat.setScalar(2 / .128);
-  map.minFilter = THREE.LinearMipmapLinearFilter; map.magFilter = THREE.LinearFilter; map.generateMipmaps = true; map.needsUpdate = true; return map;
 }
 
 /** Subtle tubes behind an opal diffuser, entirely inside the existing light tile. */
