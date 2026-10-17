@@ -55,6 +55,10 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
     blue: new THREE.MeshPhysicalMaterial({ ...ballSurface, color: 0x2466c9 }),
     lamp: new THREE.MeshBasicMaterial({ color: 0xfffbd6, map: diffuser }),
   };
+  // Front-face depth keeps a solid pedestal's interior occluded at the floor.
+  materials.pedestal.shadowSide = THREE.FrontSide;
+  // The saucers close its top cutouts and have no downward-facing back shell.
+  materials.socket.shadowSide = THREE.FrontSide;
   // A small baked-contact approximation at wall/floor and wall/ceiling joins.
   // It works in room coordinates, including when the scene is seen recursively.
   materials.wall.onBeforeCompile = shader => {

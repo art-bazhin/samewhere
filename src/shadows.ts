@@ -12,6 +12,10 @@ export class RoomShadows {
   readonly scene = new THREE.Scene();
   partialUpdates = true;
   private readonly material = new THREE.MeshBasicMaterial();
+  // Pedestals and their single-sided saucers need entry-surface depth. Back
+  // faces leave cup openings unshadowed and can lie below the floor. Keep the
+  // original depth convention on walls to avoid self-shadow artifacts.
+  private readonly solidMaterial = new THREE.MeshBasicMaterial({ shadowSide: THREE.FrontSide });
   private readonly changing: ChangingCaster[] = [];
   private readonly geometry: THREE.BufferGeometry;
   private readonly cones: { light: THREE.SpotLight; position: THREE.Vector3; direction: THREE.Vector3; sin: number; cos: number }[];
@@ -25,8 +29,10 @@ export class RoomShadows {
       if (!(object instanceof THREE.Mesh) || !object.castShadow) return;
       let changes = false;
       for (let parent: THREE.Object3D | null = object; parent; parent = parent.parent) if (moving.has(parent)) { changes = true; break; }
-      if (!changes) { fixed.push(object); return; }
-      const proxy = new THREE.Mesh(object.geometry, this.material);
+      // Retain the original coordinates of front-face casters so self-shadow
+      // comparisons do not change when world positions round to float32.
+      if (!changes && this.depthMaterial(object) === this.material) { fixed.push(object); return; }
+      const proxy = new THREE.Mesh(object.geometry, this.depthMaterial(object));
       proxy.matrix.copy(object.matrixWorld); proxy.matrixAutoUpdate = false;
       proxy.castShadow = true; proxy.visible = visibleInScene(object); this.scene.add(proxy);
       object.geometry.computeBoundingSphere();
@@ -56,6 +62,11 @@ export class RoomShadows {
       const direction = light.target.getWorldPosition(new THREE.Vector3()).sub(position).normalize();
       return { light, position, direction, sin: Math.sin(light.angle), cos: Math.cos(light.angle) };
     });
+  }
+
+  private depthMaterial(mesh: THREE.Mesh) {
+    const source = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+    return source.shadowSide === THREE.FrontSide ? this.solidMaterial : this.material;
   }
 
   sync() {
@@ -134,5 +145,5 @@ export class RoomShadows {
     }
   }
 
-  dispose() { this.geometry.dispose(); this.material.dispose(); }
+  dispose() { this.geometry.dispose(); this.material.dispose(); this.solidMaterial.dispose(); }
 }
