@@ -12,6 +12,7 @@ const sphere = new THREE.SphereGeometry(BALL_RADIUS, 24, 16);
 const SOCKET_OPENING = 0.055;
 const SOCKET_DEPTH = 0.01625;
 const SOCKET_RECESS = 0.005;
+const SOCKET_SHADE = .82;
 const socketGeometry = new THREE.CircleGeometry(SOCKET_OPENING, 32);
 const socketBowlGeometry = createSocketBowl();
 
@@ -24,14 +25,12 @@ function createSocketBowl() {
   });
   const geometry = new THREE.LatheGeometry(profile, 48);
   const positions = geometry.getAttribute('position'), normals = geometry.getAttribute('normal');
-  const colors = new Float32Array(positions.count * 3), normal = new THREE.Vector3();
+  const colors = new Float32Array(positions.count * 3).fill(SOCKET_SHADE), normal = new THREE.Vector3();
   for (let i = 0; i < positions.count; i++) {
     const x = positions.getX(i), z = positions.getZ(i), radius = Math.hypot(x, z);
     const t = Math.min(radius / SOCKET_OPENING, 1), curve = 1 - t * t;
     const slope = 4 * SOCKET_DEPTH / (SOCKET_OPENING * SOCKET_OPENING) * curve;
     normal.set(-slope * x, 1, -slope * z).normalize(); normals.setXYZ(i, normal.x, normal.y, normal.z);
-    // Gentle cavity shading fades to the pedestal's exact color at the rim.
-    const shade = 1 - .18 * curve * curve; colors.set([shade, shade, shade], i * 3);
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   return geometry;
@@ -99,10 +98,16 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
     steps: 1, curveSegments });
   geometry.rotateX(-Math.PI / 2); geometry.translate(0, -.006, 0);
   const positions = geometry.getAttribute('position'), normals = geometry.getAttribute('normal');
+  const colors = new Float32Array(positions.count * 3).fill(1);
   for (let i = 0; i < positions.count; i++) {
     const bore = Math.abs(normals.getY(i)) < .1 && centers.some(p => Math.hypot(positions.getX(i) - p.x, positions.getZ(i) - p.z) < SOCKET_OPENING + .001);
-    if (bore) positions.setY(i, Math.max(positions.getY(i), PEDESTAL_HEIGHT - SOCKET_RECESS));
+    if (bore) {
+      positions.setY(i, Math.max(positions.getY(i), PEDESTAL_HEIGHT - SOCKET_RECESS));
+      colors.fill(SOCKET_SHADE, i * 3, i * 3 + 3);
+    }
   }
+  // Only the inner lips share the bowl's uniformly darker finish.
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const body = new THREE.Mesh(surfaceUV(geometry), materials.pedestal); body.name = 'pedestal-body';
   body.castShadow = body.receiveShadow = true; group.add(body); blockers.push(body);
   for (let side = 0; side < sides; side++) {

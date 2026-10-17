@@ -41,7 +41,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
       sheen: .25, sheenColor: 0xd8c69f, sheenRoughness: .95 }),
     ceiling: new THREE.MeshStandardMaterial({ map: ceiling.color, normalMap: ceiling.normal, roughnessMap: ceiling.roughness,
       emissive: 0x3f3b28, emissiveMap: ceiling.color, roughness: 1, side: THREE.BackSide }),
-    pedestal: new THREE.MeshStandardMaterial({ color: concreteTint, map: concrete.color, normalMap: concrete.normal, roughnessMap: concrete.roughness, roughness: 1 }),
+    pedestal: new THREE.MeshStandardMaterial({ color: concreteTint, map: concrete.color, normalMap: concrete.normal, roughnessMap: concrete.roughness, roughness: 1, vertexColors: true }),
     socket: new THREE.MeshStandardMaterial({ color: concreteTint, map: concrete.color, normalMap: concrete.normal, roughnessMap: concrete.roughness, roughness: 1, vertexColors: true }),
     hit: new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }),
     red: new THREE.MeshStandardMaterial({ color: 0xc92530, roughness: 0.4, metalness: 0.02 }),
