@@ -1,7 +1,36 @@
 import { test, expect } from '@playwright/test';
 
+test('baked diffuse bounce visibly lights the ceiling without extra render passes', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+  await page.evaluate(() => window.__samewhere.space.ready);
+  const result = await page.evaluate(() => {
+    const app = window.__samewhere, space = app.space, gl = space.renderer.getContext();
+    Object.assign(app.game.player, { room: 'A', x: 0, z: 0, yaw: 0, pitch: .9 });
+    const texture = space.lightTransfer.fields.A.panel, data = texture.image.data, saved = data.slice();
+    const read = () => {
+      space.render();
+      const pixel = new Uint8Array(4);
+      gl.readPixels(Math.floor(gl.drawingBufferWidth / 2), Math.floor(gl.drawingBufferHeight / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      return Array.from(pixel.subarray(0, 3));
+    };
+    const lit = read(), passes = space.passes;
+    for (let i = 0; i < data.length; i++) if (i % 4) data[i] = 0;
+    texture.needsUpdate = true; const unlit = read(), unlitPasses = space.passes;
+    data.set(saved); texture.needsUpdate = true; const restored = read();
+    return { lit, unlit, restored, passes, unlitPasses, error: gl.getError() };
+  });
+  console.log('Ceiling diffuse bounce:', result);
+  expect(result.lit[0] - result.unlit[0]).toBeGreaterThan(10);
+  expect(result.restored).toEqual(result.lit); expect(result.unlitPasses).toBe(result.passes);
+  expect(result.error).toBe(0); expect(errors).toEqual([]);
+});
+
 test('floor illumination stays continuous across polygonal passages and H entrances', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  // Center a pixel on the sample ray. Nearby 1.5 mm probes isolate the seam
+  // from a legitimate, stronger light gradient across a two-centimeter gap.
+  await page.setViewportSize({ width: 1441, height: 961 });
   await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
   await page.evaluate(() => window.__samewhere.space.ready);
   const result = await page.evaluate(async () => {
@@ -19,12 +48,12 @@ test('floor illumination stays continuous across polygonal passages and H entran
     }
     const read = (endpoint: any, lateral: number) => {
       const p = portalPosition(endpoint.room, endpoint.side), n = wallNormal(endpoint.room, endpoint.side);
-      Object.assign(app.game.player, { room: endpoint.room, x: p.x - n.x * .01 - n.z * lateral,
-        z: p.z - n.z * .01 + n.x * lateral, yaw: 0, pitch: -Math.PI / 2 });
+      Object.assign(app.game.player, { room: endpoint.room, x: p.x - n.x * .0015 - n.z * lateral,
+        z: p.z - n.z * .0015 + n.x * lateral, yaw: 0, pitch: -Math.PI / 2 });
       space.render();
-      const pixels = new Uint8Array(4 * 9);
-      gl.readPixels(Math.floor(gl.drawingBufferWidth / 2) - 1, Math.floor(gl.drawingBufferHeight / 2) - 1, 3, 3, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-      return [0, 1, 2].map(c => Array.from({ length: 9 }, (_, i) => pixels[i * 4 + c]).reduce((a, b) => a + b, 0) / 9);
+      const pixels = new Uint8Array(4);
+      gl.readPixels(Math.floor(gl.drawingBufferWidth / 2), Math.floor(gl.drawingBufferHeight / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      return Array.from(pixels.subarray(0, 3));
     };
     const samples: any[] = [];
     for (const room of ['B', 'C']) for (let side = 0; side < ROOMS[room].sides; side++) {

@@ -1,15 +1,15 @@
 import { Color, DataUtils } from 'three';
-import { CEILING_LIGHT, ceilingPanelSamples, SPOT_LIGHT_SHARE } from './lighting';
+import { CEILING_LIGHT, ceilingPanelSamples, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
 import { transferPathBlocked } from './light-path';
 import type { SurfaceSamples } from './lightmap-layout';
 import { insideOutline } from './geometry';
-import { DOOR_WIDTH, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, type RoomId } from './world';
+import { DOOR_WIDTH, ROOM_HEIGHT, roomOutline, roomWalls, type RoomId } from './world';
 
 interface Point { x: number; y: number; z: number }
 
 /** Nine deterministic probes cover the fluorescent diffuser's actual footprint. */
 export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE) {
-  const sources = ROOMS[room].pedestals.flatMap(ceilingPanelSamples);
+  const sources = ROOM_LIGHTS[room].flatMap(ceilingPanelSamples);
   const weight = CEILING_LIGHT.intensity * share / 9;
   return (point: Point, normal: Point) => {
     const origin = { x: point.x + normal.x * .005, y: point.y + normal.y * .005, z: point.z + normal.z * .005 };

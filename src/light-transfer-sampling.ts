@@ -1,7 +1,7 @@
-import { CEILING_LIGHT, SPOT_LIGHT_SHARE } from './lighting';
+import { CEILING_LIGHT, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
 import { transferPathBlocked } from './light-path';
 export { transferPathBlocked } from './light-path';
-import { DOOR_HEIGHT, DOOR_WIDTH, portalDistance, portalPosition, ROOMS, transformPoint, WALL_THICKNESS, wallNormal, type SocketRef, type Vec2 } from './world';
+import { DOOR_HEIGHT, DOOR_WIDTH, portalDistance, portalPosition, transformPoint, WALL_THICKNESS, wallNormal, type SocketRef, type Vec2 } from './world';
 
 interface Point extends Vec2 { y: number }
 
@@ -9,7 +9,7 @@ interface Point extends Vec2 { y: number }
 export function createTransferSampler(receiver: SocketRef, source: SocketRef) {
   const n = wallNormal(receiver.room, receiver.side), distance = portalDistance(receiver.room, receiver.side), center = portalPosition(receiver.room, receiver.side);
   const cone = Math.cos(CEILING_LIGHT.angle), penumbra = Math.cos(CEILING_LIGHT.angle * (1 - CEILING_LIGHT.penumbra));
-  const lamps = ROOMS[source.room].pedestals.map(lamp => ({ ...lamp, virtual: transformPoint(lamp, source, receiver) }));
+  const lamps = ROOM_LIGHTS[source.room].map(lamp => ({ ...lamp, virtual: transformPoint(lamp, source, receiver) }));
   return (point: Point, result: Float32Array, normal?: Point) => {
     result.fill(0);
     for (const lamp of lamps) {

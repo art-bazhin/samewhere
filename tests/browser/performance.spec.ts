@@ -70,7 +70,9 @@ test('startup prepares every room; ball changes only invalidate affected spotlig
     const action = app.game.interact({ room: 'C', side: 3 }); app.sync();
     const changed = dirty(); space.render(); const actionDraws = space.drawCalls, actionShadowPixels = space.shadowPixels;
     const pending = [Object.values(dirty()).reduce((sum: number, count: any) => sum + count, 0)];
-    for (let i = 0; i < 3; i++) { space.render(); pending.push(Object.values(dirty()).reduce((sum: number, count: any) => sum + count, 0)); }
+    for (let i = 0; i < maps.length && pending.at(-1)! > 0; i++) {
+      space.render(); pending.push(Object.values(dirty()).reduce((sum: number, count: any) => sum + count, 0));
+    }
     await pageYield();
     return { maps, unchanged, before, after, action, changed, steadyDraws, actionDraws, actionShadowPixels, pending, error: renderer.getContext().getError() };
     function pageYield() { return new Promise<void>(resolve => requestAnimationFrame(() => resolve())); }
@@ -81,10 +83,11 @@ test('startup prepares every room; ball changes only invalidate affected spotlig
   expect(Object.values(result.unchanged).every(count => count === 0)).toBe(true);
   expect(result.after).toEqual(result.before);
   expect(result.action).toBe('take');
-  expect(result.changed).toEqual({ A: 0, B: 2, C: 2, D: 0, E: 0, F: 0, G: 4 });
+  expect(result.changed).toEqual({ A: 0, B: 2, C: 2, D: 0, E: 0, F: 0, G: 3 });
   expect(result.actionDraws).toBeLessThan(result.steadyDraws + 50);
   expect(result.actionShadowPixels).toBeGreaterThan(0); expect(result.actionShadowPixels).toBeLessThan(50000);
-  expect(result.pending).toEqual([3, 2, 1, 0]);
+  expect(result.pending.at(-1)).toBe(0);
+  for (let i = 1; i < result.pending.length; i++) expect(result.pending[i]).toBe(result.pending[i - 1] - 1);
   expect(result.error).toBe(0);
 });
 

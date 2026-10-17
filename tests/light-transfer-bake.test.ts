@@ -4,7 +4,7 @@ import { bakeLightTransfer } from '../src/light-transfer-bake';
 import { compressTransfer } from '../src/light-transfer-cache';
 import { bakingLayout, surfaceSamples } from '../src/lightmap-layout';
 import { bakeSurfaceTransfer } from '../src/surface-lightmap';
-import { portalPosition, ROOM_IDS, ROOMS, roomWalls, wallNormal } from '../src/world';
+import { portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomWalls, wallNormal } from '../src/world';
 import { DataUtils, Vector3 } from 'three';
 import { panelLightSampler } from '../src/panel-light-bake';
 
@@ -49,6 +49,26 @@ test('startup calculation prepares every directed connection using compact, boun
   assert.ok(bytes < 8 * 1024 * 1024);
 });
 
+test('every ceiling receives baked floor and wall bounce on its inward-facing surface', () => {
+  for (const room of ROOM_IDS) {
+    const layout = bakingLayout(room), samples = surfaceSamples(layout), map = result.panels[room];
+    const chart = layout.charts.find(chart => chart.triangles.some(t => t.mesh.name === 'ceiling'));
+    assert.ok(chart, `${room}: ceiling must have a lightmap chart`);
+    assert.equal(chart.step.x, .5); assert.equal(chart.step.y, .5);
+    let lit = 0, total = 0;
+    for (const texel of samples.texels) {
+      const x = texel % layout.width, y = Math.floor(texel / layout.width);
+      if (x < chart.x || x >= chart.x + chart.width || y < chart.y || y >= chart.y + chart.height) continue;
+      total++;
+      assert.ok(samples.normals[texel * 3 + 1] < -.999);
+      assert.ok(Math.abs(samples.positions[texel * 3 + 1] - (ROOM_HEIGHT - .002)) < .00001);
+      assert.equal(map[texel * 4], 0, 'Downward ceiling panels cannot directly illuminate the ceiling');
+      if (DataUtils.fromHalfFloat(map[texel * 4 + 1]) > .01) lit++;
+    }
+    assert.ok(total > 100); assert.ok(lit > total * .8, `${room}: bounced light reaches ${lit}/${total} ceiling samples`);
+  }
+});
+
 test('the complete startup job matches independent surface bakes, including concave rooms', () => {
   for (const [receiver, source] of [
     [{ room: 'A', side: 0 }, { room: 'G', side: 0 }],
@@ -68,7 +88,9 @@ test('local panel light continues through each half-threshold without leaking pa
     const normal = { x: 0, y: 1, z: 0 };
     const inner = sample({ x: p.x - n.x * .151, y: .002, z: p.z - n.z * .151 }, normal);
     const threshold = sample({ x: p.x - n.x * .001, y: .002, z: p.z - n.z * .001 }, normal);
-    assert.ok(threshold >= inner * .75, `${room}${side}: the inner wall must not black out its threshold`);
+    // Close to the light's range limit, smooth cutoff can remove a negligible
+    // contribution over these 15 cm without the wall blocking the threshold.
+    assert.ok(threshold + .0001 >= inner * .75, `${room}${side}: the inner wall must not black out its threshold`);
     assert.equal(sample({ x: p.x - n.z * 1.1, y: .002, z: p.z + n.x * 1.1 }, normal), 0);
   }
 });

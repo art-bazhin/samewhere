@@ -1,8 +1,13 @@
-import { CEILING_TILE_SIZE, ROOM_HEIGHT } from './world';
+import { CEILING_TILE_SIZE, ROOM_HEIGHT, ROOM_IDS, ROOMS, type RoomId, type Vec2 } from './world';
 
 /** Shared parameters for ceiling lamps and cached light transported through doors. */
-export const CEILING_LIGHT = { color: 0xfff5d7, intensity: 14, distance: 18, angle: 1.28, penumbra: .65, height: ROOM_HEIGHT - .015 };
+export const CEILING_LIGHT = { color: 0xfff5d7, intensity: 26, distance: 10, angle: 1.28, penumbra: .65, height: ROOM_HEIGHT - .015 };
 export const CEILING_PANEL_SIZE = CEILING_TILE_SIZE - .05;
+export const ROOM_FILL_LIGHT = { hemisphere: .24, ambient: .016, environment: .12 };
+
+/** Fixtures and all lighting calculations share the pedestal-aligned positions. */
+export const ROOM_LIGHTS = Object.fromEntries(ROOM_IDS.map(room =>
+  [room, ROOMS[room].pedestals.map(({ x, z }) => ({ x, z }))])) as Record<RoomId, Vec2[]>;
 
 // Broad static diffuse light is integrated over the visible panel. The remaining
 // spot contribution retains live ball shadows and specular highlights.

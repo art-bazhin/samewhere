@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { MAX_PORTAL_PASSES } from '../../src/visibility';
+import { ROOM_LIGHTS } from '../../src/lighting';
 import { doorFrame, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, transformPoint, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../../src/world';
 
 declare global { interface Window { __samewhere: any } }
@@ -209,7 +210,7 @@ test('textured architecture loads locally and paired wall halves form a 30 cm pa
   for (const bound of result.ceilingBounds) expect(bound.actual).toBeCloseTo(bound.expected, 5);
   expect(result.maps).toHaveLength(6);
   for (const [width, height] of result.maps) { expect(width).toBeGreaterThanOrEqual(1024); expect(height).toBeGreaterThanOrEqual(1024); }
-  expect(result.lines).toBe(0); expect(result.shadows).toEqual(Array(ROOMS.A.pedestals.length).fill(1024));
+  expect(result.lines).toBe(0); expect(result.shadows).toEqual(Array(ROOM_LIGHTS.A.length).fill(1024));
   expect(result.glError).toBe(0); expect(external).toEqual([]);
 });
 
@@ -413,11 +414,14 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
     expect(bowl.clearance).toBeGreaterThanOrEqual(-.000001); expect(bowl.minUpNormal).toBeGreaterThan(.8);
   }
   for (const fixture of result.fixtures) {
+    const id = fixture.id as RoomId;
+    const expected = ROOM_LIGHTS[id].map(({ x, z }) => [x, z]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     expect(fixture.pedestalCount).toBe(ROOMS[fixture.id as RoomId].pedestals.length);
-    expect(fixture.sizes).toHaveLength(fixture.pedestalCount); expect(fixture.frameSizes).toHaveLength(fixture.pedestalCount);
-    expect(fixture.lightCount).toBe(fixture.pedestalCount);
-    expect(fixture.lampPositions).toEqual(fixture.pedestalPositions); expect(fixture.lightPositions).toEqual(fixture.pedestalPositions);
-    expect(fixture.targetPositions).toEqual(fixture.pedestalPositions);
+    expect(fixture.sizes).toHaveLength(expected.length); expect(fixture.frameSizes).toHaveLength(expected.length);
+    expect(fixture.lightCount).toBe(({ A: 2, B: 2, C: 2, D: 3, E: 2, F: 2, G: 7 })[id]);
+    expect(fixture.lampPositions).toEqual(expected); expect(fixture.lightPositions).toEqual(expected);
+    expect(fixture.targetPositions).toEqual(expected);
+    for (const position of fixture.pedestalPositions) expect(fixture.lampPositions).toContainEqual(position);
     for (const size of fixture.sizes) for (const dimension of size) expect(dimension).toBeCloseTo(.6, 8);
     for (const size of fixture.frameSizes) for (const dimension of size) expect(dimension).toBeCloseTo(.65, 8);
     for (const uv of fixture.centerUVs) for (const value of uv) expect(value).toBeCloseTo(.5, 5);

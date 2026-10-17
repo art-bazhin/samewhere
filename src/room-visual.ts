@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoomShadows } from './shadows';
-import { CEILING_LIGHT, CEILING_PANEL_SIZE, SPOT_LIGHT_SHARE } from './lighting';
+import { CEILING_LIGHT, CEILING_PANEL_SIZE, ROOM_FILL_LIGHT, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
 import { floorWithContacts, surfaceUV, type MaterialSet } from './materials';
 import { offsetOutline } from './geometry';
 import { BALL_RADIUS, CEILING_TILE_SIZE, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
@@ -127,14 +127,14 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
 export function createRoom(id: RoomId, materials: MaterialSet, optimizations: THREE.IUniform<boolean>, environment?: THREE.Texture): RoomVisual {
   const definition = ROOMS[id], scene = new THREE.Scene();
   scene.background = new THREE.Color(PALETTE.background);
-  scene.environment = environment ?? null; scene.environmentIntensity = .2;
-  scene.add(new THREE.HemisphereLight(0xfff8df, 0xc2a568, .5), new THREE.AmbientLight(0xfff6dd, .04));
+  scene.environment = environment ?? null; scene.environmentIntensity = ROOM_FILL_LIGHT.environment;
+  scene.add(new THREE.HemisphereLight(0xfff8df, 0xc2a568, ROOM_FILL_LIGHT.hemisphere), new THREE.AmbientLight(0xfff6dd, ROOM_FILL_LIGHT.ambient));
   const shadowLights: THREE.SpotLight[] = [];
-  for (const { x, z } of definition.pedestals) {
+  for (const { x, z } of ROOM_LIGHTS[id]) {
     const light = new THREE.SpotLight(CEILING_LIGHT.color, CEILING_LIGHT.intensity * SPOT_LIGHT_SHARE, CEILING_LIGHT.distance, CEILING_LIGHT.angle, CEILING_LIGHT.penumbra, 2);
     light.position.set(x, CEILING_LIGHT.height, z); light.target.position.set(x, 0, z);
     light.castShadow = true; light.shadow.mapSize.set(1024, 1024);
-    light.shadow.camera.near = 0.1; light.shadow.camera.far = 18;
+    light.shadow.camera.near = 0.1; light.shadow.camera.far = CEILING_LIGHT.distance;
     light.shadow.bias = -0.00002; light.shadow.normalBias = 0.0015;
     light.shadow.autoUpdate = false; light.shadow.needsUpdate = true;
     scene.add(light, light.target); shadowLights.push(light);

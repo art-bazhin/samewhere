@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, roomWalls, WALL_THICKNESS, type RoomId } from './world';
 import { createRoom } from './room-visual';
+import { closestOnSegment, insideOutline } from './geometry';
 
 export const LIGHTMAP_SPACING = .25;
 const PADDING = 1;
@@ -9,7 +10,7 @@ export interface SurfaceChart {
   triangles: Triangle[]; curved: boolean; curvedMesh?: THREE.Mesh; min: THREE.Vector2; max: THREE.Vector2; step: THREE.Vector2;
   x: number; y: number; width: number; height: number;
 }
-export interface SurfaceLayout { width: number; height: number; charts: SurfaceChart[] }
+export interface SurfaceLayout { room: RoomId; width: number; height: number; charts: SurfaceChart[] }
 export interface SurfaceSamples { positions: Float32Array; normals: Float32Array; texels: Uint32Array }
 const powerOfTwo = (value: number) => 2 ** Math.ceil(Math.log2(value));
 const rounded = (value: number) => Math.round(value * 10000) / 10000;
@@ -44,7 +45,8 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId): SurfaceL
     for (let vertex = 0; vertex < count; vertex += 3) {
       const vertices = [0, 1, 2].map(i => geometry.index ? geometry.index.getX(vertex + i) : vertex + i);
       const positions = vertices.map(i => new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld));
-      const normals = vertices.map(i => new THREE.Vector3().fromBufferAttribute(normal, i).applyMatrix3(normalMatrix).normalize());
+      const normals = vertices.map(i => new THREE.Vector3().fromBufferAttribute(normal, i).applyMatrix3(normalMatrix).normalize()
+        .multiplyScalar(mesh.material.side === THREE.BackSide ? -1 : 1));
       // Exterior faces and miter caps are hidden by the neighboring wall. They
       // must not occupy an atlas or contaminate visible corner padding.
       if (mesh.name === 'room-wall' || mesh.name === 'boundary-wall') {
@@ -60,8 +62,9 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId): SurfaceL
         if (!visible) continue;
       }
       if (mesh.name === 'threshold' && normals[0].y < .999) continue;
-      // Ceiling lamps cannot send light upward through the lower aperture.
-      if (positions.every(p => p.y > DOOR_HEIGHT) || normals.every(n => n.y < -.999)) continue;
+      // Downward lamps cannot light the ceiling directly, but floor/wall bounce
+      // can. BackSide ceiling normals must point into the room during the bake.
+      if (mesh.name !== 'ceiling' && (positions.every(p => p.y > DOOR_HEIGHT) || normals.every(n => n.y < -.999))) continue;
       // These five-millimeter inner lips are below the diffuse model's scale;
       // its solid pedestal occluders would suppress their contribution anyway.
       if (mesh.name === 'pedestal-body' && normals.every(n => Math.abs(n.y) < .01) &&
@@ -85,11 +88,12 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId): SurfaceL
       chart.width = 10; chart.height = 8;
       chart.step.set((chart.max.x - chart.min.x) / (chart.width - PADDING * 2 - 1), (chart.max.y - chart.min.y) / (chart.height - PADDING * 2 - 1));
     } else {
-      chart.min.x = Math.floor((chart.min.x + .00001) / LIGHTMAP_SPACING) * LIGHTMAP_SPACING;
-      chart.min.y = Math.floor((chart.min.y + .00001) / LIGHTMAP_SPACING) * LIGHTMAP_SPACING;
-      chart.step.setScalar(LIGHTMAP_SPACING);
-      chart.width = Math.ceil((chart.max.x - chart.min.x - .00001) / LIGHTMAP_SPACING) + 1 + PADDING * 2;
-      chart.height = Math.ceil((chart.max.y - chart.min.y - .00001) / LIGHTMAP_SPACING) + 1 + PADDING * 2;
+      const spacing = chart.triangles[0].mesh.name === 'ceiling' ? LIGHTMAP_SPACING * 2 : LIGHTMAP_SPACING;
+      chart.min.x = Math.floor((chart.min.x + .00001) / spacing) * spacing;
+      chart.min.y = Math.floor((chart.min.y + .00001) / spacing) * spacing;
+      chart.step.setScalar(spacing);
+      chart.width = Math.ceil((chart.max.x - chart.min.x - .00001) / spacing) + 1 + PADDING * 2;
+      chart.height = Math.ceil((chart.max.y - chart.min.y - .00001) / spacing) + 1 + PADDING * 2;
     }
   }
   const width = powerOfTwo(Math.max(32, ...list.map(c => c.width + 2), Math.sqrt(list.reduce((sum, c) => sum + (c.width + 1) * (c.height + 1), 0))));
@@ -116,7 +120,7 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId): SurfaceL
     }
     for (const triangle of chart.triangles) triangle.uv.forEach((p, i) => assign(chart, triangle.mesh.geometry.getAttribute('transferUv'), triangle.vertices[i], p));
   }
-  return { width, height, charts: list };
+  return { room, width, height, charts: list };
 }
 
 /** Rasterize actual triangles once, including a one-texel edge dilation. */
@@ -124,6 +128,7 @@ export function surfaceSamples(layout: SurfaceLayout): SurfaceSamples {
   const count = layout.width * layout.height, positions = new Float32Array(count * 3), normals = new Float32Array(count * 3);
   const distance = new Float32Array(count).fill(Infinity), weights = new THREE.Vector3(), point = new THREE.Vector3(), normal = new THREE.Vector3();
   const closest = new THREE.Vector2();
+  const walls = roomWalls(layout.room), outline = walls.map(wall => wall.a);
   for (const chart of layout.charts) for (const triangle of chartTriangles(chart)) {
     const uv = triangle.uv.map(p => new THREE.Vector2((p.x - chart.min.x) / chart.step.x + PADDING, (p.y - chart.min.y) / chart.step.y + PADDING));
     const [a, b, c] = uv, determinant = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
@@ -153,6 +158,18 @@ export function surfaceSamples(layout: SurfaceLayout): SurfaceSamples {
       // The diffuse occluder uses solid pedestal footprints, without tiny cup
       // cutouts. Sample their lighting at rim height, retaining the curved normal.
       if (triangle.mesh.name === 'socket-bowl') point.y = Math.max(point.y, PEDESTAL_HEIGHT + .002);
+      // The ceiling overlaps the wall shell by 15 cm. Extend interior irradiance
+      // into that hidden overlap instead of filtering black outside-room probes.
+      if (triangle.mesh.name === 'ceiling' && !insideOutline(point, outline)) {
+        let best = Infinity, nearest = walls[0], position = { x: point.x, z: point.z };
+        for (const wall of walls) {
+          const p = closestOnSegment(point, wall.a, wall.b), distance = (p.x - point.x) ** 2 + (p.z - point.z) ** 2;
+          if (distance < best) { best = distance; nearest = wall; position = p; }
+        }
+        const dx = nearest.center.x - position.x, dz = nearest.center.z - position.z, length = Math.max(Math.hypot(dx, dz), .003);
+        point.x = position.x - nearest.normal.x * .003 + dx / length * .003;
+        point.z = position.z - nearest.normal.z * .003 + dz / length * .003;
+      }
       point.addScaledVector(normal, .002);
       positions.set(point.toArray(), index * 3); normals.set(normal.toArray(), index * 3);
     }
@@ -179,7 +196,8 @@ function* chartTriangles(chart: SurfaceChart): Generator<Triangle> {
 /** Reuse the exact room geometry for startup baking, without DOM or textures. */
 export function bakingLayout(room: RoomId) {
   const standard = new THREE.MeshStandardMaterial(), physical = new THREE.MeshPhysicalMaterial(), basic = new THREE.MeshBasicMaterial();
-  const materials = { wall: standard, floor: physical, ceiling: standard, pedestal: standard, socket: standard,
+  const ceiling = new THREE.MeshStandardMaterial({ side: THREE.BackSide });
+  const materials = { wall: standard, floor: physical, ceiling, pedestal: standard, socket: standard,
     red: physical, blue: physical, lampFrame: standard, hit: basic, lamp: basic };
   return prepareSurfaceLayout(createRoom(room, materials, { value: true }).scene, room);
 }

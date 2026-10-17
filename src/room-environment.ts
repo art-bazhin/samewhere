@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { EYE_HEIGHT, ROOM_HEIGHT, ROOMS } from './world';
-import { CEILING_PANEL_SIZE } from './lighting';
+import { EYE_HEIGHT, ROOM_HEIGHT } from './world';
+import { CEILING_PANEL_SIZE, ROOM_LIGHTS } from './lighting';
 
 /** Soft warm room reflections, prepared once; no moving cube cameras or mirrors. */
 export function createRoomEnvironment(renderer: THREE.WebGLRenderer, diffuser: THREE.Texture) {
@@ -10,7 +10,7 @@ export function createRoomEnvironment(renderer: THREE.WebGLRenderer, diffuser: T
   const lamp = new THREE.MeshBasicMaterial({ map: diffuser, color: new THREE.Color(2.6, 2.4, 1.9), toneMapped: false });
   const shell = new THREE.Mesh(new THREE.BoxGeometry(10, ROOM_HEIGHT, 10), wall); shell.position.y = ROOM_HEIGHT / 2;
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), carpet); floor.rotation.x = -Math.PI / 2;
-  const panels = ROOMS.A.pedestals.map(({ x, z }) => {
+  const panels = ROOM_LIGHTS.A.map(({ x, z }) => {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(CEILING_PANEL_SIZE, CEILING_PANEL_SIZE), lamp);
     mesh.rotation.x = Math.PI / 2; mesh.position.set(x, ROOM_HEIGHT - .02, z); return mesh;
   });
