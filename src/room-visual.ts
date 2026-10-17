@@ -9,7 +9,7 @@ import { BALL_RADIUS, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline,
 const PALETTE = { background: 0x000000 };
 const plane = new THREE.PlaneGeometry(1, 1);
 const sphere = new THREE.SphereGeometry(BALL_RADIUS, 64, 48);
-const SOCKET_SHADE = .82;
+const SOCKET_SHADE = 1;
 const socketGeometry = new THREE.CircleGeometry(SOCKET_OPENING, 32);
 const socketBowlGeometry = createSocketBowl();
 
@@ -103,7 +103,7 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
       colors.fill(SOCKET_SHADE, i * 3, i * 3 + 3);
     }
   }
-  // Only the inner lips share the bowl's uniformly darker finish.
+  // The inner lips and bowls retain the same concrete color as the body.
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const body = new THREE.Mesh(pedestalEdgeDistances(pedestalUV(geometry, controls), controls), materials.pedestal); body.name = 'pedestal-body';
   body.castShadow = body.receiveShadow = true; group.add(body); blockers.push(body);
