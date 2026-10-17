@@ -1,17 +1,20 @@
 import { createTransferSampler } from './light-transfer-sampling';
 import type { SurfaceSamples } from './lightmap-layout';
 import type { SocketRef } from './world';
+import { createBounceTransferSampler } from './bounce-light-transfer';
 
-/** Bake one scalar per surface texel; normals are already known at bake time. */
+/** Direct irradiance plus RGB bounce, using the receiving surface's exact normal. */
 export function bakeSurfaceTransfer(receiver: SocketRef, source: SocketRef, samples: SurfaceSamples, texelCount: number) {
-  const values = new Float32Array(texelCount), sample = new Float32Array(6), point = { x: 0, y: 0, z: 0 };
-  const sampleTransfer = createTransferSampler(receiver, source);
+  const values = new Float32Array(texelCount * 4), sample = new Float32Array(6), point = { x: 0, y: 0, z: 0 }, normal = { ...point };
+  const sampleTransfer = createTransferSampler(receiver, source), sampleBounce = createBounceTransferSampler(receiver, source);
   for (const texel of samples.texels) {
     const i = texel * 3;
     point.x = samples.positions[i]; point.y = samples.positions[i + 1]; point.z = samples.positions[i + 2];
-    sampleTransfer(point, sample);
-    const nx = samples.normals[i], ny = samples.normals[i + 1], nz = samples.normals[i + 2];
-    values[texel] = Math.abs(nx) * sample[nx >= 0 ? 0 : 1] + Math.abs(ny) * sample[ny >= 0 ? 2 : 3] + Math.abs(nz) * sample[nz >= 0 ? 4 : 5];
+    normal.x = samples.normals[i]; normal.y = samples.normals[i + 1]; normal.z = samples.normals[i + 2];
+    sampleTransfer(point, sample, normal); values[texel * 4] = sample[0];
+    sampleBounce(point, normal, values, texel * 4 + 1);
+    // Sub-pixel contributions otherwise dominate the sparse cache's size.
+    for (let channel = 0; channel < 4; channel++) if (values[texel * 4 + channel] < .0005) values[texel * 4 + channel] = 0;
   }
   return values;
 }

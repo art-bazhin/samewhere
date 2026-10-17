@@ -30,15 +30,15 @@ export class LightTransfer {
 
   constructor(rooms: Record<RoomId, { scene: THREE.Scene }>) {
     this.fields = Object.fromEntries(ROOM_IDS.map(room => {
-      const layout = prepareSurfaceLayout(rooms[room].scene), { width, height } = layout;
+      const layout = prepareSurfaceLayout(rooms[room].scene, room), { width, height } = layout;
       const buffers = Array.from({ length: 2 }, () => {
-        const texture = new THREE.DataTexture(new Uint16Array(width * height), width, height, THREE.RedFormat, THREE.HalfFloatType);
+        const texture = new THREE.DataTexture(new Uint16Array(width * height * 4), width, height, THREE.RGBAFormat, THREE.HalfFloatType);
         texture.minFilter = texture.magFilter = THREE.LinearFilter; texture.needsUpdate = true;
         return { texture, key: '' };
       });
       const panel = new THREE.DataTexture(new Uint16Array(width * height * 4), width, height, THREE.RGBAFormat, THREE.HalfFloatType);
       panel.minFilter = panel.magFilter = THREE.LinearFilter; panel.needsUpdate = true;
-      return [room, { ...buffers[0], buffers, scratch: new Float32Array(width * height), expected: '', panel }];
+      return [room, { ...buffers[0], buffers, scratch: new Float32Array(width * height * 4), expected: '', panel }];
     })) as Record<RoomId, RoomField>;
     this.uniforms.transferredLight.value = this.fields.A.texture;
     this.uniforms.panelLight.value = this.fields.A.panel;
@@ -117,8 +117,8 @@ export class LightTransfer {
         #endif
         reflectedLight.directDiffuse += (roomLight.r * transferColor + roomLight.gba) * BRDF_Lambert(material.diffuseColor);
         if (transferGain > 0.) {
-          float transported = texture2D(transferredLight, vTransferUv).r;
-          reflectedLight.directDiffuse += transferGain * transported * transferColor * BRDF_Lambert(material.diffuseColor);
+          vec4 transported = texture2D(transferredLight, vTransferUv);
+          reflectedLight.directDiffuse += transferGain * (transported.r * transferColor + transported.gba) * BRDF_Lambert(material.diffuseColor);
         }
         #include <aomap_fragment>`);
     };

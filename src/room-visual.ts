@@ -162,10 +162,26 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
       scene.add(mesh); blockers.push(mesh); continue;
     }
     const side = boundary.portal, n = wallNormal(id, side), wall = new THREE.Group();
-    const wallWidth = definition.outline ? boundary.width + WALL_THICKNESS * 2 : 2 * (definition.apothem + WALL_THICKNESS) * Math.tan(Math.PI / definition.sides) + .02;
+    const wallWidth = boundary.width;
     wall.position.set(boundary.center.x, 0, boundary.center.z); wall.rotation.y = -wallAngle(id, side); scene.add(wall);
+    wall.updateMatrix();
+    const inverse = wall.matrix.clone().invert();
+    const ends = [outside[index], outside[(index + 1) % outside.length]]
+      .map(p => new THREE.Vector3(p.x, 0, p.z).applyMatrix4(inverse)).sort((a, b) => a.x - b.x);
+    const miter = (geometry: THREE.BufferGeometry) => {
+      const positions = geometry.getAttribute('position');
+      for (let i = 0; i < positions.count; i++) {
+        const x = positions.getX(i);
+        if (Math.abs(Math.abs(x) - wallWidth / 2) > .00001) continue;
+        const end = x < 0 ? ends[0] : ends[1];
+        positions.setX(i, x + (end.x - x) * -positions.getZ(i) / WALL_THICKNESS);
+      }
+      geometry.computeVertexNormals(); return surfaceUV(geometry);
+    };
     const solid = new THREE.Group(), open = new THREE.Group(); wall.add(solid, open);
-    blockers.push(box(solid, materials.wall, [wallWidth, ROOM_HEIGHT, WALL_THICKNESS], [0, ROOM_HEIGHT / 2, -WALL_THICKNESS / 2]));
+    const closed = box(solid, materials.wall, [wallWidth, ROOM_HEIGHT, WALL_THICKNESS], [0, ROOM_HEIGHT / 2, -WALL_THICKNESS / 2]);
+    closed.name = 'room-wall';
+    miter(closed.geometry); blockers.push(closed);
     const opening = new THREE.Shape();
     opening.moveTo(-wallWidth / 2, 0); opening.lineTo(-DOOR_WIDTH / 2, 0);
     opening.lineTo(-DOOR_WIDTH / 2, DOOR_HEIGHT); opening.lineTo(DOOR_WIDTH / 2, DOOR_HEIGHT);
@@ -174,7 +190,7 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
     // Each scene owns only its half of an open shared wall. The receiving scene
     // supplies the other half, so reveals never overlap across the portal plane.
     const geometry = new THREE.ExtrudeGeometry(opening, { depth: WALL_THICKNESS / 2, bevelEnabled: false, steps: 1 }); geometry.translate(0, 0, -WALL_THICKNESS / 2);
-    const shell = new THREE.Mesh(surfaceUV(geometry), materials.wall); shell.castShadow = shell.receiveShadow = true; open.add(shell); blockers.push(shell);
+    const shell = new THREE.Mesh(miter(geometry), materials.wall); shell.name = 'room-wall'; shell.castShadow = shell.receiveShadow = true; open.add(shell); blockers.push(shell);
     const threshold = box(open, floor.material, [DOOR_WIDTH, 0.012, WALL_THICKNESS / 2], [0, -0.006, -WALL_THICKNESS / 4]);
     threshold.name = 'threshold';
     // Continue the room's carpet coordinates across the rotated doorway.

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DOOR_HEIGHT, PEDESTAL_HEIGHT, type RoomId } from './world';
+import { DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, roomWalls, WALL_THICKNESS, type RoomId } from './world';
 import { createRoom } from './room-visual';
 
 export const LIGHTMAP_SPACING = .25;
@@ -15,7 +15,7 @@ const powerOfTwo = (value: number) => 2 ** Math.ceil(Math.log2(value));
 const rounded = (value: number) => Math.round(value * 10000) / 10000;
 
 /** One atlas per room. Coplanar floor/threshold and both wall variants share UVs. */
-export function prepareSurfaceLayout(scene: THREE.Scene): SurfaceLayout {
+export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId): SurfaceLayout {
   const charts = new Map<string, SurfaceChart>(), meshes: THREE.Mesh[] = [];
   scene.updateMatrixWorld(true);
   scene.traverse(object => {
@@ -45,6 +45,21 @@ export function prepareSurfaceLayout(scene: THREE.Scene): SurfaceLayout {
       const vertices = [0, 1, 2].map(i => geometry.index ? geometry.index.getX(vertex + i) : vertex + i);
       const positions = vertices.map(i => new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld));
       const normals = vertices.map(i => new THREE.Vector3().fromBufferAttribute(normal, i).applyMatrix3(normalMatrix).normalize());
+      // Exterior faces and miter caps are hidden by the neighboring wall. They
+      // must not occupy an atlas or contaminate visible corner padding.
+      if (mesh.name === 'room-wall' || mesh.name === 'boundary-wall') {
+        const p = positions[0], n = normals[0];
+        const visible = roomWalls(room).some(wall => {
+          const depth = (p.x - wall.center.x) * wall.normal.x + (p.z - wall.center.z) * wall.normal.z;
+          const facing = n.x * wall.normal.x + n.z * wall.normal.z;
+          if (Math.abs(depth) < .0001 && facing < -.999) return true;
+          const lateral = -(p.x - wall.center.x) * wall.normal.z + (p.z - wall.center.z) * wall.normal.x;
+          return wall.portal !== null && Math.abs(Math.abs(lateral) - DOOR_WIDTH / 2) < .0001 &&
+            depth >= -.0001 && depth <= WALL_THICKNESS / 2 + .0001 && Math.abs(facing) < .001 && Math.abs(n.y) < .001;
+        });
+        if (!visible) continue;
+      }
+      if (mesh.name === 'threshold' && normals[0].y < .999) continue;
       // Ceiling lamps cannot send light upward through the lower aperture.
       if (positions.every(p => p.y > DOOR_HEIGHT) || normals.every(n => n.y < -.999)) continue;
       // These five-millimeter inner lips are below the diffuse model's scale;
@@ -166,5 +181,5 @@ export function bakingLayout(room: RoomId) {
   const standard = new THREE.MeshStandardMaterial(), physical = new THREE.MeshPhysicalMaterial(), basic = new THREE.MeshBasicMaterial();
   const materials = { wall: standard, floor: physical, ceiling: standard, pedestal: standard, socket: standard,
     red: physical, blue: physical, lampFrame: standard, hit: basic, lamp: basic };
-  return prepareSurfaceLayout(createRoom(room, materials, { value: true }).scene);
+  return prepareSurfaceLayout(createRoom(room, materials, { value: true }).scene, room);
 }

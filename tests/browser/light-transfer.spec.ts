@@ -1,5 +1,50 @@
 import { test, expect } from '@playwright/test';
 
+test('floor illumination stays continuous across polygonal passages and H entrances', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+  await page.evaluate(() => window.__samewhere.space.ready);
+  const result = await page.evaluate(async () => {
+    const path = '/src/world.ts', { portalPosition, wallNormal, ROOMS } = await import(path);
+    const app = window.__samewhere, space = app.space, gl = space.renderer.getContext();
+    // Isolate illumination from independently oriented carpet fibers/texture.
+    const finishes = new Set<any>();
+    for (const room of Object.values(space.rooms) as any[]) {
+      room.scene.environment = null;
+      room.scene.traverse((mesh: any) => { if (mesh.name === 'floor' || mesh.name === 'threshold') finishes.add(mesh.material); });
+    }
+    for (const material of finishes) {
+      material.color.set(0xffffff); material.map = material.normalMap = material.roughnessMap = material.envMap = null;
+      material.roughness = 1; material.sheen = 0; material.needsUpdate = true;
+    }
+    const read = (endpoint: any, lateral: number) => {
+      const p = portalPosition(endpoint.room, endpoint.side), n = wallNormal(endpoint.room, endpoint.side);
+      Object.assign(app.game.player, { room: endpoint.room, x: p.x - n.x * .01 - n.z * lateral,
+        z: p.z - n.z * .01 + n.x * lateral, yaw: 0, pitch: -Math.PI / 2 });
+      space.render();
+      const pixels = new Uint8Array(4 * 9);
+      gl.readPixels(Math.floor(gl.drawingBufferWidth / 2) - 1, Math.floor(gl.drawingBufferHeight / 2) - 1, 3, 3, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      return [0, 1, 2].map(c => Array.from({ length: 9 }, (_, i) => pixels[i * 4 + c]).reduce((a, b) => a + b, 0) / 9);
+    };
+    const samples: any[] = [];
+    for (const room of ['B', 'C']) for (let side = 0; side < ROOMS[room].sides; side++) {
+      const from = { room, side }, to = { room: 'G', side: side % 4 };
+      app.game.world.balls[0].socket = from; app.game.world.balls[1].socket = to;
+      app.game.world.balls[2].socket = app.game.world.balls[3].socket = null; app.sync();
+      for (let i = 0; i < 22; i++) space.render();
+      for (const lateral of [-.5, 0, .5]) {
+        const before = read(from, lateral), after = read(to, -lateral);
+        samples.push({ room, side, lateral, before, after, max: Math.max(...before.map((value, c) => Math.abs(value - after[c]))) });
+      }
+    }
+    return { samples, error: gl.getError() };
+  });
+  console.log('Passage lighting continuity:', result.samples.map(({ room, side, lateral, max }) => ({ room, side, lateral, max })));
+  expect(result.samples).toHaveLength(33);
+  for (const sample of result.samples) expect(sample.max, JSON.stringify(sample)).toBeLessThanOrEqual(2);
+  expect(result.error).toBe(0); expect(errors).toEqual([]);
+});
+
 test('startup preparation keeps the displayed room visible without black frames', async ({ page }) => {
   await page.addInitScript(() => {
     const samples: { time: number; luma: number; preparing: boolean }[] = [];
@@ -75,8 +120,8 @@ test('each launch computes all lighting in one worker without fetching an asset'
   console.log('Startup lighting calculation:', launches);
   for (const launch of launches) {
     expect(launch.fields).toBe(812); expect(launch.jobs).toBe(1); expect(launch.bakeMs).toBeGreaterThan(0);
-    expect(launch.responsiveFrames).toBeGreaterThan(0); expect(launch.bytes).toBeLessThan(4 * 1024 * 1024);
-    expect(launch.twoDimensional).toBe(true); expect(launch.textureBytes).toBe(1572864);
+    expect(launch.responsiveFrames).toBeGreaterThan(0); expect(launch.bytes).toBeLessThan(8 * 1024 * 1024);
+    expect(launch.twoDimensional).toBe(true); expect(launch.textureBytes).toBeLessThan(4 * 1024 * 1024);
   }
   expect(requests).toEqual([]); expect(errors).toEqual([]);
 });
@@ -166,7 +211,7 @@ test('all connections are prepared before play and reconnections apply lighting 
   console.log('Precomputed connections and immediate lighting:', result);
   expect(result.valid).toBe(true); expect(result.key).toBe('A3<G3'); expect(result.jobs).toBe(0);
   expect(result.reused).toBe(true);
-  expect(result.after).toEqual(result.before); expect(result.cache).toBe(812); expect(result.bytes).toBeLessThan(4 * 1024 * 1024); expect(result.error).toBe(0);
+  expect(result.after).toEqual(result.before); expect(result.cache).toBe(812); expect(result.bytes).toBeLessThan(8 * 1024 * 1024); expect(result.error).toBe(0);
 });
 
 test('opening, closing and rearranging connections have their final light on the first frame', async ({ page }) => {

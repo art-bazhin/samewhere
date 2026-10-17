@@ -17,7 +17,7 @@ export function bakeLightTransfer(): BakedLighting {
   for (const receiver of sockets) for (const source of sockets) {
     if (receiver.room === source.room && receiver.side === source.side) continue;
     const layout = layouts[receiver.room], key = `${receiver.room}${receiver.side}<${source.room}${source.side}`;
-    fields.push(compressTransfer(receiver.room, key, bakeSurfaceTransfer(receiver, source, layout.samples, layout.width * layout.height)));
+    fields.push(compressTransfer(receiver.room, key, bakeSurfaceTransfer(receiver, source, layout.samples, layout.width * layout.height), 4));
   }
   const atlases = Object.fromEntries(ROOM_IDS.map(room => [room, [layouts[room].width, layouts[room].height]])) as BakedLighting['atlases'];
   const panels = Object.fromEntries(ROOM_IDS.map(room => {

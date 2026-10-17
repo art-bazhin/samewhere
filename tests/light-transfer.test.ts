@@ -10,7 +10,7 @@ import { ROOM_IDS } from '../src/world';
 test('sparse prepared fields reproduce the original summed lighting bit for bit', () => {
   const layout = bakingLayout('A'), samples = surfaceSamples(layout);
   const sources = ['C', 'G'].map(room => bakeSurfaceTransfer({ room: 'A', side: 0 }, { room: room as 'C' | 'G', side: 0 }, samples, layout.width * layout.height));
-  const prepared = sources.map((values, index) => compressTransfer('A', `A0<${index}`, values));
+  const prepared = sources.map((values, index) => compressTransfer('A', `A0<${index}`, values, 4));
   const scratch = new Float32Array(sources[0].length), actual = new Uint16Array(scratch.length), reference = new Uint16Array(scratch.length);
   for (let i = 0; i < reference.length; i++) reference[i] = DataUtils.toHalfFloat(Math.fround(sources[0][i] + sources[1][i]));
   combineTransfers(prepared, scratch, actual); assert.deepEqual(actual, reference);
@@ -48,15 +48,15 @@ test('pedestals block transported light at their actual height and retain concav
   assert.equal(transferPathBlocked('G', { x: -.05, y: .5, z: .3 }, { x: .05, y: .5, z: .3 }, 0), false);
 });
 
-test('one scalar per surface texel preserves aperture lighting with bounded 2D storage', () => {
+test('surface texels retain direct and RGB bounce light with bounded 2D storage', () => {
   const layout = bakingLayout('A'), samples = surfaceSamples(layout);
   const result = bakeSurfaceTransfer({ room: 'A', side: 0 }, { room: 'G', side: 0 }, samples, layout.width * layout.height);
-  assert.equal(result.length, layout.width * layout.height);
+  assert.equal(result.length, layout.width * layout.height * 4);
   assert.ok(result.every(value => Number.isFinite(value) && value >= 0)); assert.equal(result[0], 0);
   const floor = Array.from(samples.texels).find(i => Math.abs(samples.positions[i * 3]) < .01 && Math.abs(samples.positions[i * 3 + 2] + 4) < .01 && samples.normals[i * 3 + 1] > .99)!;
-  assert.ok(result[floor] > .1);
-  const bytes = ROOM_IDS.reduce((sum, room) => { const atlas = bakingLayout(room); return sum + atlas.width * atlas.height * 2 * 2; }, 0);
-  assert.ok(bytes < 2 * 1024 * 1024, 'Both 2D buffers for all seven rooms fit within 2 MiB');
+  assert.ok(result[floor * 4] > .1);
+  const bytes = ROOM_IDS.reduce((sum, room) => { const atlas = bakingLayout(room); return sum + atlas.width * atlas.height * 4 * 2 * 2; }, 0);
+  assert.ok(bytes < 4 * 1024 * 1024, 'Both RGBA buffers for all seven rooms fit within 4 MiB');
 });
 
 test('surface UVs are deterministic and floor/thresholds share a padded chart', () => {
