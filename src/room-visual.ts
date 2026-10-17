@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoomShadows } from './shadows';
 import { CEILING_LIGHT, CEILING_PANEL_SIZE, ROOM_FILL_LIGHT, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
 import { floorWithContacts, surfaceUV, type MaterialSet } from './materials';
+import { ceilingWithContacts } from './contact-shading';
 import { offsetOutline } from './geometry';
 import { BALL_RADIUS, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
 
@@ -49,7 +50,7 @@ function footprintShape(outline: Vec2[]) {
 
 export interface Portal { side: number; mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; to: SocketRef | null; transform: THREE.Matrix4; normal: Vec2; center: Vec2; distance: number; receivingDistance: number }
 export interface SocketVisual { ref: SocketRef; hit: THREE.Mesh; ball: THREE.Mesh; occupied: THREE.Uint8BufferAttribute }
-export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; walls: { solid: THREE.Group; open: THREE.Group }[]; shadowLights: THREE.SpotLight[]; shadows: RoomShadows }
+export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; walls: { solid: THREE.Group; open: THREE.Group }[]; shadowLights: THREE.SpotLight[]; shadows: RoomShadows; contactOpenings: THREE.IUniform<Int32Array> }
 
 function portalMaterial() {
   // Keep the aperture rasterizable while the eye is closer than the normal near
@@ -144,12 +145,13 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
     lens.rotation.x = Math.PI / 2; lens.position.set(x, ROOM_HEIGHT - 0.004, z); scene.add(lens);
   }
   const outline = roomOutline(id);
+  const contactOpenings = { value: new Int32Array(definition.sides) };
   const floorGeometry = new THREE.ShapeGeometry(footprintShape(outline)); floorGeometry.rotateX(-Math.PI / 2); surfaceUV(floorGeometry);
-  const floor = new THREE.Mesh(floorGeometry, floorWithContacts(materials.floor, definition.pedestals, optimizations)); floor.name = 'floor'; floor.receiveShadow = true; scene.add(floor);
+  const floor = new THREE.Mesh(floorGeometry, floorWithContacts(materials.floor, definition.pedestals, optimizations, id, contactOpenings)); floor.name = 'floor'; floor.receiveShadow = true; scene.add(floor);
   // Preserve the footprint orientation. Mirroring it by rotating the other way
   // leaves triangular gaps above a pentagon's walls; render the back face instead.
   const ceilingGeometry = new THREE.ShapeGeometry(footprintShape(offsetOutline(outline, WALL_THICKNESS / 2))); ceilingGeometry.rotateX(-Math.PI / 2); surfaceUV(ceilingGeometry);
-  const ceiling = new THREE.Mesh(ceilingGeometry, materials.ceiling); ceiling.name = 'ceiling'; ceiling.position.y = ROOM_HEIGHT; ceiling.receiveShadow = true; scene.add(ceiling);
+  const ceiling = new THREE.Mesh(ceilingGeometry, ceilingWithContacts(materials.ceiling, id)); ceiling.name = 'ceiling'; ceiling.position.y = ROOM_HEIGHT; ceiling.receiveShadow = true; scene.add(ceiling);
   const sockets: SocketVisual[] = [], portals: Portal[] = [], blockers: THREE.Object3D[] = [], walls: RoomVisual['walls'] = [];
   const outside = offsetOutline(outline, WALL_THICKNESS);
   for (const [index, boundary] of roomWalls(id).entries()) {
@@ -210,6 +212,6 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
   // Architecture, fixtures and socket positions never move. Visibility and ball
   // color can change without recomputing hundreds of world matrices per view.
   scene.traverse(object => { object.matrixAutoUpdate = false; });
-  return { scene, portals, sockets, blockers, pickables: [], walls, shadowLights, shadows };
+  return { scene, portals, sockets, blockers, pickables: [], walls, shadowLights, shadows, contactOpenings };
 }
 

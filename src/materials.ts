@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { BALL_RADIUS, CEILING_TILE_SIZE, pedestalOutline, PEDESTAL_APOTHEM, PEDESTAL_HEIGHT, ROOM_HEIGHT, ROOMS, SOCKET_DEPTH, SOCKET_RECESS, wallNormal, type PedestalDefinition } from './world';
+import { BALL_RADIUS, CEILING_TILE_SIZE, pedestalOutline, PEDESTAL_APOTHEM, PEDESTAL_HEIGHT, ROOMS, SOCKET_DEPTH, SOCKET_RECESS, wallNormal, type PedestalDefinition, type RoomId } from './world';
 import { withDistanceFade } from './visibility';
 import { materialDetail } from './material-detail';
 import { createRoomEnvironment } from './room-environment';
 import { CEILING_GRID_WIDTH, CEILING_LIGHT, CEILING_PANEL_SIZE } from './lighting';
 import { withPortalSurfacePadding } from './portal-surfaces';
+import { boundaryContactDistance, WALL_HEIGHT_CONTACT, withContactShading } from './contact-shading';
 
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
 export function createMaterials(renderer: THREE.WebGLRenderer) {
@@ -59,31 +60,8 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   materials.pedestal.shadowSide = THREE.FrontSide;
   // The saucers close its top cutouts and have no downward-facing back shell.
   materials.socket.shadowSide = THREE.FrontSide;
-  // A small baked-contact approximation at wall/floor and wall/ceiling joins.
-  // It works in room coordinates, including when the scene is seen recursively.
-  materials.wall.onBeforeCompile = shader => {
-    shader.vertexShader = 'varying float surfaceHeight;\n' + shader.vertexShader;
-    shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
-      surfaceHeight = (modelMatrix * vec4(transformed, 1.)).y;`);
-    shader.fragmentShader = 'varying float surfaceHeight;\n' + shader.fragmentShader;
-    shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
-      float contact = exp(-max(surfaceHeight, 0.) * 7.) + exp(-max(${ROOM_HEIGHT.toFixed(4)} - surfaceHeight, 0.) * 6.);
-      reflectedLight.indirectDiffuse *= 1. - .24 * contact;
-      reflectedLight.indirectSpecular *= 1. - .3 * contact;
-      reflectedLight.directDiffuse *= 1. - .12 * contact;`);
-  };
-  materials.wall.customProgramCacheKey = () => 'wall-contact';
-  materials.pedestal.onBeforeCompile = shader => {
-    shader.vertexShader = 'varying float baseHeight;\n' + shader.vertexShader;
-    shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
-      baseHeight = (modelMatrix * vec4(transformed, 1.)).y;`);
-    shader.fragmentShader = 'varying float baseHeight;\n' + shader.fragmentShader;
-    shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
-      float baseContact = 1. - .3 * exp(-max(baseHeight, 0.) * 35.);
-      reflectedLight.indirectDiffuse *= baseContact; reflectedLight.directDiffuse *= baseContact;
-      reflectedLight.indirectSpecular *= baseContact;`);
-  };
-  materials.pedestal.customProgramCacheKey = () => 'pedestal-contact';
+  withContactShading(materials.wall, WALL_HEIGHT_CONTACT);
+  withContactShading(materials.pedestal, 'contactDistance = max(contactHeight, 0.);');
   materials.socket.onBeforeCompile = shader => {
     shader.vertexShader = 'attribute float socketOccupied; varying float vSocketOccupied; varying vec3 bowlPosition; varying vec2 socketOffset;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
@@ -155,7 +133,8 @@ export function optimizeLighting(material: THREE.MeshStandardMaterial, enabled: 
 }
 
 /** Shade contacts in linear light, so the main view and portal buffers agree. */
-export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: PedestalDefinition[], enabled: THREE.IUniform<boolean>) {
+export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: PedestalDefinition[], enabled: THREE.IUniform<boolean>,
+  room: RoomId, openings: THREE.IUniform<Int32Array>) {
   const material = base.clone();
   const contacts = pedestals.map((p, index) => {
     if (ROOMS[p.controls].outline) {
@@ -171,7 +150,7 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
       }).join('\n');
       return `vec2 local${index} = contactPosition - vec2(${p.x.toFixed(4)}, ${p.z.toFixed(4)});
         float edge${index} = 100.; bool inside${index} = false; ${segments}
-        shade *= 1. - .55 * exp(-(inside${index} ? 0. : edge${index}) * 18.);`;
+        contactDistance = min(contactDistance, inside${index} ? 0. : edge${index});`;
     }
     const edges = Array.from({ length: ROOMS[p.controls].sides }, (_, side) => {
       const n = wallNormal(p.controls, side);
@@ -179,7 +158,7 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
     }).join('\n');
     return `vec2 local${index} = contactPosition - vec2(${p.x.toFixed(4)}, ${p.z.toFixed(4)});
       float edge${index} = -100.; ${edges}
-      shade *= 1. - .55 * exp(-max(edge${index}, 0.) * 18.);`;
+      contactDistance = min(contactDistance, max(edge${index}, 0.));`;
   }).map((contact, index) => {
     const outline = pedestalOutline(pedestals[index].controls), padding = ROOMS[pedestals[index].controls].outline ? 1 : 2;
     const xs = outline.map(p => p.x), zs = outline.map(p => p.z), p = pedestals[index];
@@ -191,24 +170,14 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
   }).join('\n');
   material.onBeforeCompile = shader => {
     shader.defines = { ...shader.defines, FLOOR_PASSAGE_LIGHTING: '' };
-    shader.uniforms.boundedContacts = enabled;
     // The floor and passage halves already end at each terminal portal plane.
     // Clipping again discards MSAA edge pixels whose centers lie outside the
     // plane even though some covered samples are inside, leaving a dotted seam.
     shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', '');
-    shader.vertexShader = 'varying vec2 contactPosition;\n' + shader.vertexShader;
-    shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
-      contactPosition = (modelMatrix * vec4(transformed, 1.)).xz;`);
-    shader.fragmentShader = 'varying vec2 contactPosition; uniform bool boundedContacts;\n' + shader.fragmentShader;
-    shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
-      float shade = 1.; ${contacts}
-      reflectedLight.indirectDiffuse *= shade; reflectedLight.directDiffuse *= shade;
-      reflectedLight.indirectSpecular *= shade;
-      #ifdef USE_SHEEN
-        sheenSpecularIndirect *= shade; sheenSpecularDirect *= shade;
-      #endif`);
   };
-  material.customProgramCacheKey = () => `floor-contacts:${contacts}`;
+  withContactShading(material, `${contacts}\n${boundaryContactDistance(room, true)}`,
+    { boundedContacts: enabled, contactOpenings: openings },
+    `uniform bool boundedContacts; uniform int contactOpenings[${ROOMS[room].sides}];`);
   return withDistanceFade(material);
 }
 

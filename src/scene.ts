@@ -277,6 +277,7 @@ export class SpaceRenderer {
         const portal = room.portals[side];
         portal.to = destination(world, { room: id, side });
         const active = !!portal.to;
+        room.contactOpenings.value[side] = Number(active);
         if (portal.to) {
           const from = { room: id, side }, to = portalPosition(portal.to.room, portal.to.side);
           portal.receivingDistance = portalDistance(portal.to.room, portal.to.side);
