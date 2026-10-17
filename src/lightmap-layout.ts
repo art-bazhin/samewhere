@@ -198,6 +198,6 @@ export function bakingLayout(room: RoomId) {
   const standard = new THREE.MeshStandardMaterial(), physical = new THREE.MeshPhysicalMaterial(), basic = new THREE.MeshBasicMaterial();
   const ceiling = new THREE.MeshStandardMaterial({ side: THREE.BackSide });
   const materials = { wall: standard, floor: physical, ceiling, pedestal: standard, socket: standard,
-    red: physical, blue: physical, lampFrame: standard, hit: basic, lamp: basic };
+    red: physical, blue: physical, hit: basic, lamp: basic };
   return prepareSurfaceLayout(createRoom(room, materials, { value: true }).scene, room);
 }

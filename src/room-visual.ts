@@ -3,7 +3,7 @@ import { RoomShadows } from './shadows';
 import { CEILING_LIGHT, CEILING_PANEL_SIZE, ROOM_FILL_LIGHT, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
 import { floorWithContacts, surfaceUV, type MaterialSet } from './materials';
 import { offsetOutline } from './geometry';
-import { BALL_RADIUS, CEILING_TILE_SIZE, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
+import { BALL_RADIUS, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
 
 const PALETTE = { background: 0x000000 };
 const plane = new THREE.PlaneGeometry(1, 1);
@@ -138,8 +138,8 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
     light.shadow.bias = -0.00002; light.shadow.normalBias = 0.0015;
     light.shadow.autoUpdate = false; light.shadow.needsUpdate = true;
     scene.add(light, light.target); shadowLights.push(light);
-    const frame = new THREE.Mesh(new THREE.PlaneGeometry(CEILING_TILE_SIZE, CEILING_TILE_SIZE), materials.lampFrame); frame.name = 'ceiling-lamp-frame';
-    frame.rotation.x = Math.PI / 2; frame.position.set(x, ROOM_HEIGHT - 0.002, z); scene.add(frame);
+    // The ceiling's continuous painted grid surrounds the diffuser; a separate
+    // unlit frame would appear as a dark outline against its baked bounce.
     const lens = new THREE.Mesh(new THREE.PlaneGeometry(CEILING_PANEL_SIZE, CEILING_PANEL_SIZE), materials.lamp); lens.name = 'ceiling-lamp';
     lens.rotation.x = Math.PI / 2; lens.position.set(x, ROOM_HEIGHT - 0.004, z); scene.add(lens);
   }

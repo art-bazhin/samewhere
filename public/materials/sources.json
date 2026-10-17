@@ -32,7 +32,7 @@
       "source": "Generated for Samewhere",
       "generator": "Built-in image_gen tool",
       "prompt": "Use case: photorealistic-natural. Asset type: seamless PBR BASE COLOR texture for a single typical suspended office acoustic ceiling panel in a first-person Backrooms game. A square full-bleed perfectly orthographic straight-on photograph of the face of a conventional fine-fissured mineral-fiber acoustic ceiling board, the classic plain inexpensive office ceiling material. The entire swatch represents exactly 65 centimeters by 65 centimeters of a real panel. Dense fine chalky mineral fibers, irregular small pinhole pores and many characteristic short thin naturally branching elongated fissures distributed organically in different directions, about 2 to 12 mm long and less than 1 mm wide, with quieter areas between them. Dry matte porous painted mineral fiber, realistic tactile detail, soft warm ivory/off-white around sRGB #ded8bc to match a warm yellow-wallpaper beige-carpet office interior. Fissures should be visibly darker warm grey-beige and read clearly as tiny acoustic pores at close distance, not gigantic cracks. Uniform density, natural nonrepeating arrangement without any dominant motif. BASE COLOR ONLY: completely even neutral diffuse illumination, no directional light, shadows, ambient occlusion, highlights, gradients, vignetting or blur. Seamless tileable edges, edge-to-edge material detail, no panel border, no metal grid, no square pattern, no beveled frame, no seams, no actual room, ceiling scene, perspective, objects, text, labels, watermark or multiple images. No concrete mottling, marble, wood, carpet fibers or large stains. High resolution square raster material photograph.",
-      "grid": "24 mm painted T-grid and thin joins composited at startup in src/materials.ts; same 65 cm grid as square pedestal width, fixtures and pedestal placement"
+      "grid": "24 mm warm greige T-grid (#c9c0ae), slightly darker than the panel, composited at startup in src/materials.ts; same 65 cm grid as square pedestal width, fixtures and pedestal placement"
     }
   ],
   "rendering": {
@@ -65,7 +65,7 @@
       "tint": "Material color multiplies the texture by target / measured texture mean in linear RGB, preserving the original beige palette and pore variation"
     },
     "lamp_diffuser": "Procedural 512² opal/prismatic diffuser within the existing ceiling fixture",
-    "panel_light": "9 probes per 60 cm diffuser, within a 65 cm ceiling tile; shared dimensions for visible fixtures, lighting bake and PMREM; 55% static diffuse plus 45% live spotlight contribution",
+    "panel_light": "9 probes per 62.6 cm diffuser filling the opening in a 24 mm T-grid, within a 65 cm ceiling tile; shared dimensions for visible fixtures, lighting bake and PMREM; 55% static diffuse plus 45% live spotlight contribution",
     "bounce_light": "One coarse Lambertian reflection from floor and walls, with room/pedestal visibility; mean material colors",
     "room_lightmaps": {
       "format": "RGBA16F",

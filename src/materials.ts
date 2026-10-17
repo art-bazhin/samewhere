@@ -3,7 +3,7 @@ import { BALL_RADIUS, CEILING_TILE_SIZE, pedestalOutline, PEDESTAL_APOTHEM, PEDE
 import { withDistanceFade } from './visibility';
 import { materialDetail, mirroredNormals } from './material-detail';
 import { createRoomEnvironment } from './room-environment';
-import { CEILING_LIGHT, CEILING_PANEL_SIZE } from './lighting';
+import { CEILING_GRID_WIDTH, CEILING_LIGHT, CEILING_PANEL_SIZE } from './lighting';
 
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
 export function createMaterials(renderer: THREE.WebGLRenderer) {
@@ -52,7 +52,6 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
     red: new THREE.MeshPhysicalMaterial({ ...ballSurface, color: 0xc92530 }),
     blue: new THREE.MeshPhysicalMaterial({ ...ballSurface, color: 0x2466c9 }),
     lamp: new THREE.MeshBasicMaterial({ color: 0xfffbd6, map: diffuser }),
-    lampFrame: new THREE.MeshStandardMaterial({ color: 0xd6cda6, roughness: 0.8 }),
   };
   // A small baked-contact approximation at wall/floor and wall/ceiling joins.
   // It works in room coordinates, including when the scene is seen recursively.
@@ -224,9 +223,10 @@ function ceilingTile(image: HTMLImageElement) {
     context.fillRect(0, 0, size, width); context.fillRect(0, size - width, size, width);
     context.fillRect(0, 0, width, size); context.fillRect(size - width, 0, width, size);
   };
-  const rail = Math.max(1, Math.round(.012 / CEILING_TILE_SIZE * size));
-  border(rail + 1, '#aaa38b'); border(rail, '#d9d3b9');
-  border(Math.max(1, Math.round(.001 / CEILING_TILE_SIZE * size)), '#8c866f');
+  // Round into the opening so no subtexel strip of fiber remains by a diffuser.
+  const rail = Math.max(1, Math.ceil(CEILING_GRID_WIDTH / 2 / CEILING_TILE_SIZE * size));
+  // A warm greige just below the panel's mean sRGB (#d7cdbb), without a colored edge.
+  border(rail, '#c9c0ae');
   return canvas;
 }
 

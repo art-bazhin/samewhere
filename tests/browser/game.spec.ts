@@ -346,11 +346,10 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
     const wallDistances: number[] = [], lipDistances: number[] = [], bottomDistances: number[] = [], fixtures: any[] = [], bowls: any[] = [];
     for (const [id, room] of Object.entries(space.rooms) as [string, any][]) {
       room.scene.updateMatrixWorld(true);
-      const pedestals: any[] = [], lamps: any[] = [], frames: any[] = [];
+      const pedestals: any[] = [], lamps: any[] = [];
       room.scene.traverse((object: any) => {
         if (object.name === 'pedestal-body' || object.name === 'socket-bowl') pedestals.push(object);
         if (object.name === 'ceiling-lamp') lamps.push(object);
-        if (object.name === 'ceiling-lamp-frame') frames.push(object);
       });
       for (const socket of room.sockets) {
         const bowl = socket.hit.parent.getObjectByName('socket-bowl'), center = bowl.getWorldPosition(new THREE.Vector3());
@@ -391,11 +390,10 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
       const coordinates = (objects: any[]) => objects.map(object => { const p = object.getWorldPosition(new THREE.Vector3()); return [p.x, p.z]; }).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
       fixtures.push({ id, pedestalCount: bodies.length, lightCount: room.shadowLights.length,
         sizes: lamps.map(lamp => [lamp.geometry.parameters.width, lamp.geometry.parameters.height]),
-        frameSizes: frames.map(frame => [frame.geometry.parameters.width, frame.geometry.parameters.height]),
         pedestalPositions: coordinates(bodies), lampPositions: coordinates(lamps), lightPositions: coordinates(room.shadowLights),
         targetPositions: coordinates(room.shadowLights.map((light: any) => light.target)),
         centerUVs: lamps.map(lamp => ceilingUV(lamp.position.x, lamp.position.z)),
-        cornerUVs: frames.flatMap(frame => [-1, 1].flatMap(x => [-1, 1].map(z => ceilingUV(frame.position.x + x * frame.geometry.parameters.width / 2, frame.position.z + z * frame.geometry.parameters.height / 2)))),
+        cornerUVs: lamps.flatMap(lamp => [-1, 1].flatMap(x => [-1, 1].map(z => ceilingUV(lamp.position.x + x * .65 / 2, lamp.position.z + z * .65 / 2)))),
         offsets: room.shadowLights.map((light: any) => Math.min(...lamps.map(lamp => light.position.distanceTo(lamp.position)))),
         casts: room.shadowLights.every((light: any) => light.castShadow),
         baseY: Math.max(...bodies.map(p => (p.geometry.computeBoundingBox(), p.geometry.boundingBox.min.y))) });
@@ -417,13 +415,12 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
     const id = fixture.id as RoomId;
     const expected = ROOM_LIGHTS[id].map(({ x, z }) => [x, z]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     expect(fixture.pedestalCount).toBe(ROOMS[fixture.id as RoomId].pedestals.length);
-    expect(fixture.sizes).toHaveLength(expected.length); expect(fixture.frameSizes).toHaveLength(expected.length);
+    expect(fixture.sizes).toHaveLength(expected.length);
     expect(fixture.lightCount).toBe(({ A: 2, B: 2, C: 2, D: 3, E: 2, F: 2, G: 7 })[id]);
     expect(fixture.lampPositions).toEqual(expected); expect(fixture.lightPositions).toEqual(expected);
     expect(fixture.targetPositions).toEqual(expected);
     for (const position of fixture.pedestalPositions) expect(fixture.lampPositions).toContainEqual(position);
-    for (const size of fixture.sizes) for (const dimension of size) expect(dimension).toBeCloseTo(.6, 8);
-    for (const size of fixture.frameSizes) for (const dimension of size) expect(dimension).toBeCloseTo(.65, 8);
+    for (const size of fixture.sizes) for (const dimension of size) expect(dimension).toBeCloseTo(.626, 8);
     for (const uv of fixture.centerUVs) for (const value of uv) expect(value).toBeCloseTo(.5, 5);
     for (const uv of fixture.cornerUVs) for (const value of uv) expect(Math.min(Math.abs(value), Math.abs(1 - value))).toBeLessThan(.00001);
     for (const offset of fixture.offsets) expect(offset).toBeLessThan(.02);
