@@ -5,7 +5,7 @@ import { materialDetail } from './material-detail';
 import { createRoomEnvironment } from './room-environment';
 import { CEILING_GRID_WIDTH, CEILING_LIGHT, CEILING_PANEL_SIZE } from './lighting';
 import { withPortalSurfacePadding } from './portal-surfaces';
-import { boundaryContactDistance, WALL_HEIGHT_CONTACT, withContactShading } from './contact-shading';
+import { boundaryContactDistance, PEDESTAL_CONTACT_STRENGTH, withWallContacts, withPedestalContacts, withContactShading } from './contact-shading';
 
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
 export function createMaterials(renderer: THREE.WebGLRenderer) {
@@ -60,8 +60,8 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   materials.pedestal.shadowSide = THREE.FrontSide;
   // The saucers close its top cutouts and have no downward-facing back shell.
   materials.socket.shadowSide = THREE.FrontSide;
-  withContactShading(materials.wall, WALL_HEIGHT_CONTACT);
-  withContactShading(materials.pedestal, 'contactDistance = max(contactHeight, 0.);');
+  withWallContacts(materials.wall);
+  withPedestalContacts(materials.pedestal);
   materials.socket.onBeforeCompile = shader => {
     shader.vertexShader = 'attribute float socketOccupied; varying float vSocketOccupied; varying vec3 bowlPosition; varying vec2 socketOffset;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
@@ -162,7 +162,7 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
   }).map((contact, index) => {
     const outline = pedestalOutline(pedestals[index].controls), padding = ROOMS[pedestals[index].controls].outline ? 1 : 2;
     const xs = outline.map(p => p.x), zs = outline.map(p => p.z), p = pedestals[index];
-    // Beyond this box the discarded factor is below float32 color precision.
+    // Beyond this box the discarded tail is visually negligible.
     // Concave silhouettes use Euclidean edge distance; convex ones use planes.
     const min = [p.x + Math.min(...xs) - padding, p.z + Math.min(...zs) - padding];
     const max = [p.x + Math.max(...xs) + padding, p.z + Math.max(...zs) + padding];
@@ -175,7 +175,7 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
     // plane even though some covered samples are inside, leaving a dotted seam.
     shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', '');
   };
-  withContactShading(material, `${contacts}\n${boundaryContactDistance(room, true)}`,
+  withContactShading(material, `${contacts}\n${boundaryContactDistance(room, true, PEDESTAL_CONTACT_STRENGTH)}`, PEDESTAL_CONTACT_STRENGTH,
     { boundedContacts: enabled, contactOpenings: openings },
     `uniform bool boundedContacts; uniform int contactOpenings[${ROOMS[room].sides}];`);
   return withDistanceFade(material);

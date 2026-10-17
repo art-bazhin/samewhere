@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomShadows } from './shadows';
 import { CEILING_LIGHT, CEILING_PANEL_SIZE, ROOM_FILL_LIGHT, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
 import { floorWithContacts, surfaceUV, type MaterialSet } from './materials';
-import { ceilingWithContacts } from './contact-shading';
+import { ceilingWithContacts, pedestalEdgeDistances, wallCornerDistances } from './contact-shading';
 import { offsetOutline } from './geometry';
 import { BALL_RADIUS, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
 
@@ -105,7 +105,7 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
   }
   // Only the inner lips share the bowl's uniformly darker finish.
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const body = new THREE.Mesh(surfaceUV(geometry), materials.pedestal); body.name = 'pedestal-body';
+  const body = new THREE.Mesh(pedestalEdgeDistances(surfaceUV(geometry), controls), materials.pedestal); body.name = 'pedestal-body';
   body.castShadow = body.receiveShadow = true; group.add(body); blockers.push(body);
   for (let side = 0; side < sides; side++) {
     const p = centers[side], socket = new THREE.Group();
@@ -160,7 +160,7 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
       // protruding into the inside corners or hidden walls across a junction.
       const shape = footprintShape([boundary.a, boundary.b, outside[(index + 1) % outside.length], outside[index]]);
       const geometry = new THREE.ExtrudeGeometry(shape, { depth: ROOM_HEIGHT, bevelEnabled: false, steps: 1 }); geometry.rotateX(-Math.PI / 2);
-      const mesh = new THREE.Mesh(surfaceUV(geometry), materials.wall); mesh.name = 'boundary-wall'; mesh.castShadow = mesh.receiveShadow = true;
+      const mesh = new THREE.Mesh(wallCornerDistances(surfaceUV(geometry), id, index), materials.wall); mesh.name = 'boundary-wall'; mesh.castShadow = mesh.receiveShadow = true;
       scene.add(mesh); blockers.push(mesh); continue;
     }
     const side = boundary.portal, n = wallNormal(id, side), wall = new THREE.Group();
@@ -178,7 +178,7 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
         const end = x < 0 ? ends[0] : ends[1];
         positions.setX(i, x + (end.x - x) * -positions.getZ(i) / WALL_THICKNESS);
       }
-      geometry.computeVertexNormals(); return surfaceUV(geometry);
+      geometry.computeVertexNormals(); return wallCornerDistances(surfaceUV(geometry), id, index, wall.matrix);
     };
     const solid = new THREE.Group(), open = new THREE.Group(); wall.add(solid, open);
     const closed = box(solid, materials.wall, [wallWidth, ROOM_HEIGHT, WALL_THICKNESS], [0, ROOM_HEIGHT / 2, -WALL_THICKNESS / 2]);
