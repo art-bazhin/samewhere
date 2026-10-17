@@ -133,8 +133,9 @@ export class SpaceRenderer {
   }
   private prepareBallReflections() {
     const room = this.rooms.A, source = room.sockets.find(socket => socket.ball.visible) ?? room.sockets[0];
-    const position = source.ball.parent!.parent!.getWorldPosition(new THREE.Vector3());
-    position.y = source.ball.getWorldPosition(new THREE.Vector3()).y;
+    // Capture the shaded saucer beneath the ball, rather than the lit concrete
+    // at the pedestal's center, which produces a bright lower reflection rim.
+    const position = source.ball.getWorldPosition(new THREE.Vector3());
     const hidden = [...room.sockets.map(socket => socket.ball), ...room.portals.map(portal => portal.mesh)];
     const visibility = hidden.map(object => object.visible), clipping = this.renderer.clippingPlanes;
     const lamp = this.assets.materials.lamp, color = lamp.color.clone(), generator = new THREE.PMREMGenerator(this.renderer);
