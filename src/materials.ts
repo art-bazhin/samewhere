@@ -27,10 +27,11 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   }
   const wallpaper = texture('backrooms-wallpaper-color.png', 1.2, .00065, [.74, .96]), carpet = texture('backrooms-carpet-color.png', 1, .003, [.9, 1]);
   const concrete = texture('pedestal-concrete-color.jpg', .8, .0007, [.78, .97]);
-  // Normalize the JPG's measured mean linear RGB to the original beige albedo.
-  // Keep its pore/color variation without darkening the original plinth color.
+  // Apply half of the original beige tint, retaining some of the neutral concrete.
+  // A linear multiplier retains the concrete's pores and color variation.
   const concreteTint = new THREE.Color(0xcdbb86);
   concreteTint.r /= .504106; concreteTint.g /= .443913; concreteTint.b /= .362871;
+  concreteTint.lerp(new THREE.Color(0xffffff), .5);
   const ceiling = texture('office-ceiling-panel-color.jpg', CEILING_TILE_SIZE, .0012, [.94, 1], ceilingTile);
   // surfaceUV projects x/-z in meters. Put each panel center on the shared grid.
   for (const map of [ceiling.color, ceiling.normal, ceiling.roughness]) map.offset.set(.5, .5);

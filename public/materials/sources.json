@@ -60,9 +60,10 @@
     "carpet_finish": "MeshPhysicalMaterial sheen 0.25, sheen roughness 0.95; contact shading includes the sheen contribution",
     "concrete_pedestals": {
       "finish": "Matte fine cast concrete, 0.8 m per tile, JPG base color with estimated linear normal and roughness maps; matching bowls, sharp edges without bevels, original dimensions retained",
-      "target_mean_color_srgb": "#cdbb86",
       "texture_mean_linear_rgb": [0.504106, 0.443913, 0.362871],
-      "tint": "Material color multiplies the texture by target / measured texture mean in linear RGB, preserving the original beige palette and pore variation"
+      "tint_target_mean_color_srgb": "#cdbb86",
+      "tint_strength": 0.5,
+      "tint": "Half of the original beige tint blended with the untinted concrete in linear RGB, preserving texture variation; neutral uniform darkening inside bowls"
     },
     "lamp_diffuser": "Procedural 512² opal/prismatic diffuser within the existing ceiling fixture",
     "panel_light": "9 probes per 62.6 cm diffuser filling the opening in a 24 mm T-grid, within a 65 cm ceiling tile; shared dimensions for visible fixtures, lighting bake and PMREM; 55% static diffuse plus 45% live spotlight contribution",
