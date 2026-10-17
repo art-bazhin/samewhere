@@ -9,13 +9,15 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   const optimizations = { value: true };
   const loader = new THREE.TextureLoader(), textures = new Set<THREE.Texture>(), pending: Promise<unknown>[] = [];
   const anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
-  function texture(file: string, metersPerTile: number, relief: number, roughness: [number, number]) {
+  function texture(file: string, metersPerTile: number, relief: number, roughness: [number, number], prepare?: (image: HTMLImageElement) => HTMLCanvasElement) {
     const detail = materialDetail(metersPerTile, relief, roughness, anisotropy);
     textures.add(detail.normal); textures.add(detail.roughness);
     let result!: THREE.Texture;
     pending.push(new Promise((resolve, reject) => {
       result = loader.load(`/materials/${file}`, loaded => {
-        detail.update(loaded.image as HTMLImageElement); resolve(loaded);
+        const image = prepare ? prepare(loaded.image as HTMLImageElement) : loaded.image as HTMLImageElement;
+        loaded.image = image; loaded.needsUpdate = true;
+        detail.update(image); resolve(loaded);
       }, undefined, reject);
     }));
     result.wrapS = result.wrapT = THREE.MirroredRepeatWrapping; result.anisotropy = anisotropy;
@@ -28,14 +30,17 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   // Keep its pore/color variation without darkening the original plinth color.
   const concreteTint = new THREE.Color(0xcdbb86);
   concreteTint.r /= .504106; concreteTint.g /= .443913; concreteTint.b /= .362871;
-  const ceiling = ceilingTile(); ceiling.anisotropy = anisotropy; textures.add(ceiling);
+  const ceiling = texture('office-ceiling-panel-color.jpg', CEILING_TILE_SIZE, .0012, [.94, 1], ceilingTile);
+  // surfaceUV projects x/-z in meters. Put each panel center on the shared grid.
+  for (const map of [ceiling.color, ceiling.normal, ceiling.roughness]) map.offset.set(.5, .5);
   const diffuser = lampDiffuser(); textures.add(diffuser);
   const environment = createRoomEnvironment(renderer, diffuser);
   const materials = {
     wall: new THREE.MeshStandardMaterial({ map: wallpaper.color, normalMap: wallpaper.normal, roughnessMap: wallpaper.roughness, roughness: 1 }),
     floor: new THREE.MeshPhysicalMaterial({ map: carpet.color, normalMap: carpet.normal, roughnessMap: carpet.roughness, roughness: 1,
       sheen: .25, sheenColor: 0xd8c69f, sheenRoughness: .95 }),
-    ceiling: new THREE.MeshStandardMaterial({ map: ceiling, bumpMap: ceiling, bumpScale: 0.002, emissive: 0x3f3b28, roughness: 1, side: THREE.BackSide }),
+    ceiling: new THREE.MeshStandardMaterial({ map: ceiling.color, normalMap: ceiling.normal, roughnessMap: ceiling.roughness,
+      emissive: 0x3f3b28, emissiveMap: ceiling.color, roughness: 1, side: THREE.BackSide }),
     pedestal: new THREE.MeshStandardMaterial({ color: concreteTint, map: concrete.color, normalMap: concrete.normal, roughnessMap: concrete.roughness, roughness: 1 }),
     socket: new THREE.MeshStandardMaterial({ color: concreteTint, map: concrete.color, normalMap: concrete.normal, roughnessMap: concrete.roughness, roughness: 1, vertexColors: true }),
     hit: new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }),
@@ -69,7 +74,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
       reflectedLight.indirectSpecular *= baseContact;`);
   };
   materials.pedestal.customProgramCacheKey = () => 'pedestal-contact';
-  for (const material of [materials.wall, materials.floor, materials.pedestal, materials.socket]) mirroredNormals(material);
+  for (const material of [materials.wall, materials.floor, materials.ceiling, materials.pedestal, materials.socket]) mirroredNormals(material);
   for (const material of Object.values(materials)) withDistanceFade(material);
   return { materials, textures, environment, optimizations, ready: Promise.all(pending).then(() => {}) };
 }
@@ -162,25 +167,20 @@ function lampDiffuser() {
   const map = new THREE.CanvasTexture(canvas); map.colorSpace = THREE.SRGBColorSpace; return map;
 }
 
-/** A 60 cm acoustic tile with a flat T-grid; no extra wall or ceiling geometry. */
-function ceilingTile() {
-  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1024;
-  const context = canvas.getContext('2d')!, pixels = context.createImageData(1024, 1024);
-  let seed = 72841;
-  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
-  for (let y = 0; y < 1024; y++) for (let x = 0; x < 1024; x++) {
-    const i = (y * 1024 + x) * 4, edge = Math.min(x, y, 1023 - x, 1023 - y);
-    const pore = random() < 0.065 ? -18 : 0, grain = (random() - 0.5) * 9 + pore;
-    const base = edge < 3 ? [118, 110, 74] : edge < 16 ? [217, 211, 180] : [222, 216, 188];
-    for (let c = 0; c < 3; c++) pixels.data[i + c] = base[c] + grain;
-    pixels.data[i + 3] = 255;
-  }
-  context.putImageData(pixels, 0, 0);
-  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping; texture.repeat.setScalar(2 / CEILING_TILE_SIZE);
-  // surfaceUV projects x/-z in meters. Put the tile center at each grid point.
-  texture.offset.set(.5, .5);
-  return texture;
+/** Mineral-fiber artwork with a 24 mm painted T-grid, without extra geometry. */
+function ceilingTile(image: HTMLImageElement) {
+  const canvas = document.createElement('canvas'), size = image.naturalWidth;
+  canvas.width = canvas.height = size;
+  const context = canvas.getContext('2d')!; context.drawImage(image, 0, 0, size, size);
+  const border = (width: number, color: string) => {
+    context.fillStyle = color;
+    context.fillRect(0, 0, size, width); context.fillRect(0, size - width, size, width);
+    context.fillRect(0, 0, width, size); context.fillRect(size - width, 0, width, size);
+  };
+  const rail = Math.max(1, Math.round(.012 / CEILING_TILE_SIZE * size));
+  border(rail + 1, '#aaa38b'); border(rail, '#d9d3b9');
+  border(Math.max(1, Math.round(.001 / CEILING_TILE_SIZE * size)), '#8c866f');
+  return canvas;
 }
 
 /** Meter-based box projection, so textures keep their scale on walls and prisms. */

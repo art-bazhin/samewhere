@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoomShadows } from './shadows';
-import { CEILING_LIGHT, SPOT_LIGHT_SHARE } from './lighting';
+import { CEILING_LIGHT, CEILING_PANEL_SIZE, SPOT_LIGHT_SHARE } from './lighting';
 import { floorWithContacts, surfaceUV, type MaterialSet } from './materials';
 import { offsetOutline } from './geometry';
 import { CEILING_TILE_SIZE, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
@@ -108,8 +108,11 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
   for (let side = 0; side < sides; side++) {
     const p = centers[side], socket = new THREE.Group();
     socket.position.set(p.x, PEDESTAL_HEIGHT, p.z); group.add(socket);
-    // Project in pedestal coordinates, matching the texture around each opening.
-    const bowlGeometry = socketBowlGeometry.clone(); bowlGeometry.translate(p.x, PEDESTAL_HEIGHT - SOCKET_RECESS, p.z); surfaceUV(bowlGeometry); bowlGeometry.translate(-p.x, -PEDESTAL_HEIGHT + SOCKET_RECESS, -p.z);
+    // Share shape buffers; only planar material UVs depend on the socket position.
+    const bowlGeometry = new THREE.BufferGeometry(), positions = socketBowlGeometry.getAttribute('position');
+    const uv = new THREE.Float32BufferAttribute(positions.count * 2, 2);
+    for (let i = 0; i < positions.count; i++) uv.setXY(i, (positions.getX(i) + p.x) / 2, -(positions.getZ(i) + p.z) / 2);
+    bowlGeometry.attributes = { ...socketBowlGeometry.attributes, uv }; bowlGeometry.index = socketBowlGeometry.index;
     const bowl = new THREE.Mesh(bowlGeometry, materials.socket); bowl.name = 'socket-bowl'; bowl.position.y = -SOCKET_RECESS; bowl.castShadow = bowl.receiveShadow = true; socket.add(bowl); blockers.push(bowl);
     const hit = new THREE.Mesh(socketGeometry, materials.hit); hit.rotation.x = -Math.PI / 2; hit.position.y = 0.001; socket.add(hit);
     const ball = new THREE.Mesh(sphere, materials.red); ball.name = 'socket-ball'; ball.position.y = BALL_RADIUS - SOCKET_DEPTH - SOCKET_RECESS; ball.castShadow = ball.receiveShadow = true; socket.add(ball);
@@ -135,7 +138,7 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
     scene.add(light, light.target); shadowLights.push(light);
     const frame = new THREE.Mesh(new THREE.PlaneGeometry(CEILING_TILE_SIZE, CEILING_TILE_SIZE), materials.lampFrame); frame.name = 'ceiling-lamp-frame';
     frame.rotation.x = Math.PI / 2; frame.position.set(x, ROOM_HEIGHT - 0.002, z); scene.add(frame);
-    const lens = new THREE.Mesh(new THREE.PlaneGeometry(CEILING_TILE_SIZE - .05, CEILING_TILE_SIZE - .05), materials.lamp); lens.name = 'ceiling-lamp';
+    const lens = new THREE.Mesh(new THREE.PlaneGeometry(CEILING_PANEL_SIZE, CEILING_PANEL_SIZE), materials.lamp); lens.name = 'ceiling-lamp';
     lens.rotation.x = Math.PI / 2; lens.position.set(x, ROOM_HEIGHT - 0.004, z); scene.add(lens);
   }
   const outline = roomOutline(id);

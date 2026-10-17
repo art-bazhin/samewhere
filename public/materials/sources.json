@@ -26,9 +26,13 @@
       "prompt": "Use case: photorealistic-natural. Asset type: one seamless PBR BASE COLOR texture for cast-concrete pedestals in a first-person Backrooms puzzle game. Primary request: a square, full-bleed, perfectly orthographic photograph of fine smooth cast architectural microconcrete, warm light limestone-beige grey. Represents exactly 0.8 meter by 0.8 meter of real material. Quiet subtle cloudy mineral variation, fine cement grain and sparsely distributed tiny pinhole pores about 0.2 to 1.2 millimeters across; solid cast stone with a matte unpolished finish, delicately visible small details up close but calm uniform material from a distance. Main color warm greige around sRGB #b8b3a3, naturally restrained low contrast, with no yellow ochre tint. No big holes, coarse stones, large aggregate, terrazzo, marble veins, brush strokes, trowel ridges, seams, formwork lines, cracks, scratches, damage, large stains, repeating motifs or directional grain. Uniform flat neutral diffuse frontal illumination, BASE COLOR ONLY, no baked directional shading, no ambient occlusion, shadows, highlights, gradients, vignette or blur. Seamlessly tileable at every edge. Texture fills image edge to edge. No actual pedestal, room, shapes, objects, frame, text, watermark, labels, grid or multiple panels. High resolution detailed square raster."
     },
     {
-      "name": "Acoustic ceiling tile",
-      "meters_per_tile": 0.6,
-      "source": "Procedural canvas texture in src/materials.ts"
+      "name": "Fine-fissured mineral-fiber office ceiling panel",
+      "file": "office-ceiling-panel-color.jpg",
+      "meters_per_tile": 0.65,
+      "source": "Generated for Samewhere",
+      "generator": "Built-in image_gen tool",
+      "prompt": "Use case: photorealistic-natural. Asset type: seamless PBR BASE COLOR texture for a single typical suspended office acoustic ceiling panel in a first-person Backrooms game. A square full-bleed perfectly orthographic straight-on photograph of the face of a conventional fine-fissured mineral-fiber acoustic ceiling board, the classic plain inexpensive office ceiling material. The entire swatch represents exactly 65 centimeters by 65 centimeters of a real panel. Dense fine chalky mineral fibers, irregular small pinhole pores and many characteristic short thin naturally branching elongated fissures distributed organically in different directions, about 2 to 12 mm long and less than 1 mm wide, with quieter areas between them. Dry matte porous painted mineral fiber, realistic tactile detail, soft warm ivory/off-white around sRGB #ded8bc to match a warm yellow-wallpaper beige-carpet office interior. Fissures should be visibly darker warm grey-beige and read clearly as tiny acoustic pores at close distance, not gigantic cracks. Uniform density, natural nonrepeating arrangement without any dominant motif. BASE COLOR ONLY: completely even neutral diffuse illumination, no directional light, shadows, ambient occlusion, highlights, gradients, vignetting or blur. Seamless tileable edges, edge-to-edge material detail, no panel border, no metal grid, no square pattern, no beveled frame, no seams, no actual room, ceiling scene, perspective, objects, text, labels, watermark or multiple images. No concrete mottling, marble, wood, carpet fibers or large stains. High resolution square raster material photograph.",
+      "grid": "24 mm painted T-grid and thin joins composited at startup in src/materials.ts; same 65 cm grid as square pedestal width, fixtures and pedestal placement"
     }
   ],
   "rendering": {
@@ -41,6 +45,7 @@
       ],
       "wallpaper_relief_meters": 0.00065,
       "carpet_relief_meters": 0.003,
+      "ceiling_relief_meters": 0.0012,
       "color_space": "linear",
       "wrapping": "Mirrored repeat with corrected tangent normal signs"
     },
@@ -60,7 +65,7 @@
       "tint": "Material color multiplies the texture by target / measured texture mean in linear RGB, preserving the original beige palette and pore variation"
     },
     "lamp_diffuser": "Procedural 512² opal/prismatic diffuser within the existing ceiling fixture",
-    "panel_light": "9 probes per existing 55 cm panel; 55% static diffuse plus 45% live spotlight contribution",
+    "panel_light": "9 probes per 60 cm diffuser, within a 65 cm ceiling tile; shared dimensions for visible fixtures, lighting bake and PMREM; 55% static diffuse plus 45% live spotlight contribution",
     "bounce_light": "One coarse Lambertian reflection from floor and walls, with room/pedestal visibility; mean material colors",
     "room_lightmaps": {
       "format": "RGBA16F",

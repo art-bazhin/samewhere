@@ -418,8 +418,8 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
     expect(fixture.lightCount).toBe(fixture.pedestalCount);
     expect(fixture.lampPositions).toEqual(fixture.pedestalPositions); expect(fixture.lightPositions).toEqual(fixture.pedestalPositions);
     expect(fixture.targetPositions).toEqual(fixture.pedestalPositions);
-    for (const size of fixture.sizes) for (const dimension of size) expect(dimension).toBeCloseTo(.55, 8);
-    for (const size of fixture.frameSizes) for (const dimension of size) expect(dimension).toBeCloseTo(.6, 8);
+    for (const size of fixture.sizes) for (const dimension of size) expect(dimension).toBeCloseTo(.6, 8);
+    for (const size of fixture.frameSizes) for (const dimension of size) expect(dimension).toBeCloseTo(.65, 8);
     for (const uv of fixture.centerUVs) for (const value of uv) expect(value).toBeCloseTo(.5, 5);
     for (const uv of fixture.cornerUVs) for (const value of uv) expect(Math.min(Math.abs(value), Math.abs(1 - value))).toBeLessThan(.00001);
     for (const offset of fixture.offsets) expect(offset).toBeLessThan(.02);

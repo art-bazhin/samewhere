@@ -10,7 +10,7 @@ export function materialDetail(meters: number, relief: number, range: [number, n
     map.minFilter = THREE.LinearMipmapLinearFilter; map.magFilter = THREE.LinearFilter; map.generateMipmaps = true;
     map.anisotropy = anisotropy; map.flipY = true; map.needsUpdate = true;
   }
-  return { normal, roughness, update(image: HTMLImageElement) {
+  return { normal, roughness, update(image: HTMLImageElement | HTMLCanvasElement) {
     const canvas = document.createElement('canvas'); canvas.width = canvas.height = size;
     const context = canvas.getContext('2d')!; context.drawImage(image, 0, 0, size, size);
     const pixels = context.getImageData(0, 0, size, size).data, height = new Float32Array(size * size);
