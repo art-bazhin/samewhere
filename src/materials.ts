@@ -186,6 +186,7 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
     return `if (!boundedContacts || (all(greaterThan(contactPosition, vec2(${min.map(v => v.toFixed(6)).join(',')}))) && all(lessThan(contactPosition, vec2(${max.map(v => v.toFixed(6)).join(',')}))))) { ${contact} }`;
   }).join('\n');
   material.onBeforeCompile = shader => {
+    shader.defines = { ...shader.defines, FLOOR_PASSAGE_LIGHTING: '' };
     shader.uniforms.boundedContacts = enabled;
     // The floor and passage halves already end at each terminal portal plane.
     // Clipping again discards MSAA edge pixels whose centers lie outside the
@@ -194,7 +195,7 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
     shader.vertexShader = 'varying vec2 contactPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
       contactPosition = (modelMatrix * vec4(transformed, 1.)).xz;`);
-    shader.fragmentShader = '#define FLOOR_PASSAGE_LIGHTING\n varying vec2 contactPosition; uniform bool boundedContacts;\n' + shader.fragmentShader;
+    shader.fragmentShader = 'varying vec2 contactPosition; uniform bool boundedContacts;\n' + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
       float shade = 1.; ${contacts}
       reflectedLight.indirectDiffuse *= shade; reflectedLight.directDiffuse *= shade;

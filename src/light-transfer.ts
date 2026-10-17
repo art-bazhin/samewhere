@@ -4,6 +4,7 @@ import { PASSAGE_LIGHT_DEPTH, PASSAGE_LIGHT_WIDTH, prepareSurfaceLayout } from '
 import { combineTransfers, type PreparedTransfer } from './light-transfer-cache';
 import { connections, portalPosition, ROOM_IDS, wallNormal, type RoomId, type WorldState } from './world';
 import type { TransferResult } from './light-transfer-worker';
+import { SURFACE_LIGHTMAP_FILTER } from './lightmap-filter';
 
 interface FieldBuffer { texture: THREE.DataTexture; key: string }
 interface RoomField extends FieldBuffer {
@@ -131,19 +132,20 @@ export class LightTransfer {
         #ifdef PORTAL_SURFACE_PADDING
           vTransferUv += portalLightUvOffset;
         #endif`);
-      shader.fragmentShader = `varying vec2 vTransferUv;
+      shader.fragmentShader = `${SURFACE_LIGHTMAP_FILTER}
+        varying vec2 vTransferUv;
         uniform sampler2D transferredLight; uniform vec3 transferColor; uniform float transferGain;
         uniform sampler2D panelLight;
         uniform int passageCount; uniform vec4 passageFrames[4]; uniform vec4 passageAtlases[4];\n` + shader.fragmentShader;
       shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `
-        vec4 roomLight = texture2D(panelLight, vTransferUv);
+        vec4 roomLight = sampleSurfaceLightmap(panelLight, vTransferUv);
         #ifdef SOCKET_BALL_SHADOW
           roomLight.r *= socketVisibility.x;
           roomLight.gba *= socketVisibility.y;
         #endif
         reflectedLight.directDiffuse += (roomLight.r * transferColor + roomLight.gba) * BRDF_Lambert(material.diffuseColor);
         if (transferGain > 0.) {
-          vec4 transported = texture2D(transferredLight, vTransferUv);
+          vec4 transported = sampleSurfaceLightmap(transferredLight, vTransferUv);
           reflectedLight.directDiffuse += transferGain * (transported.r * transferColor + transported.gba) * BRDF_Lambert(material.diffuseColor);
         }
         #ifdef FLOOR_PASSAGE_LIGHTING
@@ -155,7 +157,7 @@ export class LightTransfer {
             if (depth < -.0001 || depth >= ${PASSAGE_LIGHT_DEPTH.toFixed(4)} || abs(lateral) >= ${PASSAGE_LIGHT_WIDTH.toFixed(4)}) continue;
             float blend = (1. - smoothstep(.15, ${PASSAGE_LIGHT_DEPTH.toFixed(4)}, depth)) * (1. - smoothstep(.9, ${PASSAGE_LIGHT_WIDTH.toFixed(4)}, abs(lateral)));
             vec2 uv = atlas.xy + vec2(lateral, max(0., depth)) * atlas.zw;
-            vec4 joined = texture2D(panelLight, uv) + texture2D(transferredLight, uv);
+            vec4 joined = sampleSurfaceLightmap(panelLight, uv) + sampleSurfaceLightmap(transferredLight, uv);
             vec3 diffuse = (joined.r * transferColor + joined.gba) * BRDF_Lambert(material.diffuseColor);
             reflectedLight.directDiffuse = mix(reflectedLight.directDiffuse, diffuse, blend);
           }
