@@ -111,6 +111,10 @@ export class LightTransfer {
         uniform sampler2D panelLight;\n` + shader.fragmentShader;
       shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `
         vec4 roomLight = texture2D(panelLight, vTransferUv);
+        #ifdef SOCKET_BALL_SHADOW
+          roomLight.r *= socketVisibility.x;
+          roomLight.gba *= socketVisibility.y;
+        #endif
         reflectedLight.directDiffuse += (roomLight.r * transferColor + roomLight.gba) * BRDF_Lambert(material.diffuseColor);
         if (transferGain > 0.) {
           float transported = texture2D(transferredLight, vTransferUv).r;

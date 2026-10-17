@@ -427,6 +427,50 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
   }
 });
 
+test('occupied saucers receive immediate ball shadows and release them on pickup', async ({ page }) => {
+  await ready(page);
+  const result = await page.evaluate(async () => {
+    const path = '/node_modules/three/build/three.module.js', THREE = await import(path);
+    const app = window.__samewhere, space = app.space, socket = space.rooms.A.sockets.find((s: any) => s.ref.room === 'B' && s.ref.side === 2);
+    const pedestal = socket.hit.parent.parent, bowl = socket.hit.parent.getObjectByName('socket-bowl'), p = pedestal.position;
+    Object.assign(app.game.player, { room: 'A', x: p.x + .5, z: p.z + .7, yaw: Math.atan2(.5, .7), pitch: -.5 });
+    space.updateCamera();
+    const gl = space.renderer.getContext(), width = space.canvas.width, height = space.canvas.height;
+    const capture = () => {
+      space.render(); const pixels = new Uint8Array(width * height * 4);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels); return pixels;
+    };
+    const first = capture(), center = bowl.getWorldPosition(new THREE.Vector3()).project(space.camera);
+    const ray = new THREE.Raycaster(), indices: number[] = [], body = pedestal.getObjectByName('pedestal-body');
+    const cx = Math.round((center.x + 1) * .5 * width), cy = Math.round((center.y + 1) * .5 * height);
+    // Compare only visible cup pixels, excluding the ball's colored silhouette.
+    for (let y = cy - 64; y <= cy + 64; y += 2) for (let x = cx - 64; x <= cx + 64; x += 2) {
+      if (x < 0 || y < 0 || x >= width || y >= height) continue;
+      ray.setFromCamera(new THREE.Vector2((x + .5) / width * 2 - 1, (y + .5) / height * 2 - 1), space.camera);
+      if (ray.intersectObjects([bowl, socket.ball, body], false)[0]?.object === bowl) indices.push((y * width + x) * 4);
+    }
+    socket.occupied.array.fill(0); socket.occupied.needsUpdate = true;
+    const unshadowed = capture();
+    socket.occupied.array.fill(1); socket.occupied.needsUpdate = true;
+    const restored = capture();
+    const luma = (pixels: Uint8Array, i: number) => pixels[i] * .2126 + pixels[i + 1] * .7152 + pixels[i + 2] * .0722;
+    const darkening = indices.map(i => luma(unshadowed, i) - luma(first, i));
+    const difference = (a: Uint8Array, b: Uint8Array) => a.reduce((max, value, i) => Math.max(max, Math.abs(value - b[i])), 0);
+    app.game.interact(socket.ref); app.sync();
+    const empty = capture(), emptySettled = capture(), cleared = socket.occupied.getX(0) === 0;
+    app.game.interact(socket.ref); app.sync();
+    const placed = capture(), placedSettled = capture();
+    const samples = indices.length, maxDarkening = Math.max(...darkening), meanDarkening = darkening.reduce((sum, value) => sum + value, 0) / samples;
+    return { samples, maxDarkening, meanDarkening, restoredDifference: difference(first, restored),
+      pickupDifference: difference(empty, emptySettled), placementDifference: difference(placed, placedSettled),
+      cleared, filled: socket.occupied.getX(0) === 1, glError: gl.getError() };
+  });
+  console.log('Ball contact shadows:', result);
+  expect(result.samples).toBeGreaterThan(20); expect(result.maxDarkening).toBeGreaterThan(6); expect(result.meanDarkening).toBeGreaterThan(1);
+  expect(result.restoredDifference).toBeLessThanOrEqual(1); expect(result.pickupDifference).toBeLessThanOrEqual(1); expect(result.placementDifference).toBeLessThanOrEqual(1);
+  expect(result.cleared).toBe(true); expect(result.filled).toBe(true); expect(result.glError).toBe(0);
+});
+
 test('the complete layout reaches the H hub and all seven pedestals work with native movement and clicks', async ({ page }) => {
   test.setTimeout(120_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));

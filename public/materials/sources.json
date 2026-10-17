@@ -79,6 +79,19 @@
       ],
       "calculation": "At startup in the existing lighting worker; no per-frame bake"
     },
-    "environment": "Shared PMREM, 128-pixel cube faces; soft warm reflections prepared once in src/room-environment.ts"
+    "billiard_balls": {
+      "material": "Opaque polished resin, MeshPhysicalMaterial; original red/blue hues and 8 cm diameter",
+      "ior": 1.57,
+      "metalness": 0,
+      "roughness_range": [0.1373, 0.1686],
+      "clearcoat": 0.45,
+      "clearcoat_roughness_range": [0.0453, 0.0556],
+      "polish_map": "Shared procedural linear roughness texture, 256 squared, mipmapped and anisotropic; no color grain or painted highlights",
+      "geometry": "Shared sphere, 64 by 48 segments",
+      "architectural_reflection_gain": 0.28,
+      "contact_shadow": "Occupied cups analytically occlude their baked panel illumination with the 4 cm sphere and a panel-sized penumbra; gap-based contact occlusion attenuates indirect and reflected light. A streamed byte attribute changes immediately on pick/place; empty cup color stays uniform.",
+      "reflections": "Separate sharp 256-pixel PMREM captured once from the real textured, lit starting room at ball height after materials/light preparation; HDR diffusers included, balls and portal images excluded; shared local approximation without live cube cameras"
+    },
+    "environment": "Shared soft 128-pixel PMREM for architecture in src/room-environment.ts; sharp 256-pixel actual-scene probe for polished balls in src/scene.ts; both prepared once at startup"
   }
 }

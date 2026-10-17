@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { CEILING_TILE_SIZE, pedestalOutline, PEDESTAL_APOTHEM, ROOM_HEIGHT, ROOMS, wallNormal, type PedestalDefinition } from './world';
+import { BALL_RADIUS, CEILING_TILE_SIZE, pedestalOutline, PEDESTAL_APOTHEM, PEDESTAL_HEIGHT, ROOM_HEIGHT, ROOMS, SOCKET_DEPTH, SOCKET_RECESS, wallNormal, type PedestalDefinition } from './world';
 import { withDistanceFade } from './visibility';
 import { materialDetail, mirroredNormals } from './material-detail';
 import { createRoomEnvironment } from './room-environment';
+import { CEILING_LIGHT, CEILING_PANEL_SIZE } from './lighting';
 
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
 export function createMaterials(renderer: THREE.WebGLRenderer) {
@@ -35,6 +36,10 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   for (const map of [ceiling.color, ceiling.normal, ceiling.roughness]) map.offset.set(.5, .5);
   const diffuser = lampDiffuser(); textures.add(diffuser);
   const environment = createRoomEnvironment(renderer, diffuser);
+  const polish = ballPolish(anisotropy); textures.add(polish);
+  const ballSurface = { metalness: 0, ior: 1.57, roughness: 1, roughnessMap: polish,
+    clearcoat: .45, clearcoatRoughness: .33, clearcoatRoughnessMap: polish,
+    envMap: environment.texture, envMapIntensity: 1 };
   const materials = {
     wall: new THREE.MeshStandardMaterial({ map: wallpaper.color, normalMap: wallpaper.normal, roughnessMap: wallpaper.roughness, roughness: 1 }),
     floor: new THREE.MeshPhysicalMaterial({ map: carpet.color, normalMap: carpet.normal, roughnessMap: carpet.roughness, roughness: 1,
@@ -44,8 +49,8 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
     pedestal: new THREE.MeshStandardMaterial({ color: concreteTint, map: concrete.color, normalMap: concrete.normal, roughnessMap: concrete.roughness, roughness: 1, vertexColors: true }),
     socket: new THREE.MeshStandardMaterial({ color: concreteTint, map: concrete.color, normalMap: concrete.normal, roughnessMap: concrete.roughness, roughness: 1, vertexColors: true }),
     hit: new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }),
-    red: new THREE.MeshStandardMaterial({ color: 0xc92530, roughness: 0.4, metalness: 0.02 }),
-    blue: new THREE.MeshStandardMaterial({ color: 0x2466c9, roughness: 0.4, metalness: 0.02 }),
+    red: new THREE.MeshPhysicalMaterial({ ...ballSurface, color: 0xc92530 }),
+    blue: new THREE.MeshPhysicalMaterial({ ...ballSurface, color: 0x2466c9 }),
     lamp: new THREE.MeshBasicMaterial({ color: 0xfffbd6, map: diffuser }),
     lampFrame: new THREE.MeshStandardMaterial({ color: 0xd6cda6, roughness: 0.8 }),
   };
@@ -74,6 +79,34 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
       reflectedLight.indirectSpecular *= baseContact;`);
   };
   materials.pedestal.customProgramCacheKey = () => 'pedestal-contact';
+  materials.socket.onBeforeCompile = shader => {
+    shader.vertexShader = 'attribute float socketOccupied; varying float vSocketOccupied; varying vec3 bowlPosition; varying vec2 socketOffset;\n' + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      vSocketOccupied = socketOccupied; bowlPosition = position;
+      socketOffset = vec2(uv.x * 2. - position.x, -uv.y * 2. - position.z);`);
+    shader.fragmentShader = `#define SOCKET_BALL_SHADOW
+      varying float vSocketOccupied; varying vec3 bowlPosition; varying vec2 socketOffset;
+      vec2 socketBallVisibility() {
+        if (vSocketOccupied < .5) return vec2(1.);
+        vec3 center = vec3(0., ${(BALL_RADIUS - SOCKET_DEPTH).toFixed(6)}, 0.);
+        vec3 toBall = center - bowlPosition;
+        vec3 toLamp = vec3(-socketOffset.x, ${(CEILING_LIGHT.height - PEDESTAL_HEIGHT + SOCKET_RECESS).toFixed(6)}, -socketOffset.y) - bowlPosition;
+        float lampDistance = length(toLamp); vec3 direction = toLamp / lampDistance;
+        float along = dot(toBall, direction);
+        float clearance = length(toBall - direction * along) - ${BALL_RADIUS.toFixed(6)};
+        float penumbra = max(.0007, ${(.5 * CEILING_PANEL_SIZE).toFixed(6)} * max(along, 0.) / lampDistance);
+        float direct = along > 0. && along < lampDistance ? smoothstep(-penumbra, penumbra, clearance) : 1.;
+        float gap = max(length(toBall) - ${BALL_RADIUS.toFixed(6)}, 0.);
+        float ambient = 1. - .72 * exp(-gap * 170.);
+        return vec2(direct, ambient);
+      }\n` + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_begin>', `vec2 socketVisibility = socketBallVisibility();
+      #include <lights_fragment_begin>`);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
+      reflectedLight.indirectDiffuse *= socketVisibility.y;
+      reflectedLight.indirectSpecular *= socketVisibility.y;`);
+  };
+  materials.socket.customProgramCacheKey = () => 'socket-ball-shadow';
   for (const material of [materials.wall, materials.floor, materials.ceiling, materials.pedestal, materials.socket]) mirroredNormals(material);
   for (const material of Object.values(materials)) withDistanceFade(material);
   return { materials, textures, environment, optimizations, ready: Promise.all(pending).then(() => {}) };
@@ -150,6 +183,20 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
   };
   material.customProgramCacheKey = () => `floor-contacts:${contacts}`;
   return withDistanceFade(mirroredNormals(material));
+}
+
+/** Submillimeter polish variation in linear roughness, without visible color grain. */
+function ballPolish(anisotropy: number) {
+  const size = 256, pixels = new Uint8Array(size * size * 4); let seed = 49571;
+  for (let i = 0; i < pixels.length; i += 4) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const roughness = 35 + Math.round(seed / 4294967296 * 8);
+    pixels[i] = pixels[i + 1] = pixels[i + 2] = roughness; pixels[i + 3] = 255;
+  }
+  const map = new THREE.DataTexture(pixels, size, size);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping; map.repeat.set(2, 1);
+  map.minFilter = THREE.LinearMipmapLinearFilter; map.magFilter = THREE.LinearFilter;
+  map.anisotropy = anisotropy; map.generateMipmaps = true; map.needsUpdate = true; return map;
 }
 
 /** Subtle tubes behind an opal diffuser, entirely inside the existing light tile. */

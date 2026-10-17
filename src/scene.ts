@@ -70,6 +70,7 @@ export class SpaceRenderer {
   private readonly preparationTarget = new THREE.WebGLRenderTarget(1, 1);
   private preparationRoom: RoomVisual | null = null;
   private compiling = false;
+  private ballEnvironment: THREE.WebGLRenderTarget | null = null;
   constructor(public canvas: HTMLCanvasElement, public game: Game) {
     // Create the context explicitly: this Three.js release requests alpha:true
     // internally even with renderer alpha:false. The game is always opaque.
@@ -114,7 +115,7 @@ export class SpaceRenderer {
       // Initialize clipping/shadows, then compile each room's light count while
       // the menu is loading. Shared materials must not be rebound by rendering
       // another scene while compileAsync waits for its programs to finish.
-      this.render(); this.compiling = true;
+      this.render(); this.prepareBallReflections(); this.compiling = true;
       const previousTarget = this.renderer.getRenderTarget();
       try {
         // Main views use sRGB output; portal buffers use linear output.
@@ -127,6 +128,39 @@ export class SpaceRenderer {
       // Entry becomes available only after a complete, final-lit main view.
       this.render();
     });
+  }
+  private prepareBallReflections() {
+    const room = this.rooms.A, source = room.sockets.find(socket => socket.ball.visible) ?? room.sockets[0];
+    const position = source.ball.parent!.parent!.getWorldPosition(new THREE.Vector3());
+    position.y = source.ball.getWorldPosition(new THREE.Vector3()).y;
+    const hidden = [...room.sockets.map(socket => socket.ball), ...room.portals.map(portal => portal.mesh)];
+    const visibility = hidden.map(object => object.visible), clipping = this.renderer.clippingPlanes;
+    const lamp = this.assets.materials.lamp, color = lamp.color.clone(), generator = new THREE.PMREMGenerator(this.renderer);
+    const surfaces = new Set<THREE.MeshStandardMaterial>();
+    room.scene.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return;
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) if (material instanceof THREE.MeshStandardMaterial) surfaces.add(material);
+    });
+    const finishes = [...surfaces].map(material => ({ material, color: material.color.clone(), emissive: material.emissive.clone() }));
+    try {
+      // Capture the real textured, lit room once, without the balls themselves
+      // or screen-projected portal images. Bright diffusers need HDR radiance
+      // to produce a white reflection on a dielectric surface with low F0.
+      for (const object of hidden) object.visible = false;
+      // Keep the HDR lamps crisp, but prevent broad architectural reflections
+      // from washing out the resin's saturated color near the pedestal.
+      for (const { material } of finishes) { material.color.multiplyScalar(.28); material.emissive.multiplyScalar(.28); }
+      this.renderer.clippingPlanes = []; lamp.color.multiplyScalar(14); this.lightTransfer.bind('A');
+      this.ballEnvironment = generator.fromScene(room.scene, 0, .001, 30, { size: 256, position });
+      for (const material of [this.assets.materials.red, this.assets.materials.blue]) {
+        material.envMap = this.ballEnvironment.texture; material.needsUpdate = true;
+      }
+    } finally {
+      hidden.forEach((object, index) => { object.visible = visibility[index]; });
+      lamp.color.copy(color); this.renderer.clippingPlanes = clipping;
+      for (const { material, color, emissive } of finishes) { material.color.copy(color); material.emissive.copy(emissive); }
+      this.lightTransfer.bind(this.game.player.room); generator.dispose();
+    }
   }
   private async prepareRooms() {
     // Match the portal framebuffer's actual sample count. A single-sample
@@ -252,6 +286,10 @@ export class SpaceRenderer {
       }
       for (const socket of room.sockets) {
         const ball = ballAt(world, socket.ref); socket.ball.visible = !!ball;
+        const occupied = Number(!!ball);
+        if (socket.occupied.getX(0) !== occupied) {
+          socket.occupied.array.fill(occupied); socket.occupied.needsUpdate = true;
+        }
         if (ball) socket.ball.material = materials[ball.color];
       }
       room.shadows.sync();
@@ -435,6 +473,7 @@ export class SpaceRenderer {
     geometries.forEach(g => g.dispose()); mats.forEach(m => m.dispose());
     this.assets.textures.forEach(texture => texture.dispose());
     this.assets.environment.dispose();
+    this.ballEnvironment?.dispose();
     this.renderer.dispose();
   }
 }

@@ -3,15 +3,11 @@ import { RoomShadows } from './shadows';
 import { CEILING_LIGHT, CEILING_PANEL_SIZE, SPOT_LIGHT_SHARE } from './lighting';
 import { floorWithContacts, surfaceUV, type MaterialSet } from './materials';
 import { offsetOutline } from './geometry';
-import { CEILING_TILE_SIZE, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
+import { BALL_RADIUS, CEILING_TILE_SIZE, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
 
 const PALETTE = { background: 0x000000 };
 const plane = new THREE.PlaneGeometry(1, 1);
-const BALL_RADIUS = 0.04;
-const sphere = new THREE.SphereGeometry(BALL_RADIUS, 24, 16);
-const SOCKET_OPENING = 0.055;
-const SOCKET_DEPTH = 0.01625;
-const SOCKET_RECESS = 0.005;
+const sphere = new THREE.SphereGeometry(BALL_RADIUS, 64, 48);
 const SOCKET_SHADE = .82;
 const socketGeometry = new THREE.CircleGeometry(SOCKET_OPENING, 32);
 const socketBowlGeometry = createSocketBowl();
@@ -52,7 +48,7 @@ function footprintShape(outline: Vec2[]) {
 }
 
 export interface Portal { side: number; mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; to: SocketRef | null; transform: THREE.Matrix4; normal: Vec2; center: Vec2; distance: number; receivingDistance: number }
-export interface SocketVisual { ref: SocketRef; hit: THREE.Mesh; ball: THREE.Mesh }
+export interface SocketVisual { ref: SocketRef; hit: THREE.Mesh; ball: THREE.Mesh; occupied: THREE.Uint8BufferAttribute }
 export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; walls: { solid: THREE.Group; open: THREE.Group }[]; shadowLights: THREE.SpotLight[]; shadows: RoomShadows }
 
 function portalMaterial() {
@@ -116,14 +112,15 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
     // Share shape buffers; only planar material UVs depend on the socket position.
     const bowlGeometry = new THREE.BufferGeometry(), positions = socketBowlGeometry.getAttribute('position');
     const uv = new THREE.Float32BufferAttribute(positions.count * 2, 2);
+    const occupied = new THREE.Uint8BufferAttribute(positions.count, 1).setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < positions.count; i++) uv.setXY(i, (positions.getX(i) + p.x) / 2, -(positions.getZ(i) + p.z) / 2);
-    bowlGeometry.attributes = { ...socketBowlGeometry.attributes, uv }; bowlGeometry.index = socketBowlGeometry.index;
+    bowlGeometry.attributes = { ...socketBowlGeometry.attributes, uv, socketOccupied: occupied }; bowlGeometry.index = socketBowlGeometry.index;
     const bowl = new THREE.Mesh(bowlGeometry, materials.socket); bowl.name = 'socket-bowl'; bowl.position.y = -SOCKET_RECESS; bowl.castShadow = bowl.receiveShadow = true; socket.add(bowl); blockers.push(bowl);
     const hit = new THREE.Mesh(socketGeometry, materials.hit); hit.rotation.x = -Math.PI / 2; hit.position.y = 0.001; socket.add(hit);
     const ball = new THREE.Mesh(sphere, materials.red); ball.name = 'socket-ball'; ball.position.y = BALL_RADIUS - SOCKET_DEPTH - SOCKET_RECESS; ball.castShadow = ball.receiveShadow = true; socket.add(ball);
     const ref = { room: controls, side };
     hit.userData.socket = ref; ball.userData.socket = ref;
-    visuals.push({ ref, hit, ball });
+    visuals.push({ ref, hit, ball, occupied });
   }
 }
 

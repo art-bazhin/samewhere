@@ -163,8 +163,8 @@ function* chartTriangles(chart: SurfaceChart): Generator<Triangle> {
 
 /** Reuse the exact room geometry for startup baking, without DOM or textures. */
 export function bakingLayout(room: RoomId) {
-  const standard = new THREE.MeshStandardMaterial(), basic = new THREE.MeshBasicMaterial();
-  const materials = { wall: standard, floor: new THREE.MeshPhysicalMaterial(), ceiling: standard, pedestal: standard, socket: standard,
-    red: standard, blue: standard, lampFrame: standard, hit: basic, lamp: basic };
+  const standard = new THREE.MeshStandardMaterial(), physical = new THREE.MeshPhysicalMaterial(), basic = new THREE.MeshBasicMaterial();
+  const materials = { wall: standard, floor: physical, ceiling: standard, pedestal: standard, socket: standard,
+    red: physical, blue: physical, lampFrame: standard, hit: basic, lamp: basic };
   return prepareSurfaceLayout(createRoom(room, materials, { value: true }).scene);
 }
