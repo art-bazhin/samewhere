@@ -7,6 +7,8 @@ import { CEILING_GRID_WIDTH, CEILING_LIGHT, CEILING_PANEL_SIZE } from './lightin
 import { withPortalSurfacePadding } from './portal-surfaces';
 import { boundaryContactDistance, PEDESTAL_CONTACT_STRENGTH, withWallContacts, withPedestalContacts, withContactShading } from './contact-shading';
 
+export const PEDESTAL_TEXTURE_SIZE = .8;
+
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
 export function createMaterials(renderer: THREE.WebGLRenderer) {
   const optimizations = { value: true };
@@ -28,7 +30,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
     textures.add(result); return { color: result, ...detail };
   }
   const wallpaper = texture('backrooms-wallpaper-color.png', 1.2, .00065, [.74, .96]), carpet = texture('backrooms-carpet-color.png', 1, .003, [.9, 1]);
-  const concrete = texture('pedestal-concrete-color.jpg', .8, .0007, [.78, .97]);
+  const concrete = texture('pedestal-concrete-color.jpg', PEDESTAL_TEXTURE_SIZE, .0007, [.78, .97]);
   // Apply half of the original beige tint, retaining some of the neutral concrete.
   // A linear multiplier retains the concrete's pores and color variation.
   const concreteTint = new THREE.Color(0xcdbb86);
@@ -238,4 +240,33 @@ export function surfaceUV(geometry: THREE.BufferGeometry, metersPerTile = 2) {
     uv[i * 2 + 1] = (ny > nx && ny > nz ? -z : y) / metersPerTile;
   }
   geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); return geometry;
+}
+
+/** One oriented strip around the prism, rather than mirrored box projections.
+ * A whole number of texture tiles closes the strip at its first corner. */
+export function pedestalUV(geometry: THREE.BufferGeometry, controls: RoomId) {
+  surfaceUV(geometry);
+  const outline = pedestalOutline(controls), position = geometry.getAttribute('position'), normal = geometry.getAttribute('normal'), uv = geometry.getAttribute('uv');
+  let perimeter = 0;
+  const edges = outline.map((a, index) => {
+    const b = outline[(index + 1) % outline.length], dx = b.x - a.x, dz = b.z - a.z, length = Math.hypot(dx, dz), start = perimeter;
+    perimeter += length; return { a, dx, dz, length, start };
+  });
+  // Keep the horizontal scale close to 0.8 m per tile while making the final
+  // seam periodic. Height, the top projection and the socket lips keep their UVs.
+  const scale = Math.max(1, Math.round(perimeter / PEDESTAL_TEXTURE_SIZE)) * PEDESTAL_TEXTURE_SIZE / perimeter;
+  for (let i = 0; i < position.count; i++) {
+    if (Math.abs(normal.getY(i)) > .1) continue;
+    const x = position.getX(i), z = position.getZ(i);
+    for (const { a, dx, dz, length, start } of edges) {
+      if ((normal.getX(i) * dz - normal.getZ(i) * dx) / length < .9999 ||
+        Math.abs((x - a.x) * dz - (z - a.z) * dx) / length > .00001) continue;
+      const along = ((x - a.x) * dx + (z - a.z) * dz) / length;
+      if (along < -.00001 || along > length + .00001) continue;
+      // Negative perimeter direction with V pointing up gives an outward,
+      // non-mirrored tangent basis for both the color and normal maps.
+      uv.setXY(i, -(start + along) * scale / 2, position.getY(i) / 2); break;
+    }
+  }
+  return geometry;
 }

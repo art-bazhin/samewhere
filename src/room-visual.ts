@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoomShadows } from './shadows';
 import { CEILING_LIGHT, CEILING_PANEL_SIZE, ROOM_FILL_LIGHT, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
-import { floorWithContacts, surfaceUV, type MaterialSet } from './materials';
+import { floorWithContacts, pedestalUV, surfaceUV, type MaterialSet } from './materials';
 import { ceilingWithContacts, pedestalEdgeDistances, wallCornerDistances } from './contact-shading';
 import { offsetOutline } from './geometry';
 import { BALL_RADIUS, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
@@ -105,7 +105,7 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
   }
   // Only the inner lips share the bowl's uniformly darker finish.
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const body = new THREE.Mesh(pedestalEdgeDistances(surfaceUV(geometry), controls), materials.pedestal); body.name = 'pedestal-body';
+  const body = new THREE.Mesh(pedestalEdgeDistances(pedestalUV(geometry, controls), controls), materials.pedestal); body.name = 'pedestal-body';
   body.castShadow = body.receiveShadow = true; group.add(body); blockers.push(body);
   for (let side = 0; side < sides; side++) {
     const p = centers[side], socket = new THREE.Group();
