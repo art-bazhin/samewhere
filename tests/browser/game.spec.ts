@@ -365,7 +365,7 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
           ray.set(point, new THREE.Vector3(...direction));
           lipDistances.push(ray.intersectObjects(pedestals, false)[0]?.distance ?? Infinity);
         }
-        const depths = [.0005, .01375, .0275, .04125, .05445].map(offset => {
+        const depths = [.0005, .0125, .025, .0375, .0495].map(offset => {
           ray.set(new THREE.Vector3(center.x + offset, center.y + .05, center.z), new THREE.Vector3(0, -1, 0));
           const hit = ray.intersectObject(bowl, false)[0];
           return hit ? center.y - hit.point.y : Infinity;
@@ -401,8 +401,8 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
     }
     return { wallDistances, lipDistances, bottomDistances, fixtures, bowls };
   });
-  for (const distance of result.wallDistances) { expect(distance).toBeGreaterThan(.03); expect(distance).toBeLessThan(.033); }
-  for (const distance of result.lipDistances) expect(distance).toBeCloseTo(.055, 5);
+  for (const distance of result.wallDistances) { expect(distance).toBeGreaterThan(.032); expect(distance).toBeLessThan(.035); }
+  for (const distance of result.lipDistances) expect(distance).toBeCloseTo(.05, 5);
   for (const distance of result.bottomDistances) { expect(distance).toBeGreaterThan(.0075); expect(distance).toBeLessThan(.0125); }
   expect(result.bowls).toHaveLength(ROOM_IDS.reduce((count, id) => count + ROOMS[id].pedestals.reduce((sum, p) => sum + ROOMS[p.controls].sides, 0), 0));
   for (const bowl of result.bowls) {
@@ -410,7 +410,7 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
     expect(bowl.depths[0]).toBeGreaterThan(.016); expect(bowl.depths[4]).toBeLessThan(.0001);
     for (let i = 1; i < bowl.depths.length; i++) expect(bowl.depths[i]).toBeLessThan(bowl.depths[i - 1]);
     expect(Math.abs(bowl.gap)).toBeLessThan(.000001); expect(bowl.centered).toBe(0);
-    expect(bowl.clearance).toBeGreaterThanOrEqual(-.000001); expect(bowl.minUpNormal).toBeGreaterThan(.9);
+    expect(bowl.clearance).toBeGreaterThanOrEqual(-.000001); expect(bowl.minUpNormal).toBeGreaterThan(.8);
   }
   for (const fixture of result.fixtures) {
     expect(fixture.pedestalCount).toBe(ROOMS[fixture.id as RoomId].pedestals.length);

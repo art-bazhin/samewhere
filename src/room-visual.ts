@@ -17,15 +17,15 @@ function createSocketBowl() {
   // Its bottom curvature is wider than the ball, so the ball rests at its lowest point.
   const profile = Array.from({ length: 25 }, (_, i) => {
     const t = 1 - i / 24;
-    return new THREE.Vector2(SOCKET_OPENING * t, -SOCKET_DEPTH * (1 - t * t) ** 2);
+    return new THREE.Vector2(SOCKET_OPENING * t, -SOCKET_DEPTH * (1 - t * t) ** 2 * (1 + t * t));
   });
   const geometry = new THREE.LatheGeometry(profile, 48);
   const positions = geometry.getAttribute('position'), normals = geometry.getAttribute('normal');
   const colors = new Float32Array(positions.count * 3).fill(SOCKET_SHADE), normal = new THREE.Vector3();
   for (let i = 0; i < positions.count; i++) {
     const x = positions.getX(i), z = positions.getZ(i), radius = Math.hypot(x, z);
-    const t = Math.min(radius / SOCKET_OPENING, 1), curve = 1 - t * t;
-    const slope = 4 * SOCKET_DEPTH / (SOCKET_OPENING * SOCKET_OPENING) * curve;
+    const t = Math.min(radius / SOCKET_OPENING, 1), squared = t * t;
+    const slope = 2 * SOCKET_DEPTH / (SOCKET_OPENING * SOCKET_OPENING) * (1 + 2 * squared - 3 * squared * squared);
     normal.set(-slope * x, 1, -slope * z).normalize(); normals.setXYZ(i, normal.x, normal.y, normal.z);
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
