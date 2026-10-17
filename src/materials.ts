@@ -88,10 +88,12 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
       socketOffset = vec2(uv.x * 2. - position.x, -uv.y * 2. - position.z);`);
     shader.fragmentShader = `#define SOCKET_BALL_SHADOW
       varying float vSocketOccupied; varying vec3 bowlPosition; varying vec2 socketOffset;
+      vec3 socketToBall() {
+        return vec3(0., ${(BALL_RADIUS - SOCKET_DEPTH).toFixed(6)}, 0.) - bowlPosition;
+      }
       vec2 socketBallVisibility() {
         if (vSocketOccupied < .5) return vec2(1.);
-        vec3 center = vec3(0., ${(BALL_RADIUS - SOCKET_DEPTH).toFixed(6)}, 0.);
-        vec3 toBall = center - bowlPosition;
+        vec3 toBall = socketToBall();
         vec3 toLamp = vec3(-socketOffset.x, ${(CEILING_LIGHT.height - PEDESTAL_HEIGHT + SOCKET_RECESS).toFixed(6)}, -socketOffset.y) - bowlPosition;
         float lampDistance = length(toLamp); vec3 direction = toLamp / lampDistance;
         float along = dot(toBall, direction);
@@ -102,13 +104,32 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
         float ambient = 1. - .72 * exp(-gap * 170.);
         return vec2(direct, ambient);
       }\n` + shader.fragmentShader;
+    // An 8 cm ball spans only a few shadow texels. Its back-surface depth and
+    // filtering can leak light at contact; front-surface depth self-shadows the
+    // ball. Resolve its exact silhouette locally, retaining the room shadow map
+    // for all other blockers. Pedestal/socket transforms contain translation only.
+    shader.fragmentShader = shader.fragmentShader.replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>
+      void RE_Direct_Socket(const in IncidentLight directLight, const in vec3 geometryPosition,
+        const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal,
+        const in PhysicalMaterial material, inout ReflectedLight reflectedLight) {
+        if (vSocketOccupied > .5) {
+          vec3 toBall = socketToBall();
+          vec3 direction = inverseTransformDirection(directLight.direction, viewMatrix);
+          float along = dot(toBall, direction);
+          // All direct sources are ceiling lamps, beyond the sphere.
+          if (along > 0. && dot(toBall, toBall) - along * along < ${(BALL_RADIUS * BALL_RADIUS).toFixed(8)}) return;
+        }
+        RE_Direct_Physical(directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight);
+      }
+      #undef RE_Direct
+      #define RE_Direct RE_Direct_Socket`);
     shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_begin>', `vec2 socketVisibility = socketBallVisibility();
       #include <lights_fragment_begin>`);
     shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
       reflectedLight.indirectDiffuse *= socketVisibility.y;
       reflectedLight.indirectSpecular *= socketVisibility.y;`);
   };
-  materials.socket.customProgramCacheKey = () => 'socket-ball-shadow';
+  materials.socket.customProgramCacheKey = () => 'socket-ball-shadow:exact-direct';
   withPortalSurfacePadding(materials.wall);
   for (const material of [materials.wall, materials.ceiling]) preservePortalCoverage(material);
   for (const material of Object.values(materials)) withDistanceFade(material);
