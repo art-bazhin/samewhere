@@ -20,9 +20,9 @@ export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE) {
       const x = source.x - point.x, y = source.y - point.y, z = source.z - point.z;
       const cosine = x * normal.x + y * normal.y + z * normal.z;
       const distance2 = x * x + y * y + z * z;
-      if (y <= 0 || cosine <= 0 || distance2 >= CEILING_LIGHT.distance ** 2) continue;
+      if (y <= 0 || cosine <= 0 || distance2 >= source.distance ** 2) continue;
       if (transferPathBlocked(room, origin, source, -1)) continue;
-      const cutoff = Math.max(0, 1 - (distance2 / CEILING_LIGHT.distance ** 2) ** 2);
+      const cutoff = Math.max(0, 1 - (distance2 / source.distance ** 2) ** 2);
       light += weight * y * cosine * cutoff * cutoff / Math.max(distance2 * distance2, .0001);
     }
     return light;
@@ -38,9 +38,9 @@ function spotLightSampler(room: RoomId) {
     for (const lamp of ROOM_LIGHTS[room]) {
       const source = { ...lamp, y: CEILING_LIGHT.height }, x = source.x - point.x, y = source.y - point.y, z = source.z - point.z;
       const distance = Math.hypot(x, y, z), cosine = (normal.x * x + normal.y * y + normal.z * z) / distance;
-      if (cosine <= 0 || distance >= CEILING_LIGHT.distance || transferPathBlocked(room, origin, source, -1)) continue;
+      if (cosine <= 0 || distance >= lamp.distance || transferPathBlocked(room, origin, source, -1)) continue;
       const spot = Math.max(0, Math.min(1, (y / distance - cone) / (penumbra - cone)));
-      const cutoff = Math.max(0, 1 - (distance / CEILING_LIGHT.distance) ** 4);
+      const cutoff = Math.max(0, 1 - (distance / lamp.distance) ** 4);
       light += CEILING_LIGHT.intensity * SPOT_LIGHT_SHARE * spot * spot * (3 - 2 * spot) * cutoff * cutoff * cosine / Math.max(distance * distance, .01);
     }
     return light;

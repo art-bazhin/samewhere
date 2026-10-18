@@ -131,11 +131,11 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
   scene.environment = environment ?? null; scene.environmentIntensity = ROOM_FILL_LIGHT.environment;
   scene.add(new THREE.HemisphereLight(0xfff8df, 0xc2a568, ROOM_FILL_LIGHT.hemisphere), new THREE.AmbientLight(0xfff6dd, ROOM_FILL_LIGHT.ambient));
   const shadowLights: THREE.SpotLight[] = [];
-  for (const { x, z } of ROOM_LIGHTS[id]) {
-    const light = new THREE.SpotLight(CEILING_LIGHT.color, CEILING_LIGHT.intensity * SPOT_LIGHT_SHARE, CEILING_LIGHT.distance, CEILING_LIGHT.angle, CEILING_LIGHT.penumbra, 2);
+  for (const { x, z, distance } of ROOM_LIGHTS[id]) {
+    const light = new THREE.SpotLight(CEILING_LIGHT.color, CEILING_LIGHT.intensity * SPOT_LIGHT_SHARE, distance, CEILING_LIGHT.angle, CEILING_LIGHT.penumbra, 2);
     light.position.set(x, CEILING_LIGHT.height, z); light.target.position.set(x, 0, z);
     light.castShadow = true; light.shadow.mapSize.set(1024, 1024);
-    light.shadow.camera.near = 0.1; light.shadow.camera.far = CEILING_LIGHT.distance;
+    light.shadow.camera.near = 0.1; light.shadow.camera.far = distance;
     light.shadow.bias = -0.00002; light.shadow.normalBias = 0.0015;
     light.shadow.autoUpdate = false; light.shadow.needsUpdate = true;
     scene.add(light, light.target); shadowLights.push(light);

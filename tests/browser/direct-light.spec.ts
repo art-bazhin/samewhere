@@ -97,7 +97,7 @@ test('doorway penumbrae match the visible panel area, widen with distance and st
         void main() {
           vec3 p = texelFetch(probes, ivec2(int(gl_FragCoord.x), 0), 0).xyz;
           gl_FragColor = vec4(directNeighborLight(p, vec3(0., 1., 0.), vec3(0., 1., 0.)),
-            directEnergy(p, vec3(0., 1., 0.), directRecord(0, 0).xy),
+            directEnergy(p, vec3(0., 1., 0.), directRecord(0, 0).xy, directRecord(0, 6).z),
             texture2D(surfaceLight, texelFetch(probes, ivec2(int(gl_FragCoord.x), 1), 0).xy).r, directPanelVisibility(0, p));
         }`,
     });

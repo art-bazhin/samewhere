@@ -389,6 +389,7 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
       };
       const coordinates = (objects: any[]) => objects.map(object => { const p = object.getWorldPosition(new THREE.Vector3()); return [p.x, p.z]; }).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
       fixtures.push({ id, pedestalCount: bodies.length, lightCount: room.shadowLights.length,
+        distances: room.shadowLights.map((light: any) => light.distance),
         sizes: lamps.map(lamp => [lamp.geometry.parameters.width, lamp.geometry.parameters.height]),
         pedestalPositions: coordinates(bodies), lampPositions: coordinates(lamps), lightPositions: coordinates(room.shadowLights),
         targetPositions: coordinates(room.shadowLights.map((light: any) => light.target)),
@@ -417,6 +418,7 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
     expect(fixture.pedestalCount).toBe(ROOMS[fixture.id as RoomId].pedestals.length);
     expect(fixture.sizes).toHaveLength(expected.length);
     expect(fixture.lightCount).toBe(({ A: 2, B: 2, C: 2, D: 3, E: 2, F: 2, G: 7 })[id]);
+    expect(fixture.distances).toEqual(id === 'G' ? [15, 5, 15, 15, 5, 15, 5] : Array(expected.length).fill(20));
     expect(fixture.lampPositions).toEqual(expected); expect(fixture.lightPositions).toEqual(expected);
     expect(fixture.targetPositions).toEqual(expected);
     for (const position of fixture.pedestalPositions) expect(fixture.lampPositions).toContainEqual(position);

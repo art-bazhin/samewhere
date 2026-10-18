@@ -17,7 +17,7 @@ export function createTransferSampler(receiver: SocketRef, source: SocketRef, de
     for (const lamp of lamps) {
       const dx = lamp.virtual.x - point.x, dy = CEILING_LIGHT.height - point.y, dz = lamp.virtual.z - point.z;
       const length = Math.hypot(dx, dy, dz);
-      if (length >= CEILING_LIGHT.distance || dy <= 0) continue;
+      if (length >= lamp.distance || dy <= 0) continue;
       const receive = normal ? (normal.x * dx + normal.y * dy + normal.z * dz) / length : 0;
       if (normal && receive <= 0) continue;
       const normalStep = n.x * dx + n.z * dz;
@@ -41,7 +41,7 @@ export function createTransferSampler(receiver: SocketRef, source: SocketRef, de
       const q = transformPoint(aperture, receiver, source);
       if (transferPathBlocked(source.room, { x: lamp.x, y: CEILING_LIGHT.height, z: lamp.z }, { ...q, y: aperture.y }, source.side)) continue;
       const spot = Math.max(0, Math.min(1, (dy / length - cone) / (penumbra - cone)));
-      const cutoff = Math.max(0, 1 - (length / CEILING_LIGHT.distance) ** 4);
+      const cutoff = Math.max(0, 1 - (length / lamp.distance) ** 4);
       const emission = lamp.spot * spot * spot * (3 - 2 * spot) + lamp.area * dy / length;
       const energy = CEILING_LIGHT.intensity * emission * cutoff * cutoff / Math.max(length * length, .01);
       if (normal) { result[0] += energy * receive; continue; }

@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { DirectSurfaceLight } from './direct-surface-light';
-import { CEILING_LIGHT, CEILING_PANEL_SIZE, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
+import { CEILING_LIGHT, CEILING_PANEL_SIZE, ROOM_LIGHTS, SPOT_LIGHT_SHARE, type CeilingLamp } from './lighting';
 import { PANEL_APERTURE_SHADER } from './panel-aperture';
 import { connections, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalAngle, portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomWalls, rotate, transformPoint, wallNormal, type RoomId, type SocketRef, type Vec2, type WorldState } from './world';
 
 const TILE_WIDTH = 256, TILE_HEIGHT = 512, ATLAS_SIZE = 2048;
 const DATA_WIDTH = 1024, DATA_STRIDE = 16;
 interface Link { receiver: SocketRef; source: SocketRef; key: string }
-interface Slot { key: string; link: Link | null; dirty: boolean; cameras: THREE.PerspectiveCamera[]; matrices: THREE.Matrix4[]; frames: THREE.Vector4; lamps: Vec2[]; axis: Vec2 }
+interface Slot { key: string; link: Link | null; dirty: boolean; cameras: THREE.PerspectiveCamera[]; matrices: THREE.Matrix4[]; frames: THREE.Vector4; lamps: CeilingLamp[]; axis: Vec2 }
 
 /** Compact silhouettes, matching the diffuse bake's solid pedestal model. Cups
  * and 8 cm balls retain their separate local contact shadows. */
@@ -89,10 +89,11 @@ export class DirectLight {
       if (!changed) continue;
       const p = portalPosition(link.receiver.room, link.receiver.side), n = wallNormal(link.receiver.room, link.receiver.side);
       slot.frames.set(n.x, n.z, p.x * n.x + p.z * n.z, -n.z * p.x + n.x * p.z);
-      slot.lamps = ROOM_LIGHTS[link.source.room].map(lamp => transformPoint(lamp, link.source, link.receiver));
+      slot.lamps = ROOM_LIGHTS[link.source.room].map(lamp => ({ ...transformPoint(lamp, link.source, link.receiver), distance: lamp.distance }));
       slot.axis = rotate({ x: 1, z: 0 }, portalAngle(link.source, link.receiver));
       slot.lamps.forEach((lamp, index) => {
-        const camera = slot.cameras[index]; camera.clearViewOffset(); camera.position.set(lamp.x, CEILING_LIGHT.height, lamp.z);
+        const camera = slot.cameras[index]; camera.far = lamp.distance * 2;
+        camera.clearViewOffset(); camera.position.set(lamp.x, CEILING_LIGHT.height, lamp.z);
         camera.up.set(0, 1, 0); camera.lookAt(p.x, DOOR_HEIGHT / 2, p.z); camera.updateMatrixWorld(true);
         // All useful rays pass through this rectangle. Crop the depth camera
         // to it instead of spending a 1024² map on an almost empty light cone.
@@ -159,11 +160,11 @@ export class DirectLight {
     const matrix = new THREE.Matrix4();
     for (const [row, room] of ROOM_IDS.entries()) {
       let count = 0;
-      const write = (lamp: Vec2, frame: THREE.Vector4, shadow: THREE.Matrix4, tile: number, axis: Vec2) => {
+      const write = (lamp: CeilingLamp, frame: THREE.Vector4, shadow: THREE.Matrix4, tile: number, axis: Vec2) => {
         const out = (row * DATA_WIDTH + count * DATA_STRIDE) * 4;
         this.data.set([lamp.x, lamp.z, tile % 8, Math.floor(tile / 8)], out);
         frame.toArray(this.data, out + 4); shadow.toArray(this.data, out + 8);
-        this.data.set([axis.x, axis.z], out + 24);
+        this.data.set([axis.x, axis.z, lamp.distance], out + 24);
         count++;
       };
       this.slots.forEach((slot, index) => {
@@ -242,13 +243,13 @@ uniform int directNeighborCount, directRow;
 uniform int directLocalStarts[4], directLocalCounts[4];
 varying vec3 directWorldPosition;
 vec4 directRecord(int light, int component) { return texelFetch(directLightData, ivec2(light * ${DATA_STRIDE} + component, directRow), 0); }
-float directEnergy(vec3 point, vec3 normal, vec2 lamp) {
+float directEnergy(vec3 point, vec3 normal, vec2 lamp, float range) {
   vec3 ray = vec3(lamp.x, ${CEILING_LIGHT.height.toFixed(6)}, lamp.y) - point;
   float distance2 = dot(ray, ray), distance = sqrt(distance2);
-  if (distance >= ${CEILING_LIGHT.distance.toFixed(6)} || ray.y <= 0.) return 0.;
+  if (distance >= range || ray.y <= 0.) return 0.;
   float receive = max(0., dot(normal, ray) / distance);
   float spot = smoothstep(${Math.cos(CEILING_LIGHT.angle).toFixed(8)}, ${Math.cos(CEILING_LIGHT.angle * (1 - CEILING_LIGHT.penumbra)).toFixed(8)}, ray.y / distance);
-  float cutoff = max(0., 1. - pow(distance / ${CEILING_LIGHT.distance.toFixed(6)}, 4.));
+  float cutoff = max(0., 1. - pow(distance / range, 4.));
   return ${CEILING_LIGHT.intensity.toFixed(6)} * (${SPOT_LIGHT_SHARE.toFixed(6)} * spot + ${(1 - SPOT_LIGHT_SHARE).toFixed(6)} * ray.y / distance) * receive * cutoff * cutoff / max(distance2, .01);
 }
 `;
@@ -278,7 +279,7 @@ float directVisibility(int light, vec3 point, vec3 normal) {
 }
 ${PANEL_APERTURE_SHADER}
 float directIncident(int light, vec3 point, vec3 normal, vec3 geometricNormal) {
-  float energy = directEnergy(point, normal, directRecord(light, 0).xy);
+  float energy = directEnergy(point, normal, directRecord(light, 0).xy, directRecord(light, 6).z);
   if (energy <= .000001) return 0.;
   float aperture = directPanelVisibility(light, point);
   if (aperture <= .000001) return 0.;
