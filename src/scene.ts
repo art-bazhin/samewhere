@@ -6,6 +6,7 @@ import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBIL
 import { ballAt, destination, DOOR_WIDTH, EYE_HEIGHT, Game, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, roomWalls, type RoomId, type SocketRef, type Vec2 } from './world';
 import { createRoom, type RoomVisual, type Portal, type SocketVisual } from './room-visual';
 import { preparePortalSurfaces } from './portal-surfaces';
+import { withReceiverPlaneShadows } from './shadow-receiver';
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number };
 const FULL: Rect = { minX: -1, minY: -1, maxX: 1, maxY: 1 };
@@ -99,6 +100,7 @@ export class SpaceRenderer {
     for (const material of litMaterials) if (material instanceof THREE.MeshStandardMaterial) {
       optimizeLighting(material, this.assets.optimizations); this.lightTransfer.install(material);
     }
+    withReceiverPlaneShadows(this.assets.materials.pedestal);
     const shadowScenes = new Map(Object.values(this.rooms).map(room => [room.scene, room.shadows]));
     const renderShadows = this.renderer.shadowMap.render.bind(this.renderer.shadowMap);
     // Three's shadow pass accepts a separate scene. Use the prebatched exact
