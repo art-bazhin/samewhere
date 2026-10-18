@@ -7,6 +7,9 @@ test('baked diffuse bounce visibly lights the ceiling without extra render passe
   const result = await page.evaluate(() => {
     const app = window.__samewhere, space = app.space, gl = space.renderer.getContext();
     Object.assign(app.game.player, { room: 'A', x: 0, z: 0, yaw: 0, pitch: .9 });
+    // Measure baked energy independently of the temporary x100 relief setting.
+    // Normal-map response is covered by directional-light.spec.ts.
+    space.rooms.A.scene.getObjectByName('ceiling').material.normalScale.setScalar(0);
     const texture = space.lightTransfer.fields.A.panel, data = texture.image.data, saved = data.slice();
     const read = () => {
       space.render();

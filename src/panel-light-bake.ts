@@ -6,7 +6,7 @@ import { insideOutline } from './geometry';
 import { DOOR_HEIGHT, DOOR_WIDTH, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, type RoomId } from './world';
 import { bounceAreaClear, bounceFormFactor, type BounceArea } from './bounce-area';
 import { floorBounceCells } from './bounce-floor';
-import { addLightDirection, LIGHTMAP_CHANNELS, luminance } from './directional-lightmap';
+import { addLightGradient, LIGHTMAP_CHANNELS, luminance } from './directional-lightmap';
 
 interface Point { x: number; y: number; z: number }
 export type LightingBakeQuality = 'draft' | 'full';
@@ -118,6 +118,7 @@ export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount
 export function createBounceSampler(room: RoomId, subdivisions?: number, optimized = true, quality: LightingBakeQuality = 'full') {
   const patches = bouncePatches(room, subdivisions, quality);
   const walls = roomWalls(room);
+  const gradient = new Float64Array(3);
   return (surface: Point, normal: Point, result: Float32Array, moment?: Float32Array) => {
     moment?.fill(0);
     // Evaluate the interior limit at shared edges. At y=0, coplanar floor
@@ -143,10 +144,10 @@ export function createBounceSampler(room: RoomId, subdivisions?: number, optimiz
         const receive = normal.x * x + normal.y * y + normal.z * z, emit = -(patch.normal.x * x + patch.normal.y * y + patch.normal.z * z);
         if (emit <= 0) continue;
         const distance2 = x * x + y * y + z * z;
-        const form = bounceFormFactor(patch, normal, x, y, z, receive, emit, distance2);
+        const form = bounceFormFactor(patch, normal, x, y, z, receive, emit, distance2, moment ? gradient : undefined);
         if (form < .000001 || !clear && transferPathBlocked(room, origin, patch.point, -1, optimized && interior)) continue;
         red += patch.color.r * form; green += patch.color.g * form; blue += patch.color.b * form;
-        if (moment) addLightDirection(moment, x, y, z, luminance(patch.color.r, patch.color.g, patch.color.b) * form);
+        if (moment) addLightGradient(moment, gradient, luminance(patch.color.r, patch.color.g, patch.color.b), form);
       }
     }
     result[0] = red; result[1] = green; result[2] = blue;

@@ -29,6 +29,21 @@ test('finite reflectors integrate their projected solid angle without near-field
   assert.ok(Math.abs(sum - factor(area, point)) < 1e-10, 'Splitting a uniformly lit area must preserve its near-field energy');
 });
 
+test('reflected angular gradients match finite differences across the receiver horizon', () => {
+  const area = { point: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 1, z: 0 },
+    halfU: { x: 1, y: 0, z: 0 }, halfV: { x: 0, y: 0, z: 1 }, area: 4 };
+  for (const point of [{ x: 0, y: .4, z: -.6 }, { x: 0, y: 2, z: -3 }, { x: 0, y: 5, z: -8 }]) {
+    const normal = { x: 0, y: 0, z: 1 }, gradient = new Float64Array(3), epsilon = .00001;
+    const x = -point.x, y = -point.y, z = -point.z;
+    const value = bounceFormFactor(area, normal, x, y, z, z, -y, x * x + y * y + z * z, gradient);
+    const plus = factor(area, point, { x: 0, y: Math.sin(epsilon), z: Math.cos(epsilon) });
+    const minus = factor(area, point, { x: 0, y: -Math.sin(epsilon), z: Math.cos(epsilon) });
+    assert.ok(Math.abs((plus - minus) / (2 * epsilon) - gradient[1]) < .000001, 'Normal tilt follows the finite emitter integral');
+    assert.ok(Math.abs(gradient[2] - value) < .000001, 'Flat normal retains the original irradiance');
+    assert.ok(gradient[1] < 0, 'A floor reflector lights normals tilted toward the floor');
+  }
+});
+
 test('area bounce converges and has no wide hard occlusion band in the square room corner', () => {
   const sample = createBounceSampler('A'), reference = createBounceSampler('A', 8, false), rgb = new Float32Array(3);
   let maximum = 0, total = 0, count = 0, jump = 0;

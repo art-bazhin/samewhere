@@ -69,11 +69,14 @@ const polygon = new Float64Array(24), clipped = new Float64Array(24);
  * projected solid angle instead of softening an inverse-square point source.
  * Small, distant cells use midpoint quadrature with a continuous transition. */
 export function bounceFormFactor(area: BounceArea & { area: number }, normal: Point,
-  x: number, y: number, z: number, receive: number, emit: number, distance2: number) {
+  x: number, y: number, z: number, receive: number, emit: number, distance2: number, gradient?: Float64Array) {
+  gradient?.fill(0);
   const { halfU: u, halfV: v } = area;
   const radius = Math.abs(normal.x * u.x + normal.y * u.y + normal.z * u.z) + Math.abs(normal.x * v.x + normal.y * v.y + normal.z * v.z);
   if (receive + radius <= 0) return 0;
   const midpoint = area.area * Math.max(receive, 0) * emit / Math.max(distance2 * distance2, 1e-20);
+  const midpointSlope = receive > 0 ? area.area * emit / Math.max(distance2 * distance2, 1e-20) : 0;
+  if (gradient) { gradient[0] = x * midpointSlope; gradient[1] = y * midpointSlope; gradient[2] = z * midpointSlope; }
   // A thin clipped sliver can still cover a nearby receiver. Its area alone
   // cannot determine when the point approximation is sufficiently far away.
   const scale = area.vertices ? Math.max(area.area, 2 * (u.x * u.x + u.y * u.y + u.z * u.z + v.x * v.x + v.y * v.y + v.z * v.z)) : area.area;
@@ -98,16 +101,29 @@ export function bounceFormFactor(area: BounceArea & { area: number }, normal: Po
     if (after >= 0) { for (let axis = 0; axis < 3; axis++) clipped[count * 3 + axis] = polygon[i + axis]; count++; }
     before = after; previous = i;
   }
-  let integral = 0;
+  let integral = 0, gx = 0, gy = 0, gz = 0;
   for (let i = 0; i < count; i++) {
     const a = i * 3, b = (i + 1) % count * 3;
     const ax = clipped[a], ay = clipped[a + 1], az = clipped[a + 2], bx = clipped[b], by = clipped[b + 1], bz = clipped[b + 2];
     const nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
     const length = Math.hypot(nx, ny, nz);
     if (length < 1e-14) continue;
-    integral += Math.atan2(length, ax * bx + ay * by + az * bz) * (nx * normal.x + ny * normal.y + nz * normal.z) / length;
+    const angle = Math.atan2(length, ax * bx + ay * by + az * bz);
+    integral += angle * (nx * normal.x + ny * normal.y + nz * normal.z) / length;
+    if (gradient) {
+      const weight = angle / length;
+      gx += nx * weight; gy += ny * weight; gz += nz * weight;
+    }
   }
   const exact = Math.min(Math.PI, Math.abs(integral) / 2);
   const t = Math.max(0, Math.min(1, (distance2 / scale - 1) / 3)), blend = t * t * (3 - 2 * t);
+  if (gradient) {
+    // The vector solid angle is the derivative with respect to the receiver
+    // normal. Horizon clipping contributes no boundary term (N dot L = 0).
+    const weight = integral ? exact / integral : 0;
+    gradient[0] = gx * weight * (1 - blend) + gradient[0] * blend;
+    gradient[1] = gy * weight * (1 - blend) + gradient[1] * blend;
+    gradient[2] = gz * weight * (1 - blend) + gradient[2] * blend;
+  }
   return exact * (1 - blend) + midpoint * blend;
 }

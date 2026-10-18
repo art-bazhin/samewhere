@@ -8,7 +8,7 @@ import { portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomWalls, wallNormal } f
 import { DataUtils, Vector3 } from 'three';
 import { panelLightSampler } from '../src/panel-light-bake';
 import { encodeLighting, decodeLighting } from '../src/lighting-data';
-import { LIGHTMAP_CHANNELS } from '../src/directional-lightmap';
+import { LIGHTMAP_CHANNELS, luminance } from '../src/directional-lightmap';
 
 // Exercise the complete format/connection pipeline at development precision.
 const quality = 'draft', result = bakeLightTransfer(quality);
@@ -46,7 +46,8 @@ test('panel light and reflected light remain finite, bounded and occluded by ped
       if (rgba[1] > .001) reflected++;
       const moment = Array.from(map.subarray(plane + i, plane + i + 4), value => DataUtils.fromHalfFloat(value));
       assert.ok(moment.every(Number.isFinite));
-      assert.ok(Math.hypot(...moment.slice(0, 3)) <= moment[3] * 1.002 + .00001, 'Directional energy remains bounded');
+      assert.ok(Math.abs(moment[3] - luminance(rgba[1], rgba[2], rgba[3])) <= moment[3] * .002 + .00001,
+        'Angular response retains the original reflected energy');
     }
     const lamp = ROOMS[room].pedestals[0], sample = panelLightSampler(room);
     assert.ok(sample({ x: lamp.x, y: 1.21, z: lamp.z }, { x: 0, y: 1, z: 0 }) > 0);
