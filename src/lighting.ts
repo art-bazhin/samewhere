@@ -1,7 +1,7 @@
 import { CEILING_TILE_SIZE, ROOM_HEIGHT, ROOM_IDS, ROOMS, type RoomId, type Vec2 } from './world';
 
 /** Shared parameters for ceiling lamps and cached light transported through doors. */
-export const CEILING_LIGHT = { color: 0xfff5d7, intensity: 20, distance: 12, angle: 1.28, penumbra: .65, height: ROOM_HEIGHT - .015 };
+export const CEILING_LIGHT = { color: 0xfff5d7, intensity: 25, distance: 20, angle: 1.28, penumbra: .65, height: ROOM_HEIGHT - .015 };
 export const CEILING_GRID_WIDTH = .024;
 export const CEILING_PANEL_SIZE = CEILING_TILE_SIZE - CEILING_GRID_WIDTH;
 export const ROOM_FILL_LIGHT = { hemisphere: .24, ambient: .016, environment: .12 };
