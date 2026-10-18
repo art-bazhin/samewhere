@@ -1,17 +1,18 @@
 import * as THREE from 'three';
 import { DirectSurfaceLight } from './direct-surface-light';
-import { CEILING_LIGHT, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
-import { connections, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalAngle, portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomWalls, transformPoint, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef, type Vec2, type WorldState } from './world';
+import { CEILING_LIGHT, CEILING_PANEL_SIZE, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
+import { PANEL_APERTURE_SHADER } from './panel-aperture';
+import { connections, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalAngle, portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomWalls, rotate, transformPoint, wallNormal, type RoomId, type SocketRef, type Vec2, type WorldState } from './world';
 
 const TILE_WIDTH = 256, TILE_HEIGHT = 512, ATLAS_SIZE = 2048;
 const DATA_WIDTH = 1024, DATA_STRIDE = 16;
 interface Link { receiver: SocketRef; source: SocketRef; key: string }
-interface Slot { key: string; link: Link | null; dirty: boolean; cameras: THREE.PerspectiveCamera[]; matrices: THREE.Matrix4[]; frames: THREE.Vector4; lamps: Vec2[] }
+interface Slot { key: string; link: Link | null; dirty: boolean; cameras: THREE.PerspectiveCamera[]; matrices: THREE.Matrix4[]; frames: THREE.Vector4; lamps: Vec2[]; axis: Vec2 }
 
 /** Compact silhouettes, matching the diffuse bake's solid pedestal model. Cups
  * and 8 cm balls retain their separate local contact shadows. */
 function shadowRoom(room: RoomId, material: THREE.Material) {
-  const group = new THREE.Group(), fixed: number[] = [], doors: THREE.Mesh[] = [];
+  const group = new THREE.Group(), fixed: number[] = [], doors: THREE.Mesh[] = [], walls: THREE.Mesh[] = [];
   const vertex = (p: Vec2, y: number) => [p.x, y, p.z];
   const quad = (out: number[], a: number[], b: number[], c: number[], d: number[]) => out.push(...a, ...b, ...c, ...a, ...c, ...d);
   const wall = (out: number[], a: Vec2, b: Vec2, low: number, high: number) => quad(out, vertex(a, low), vertex(b, low), vertex(b, high), vertex(a, high));
@@ -24,8 +25,9 @@ function shadowRoom(room: RoomId, material: THREE.Material) {
     if (portal === null) { wall(fixed, a, b, 0, ROOM_HEIGHT); continue; }
     const left = { x: center.x + normal.z * DOOR_WIDTH / 2, z: center.z - normal.x * DOOR_WIDTH / 2 };
     const right = { x: center.x - normal.z * DOOR_WIDTH / 2, z: center.z + normal.x * DOOR_WIDTH / 2 };
-    wall(fixed, a, left, 0, ROOM_HEIGHT); wall(fixed, right, b, 0, ROOM_HEIGHT);
-    wall(fixed, left, right, DOOR_HEIGHT, ROOM_HEIGHT);
+    const surround: number[] = [];
+    wall(surround, a, left, 0, ROOM_HEIGHT); wall(surround, right, b, 0, ROOM_HEIGHT);
+    wall(surround, left, right, DOOR_HEIGHT, ROOM_HEIGHT); walls[portal] = mesh(surround);
     const plug: number[] = []; wall(plug, left, right, 0, DOOR_HEIGHT); doors[portal] = mesh(plug);
   }
   for (const pedestal of ROOMS[room].pedestals) {
@@ -35,7 +37,7 @@ function shadowRoom(room: RoomId, material: THREE.Material) {
       for (const index of triangle) fixed.push(...vertex(shape[index], PEDESTAL_HEIGHT));
   }
   mesh(fixed); group.matrixAutoUpdate = false;
-  return { group, doors };
+  return { group, doors, walls };
 }
 
 /** Four directed doorway ends at most. Each gets seven preallocated cropped
@@ -51,7 +53,7 @@ export class DirectLight {
   };
   readonly slots: Slot[] = Array.from({ length: 4 }, () => ({ key: '', link: null, dirty: false,
     cameras: Array.from({ length: 7 }, () => new THREE.PerspectiveCamera(110, 1, .05, CEILING_LIGHT.distance * 2)),
-    matrices: Array.from({ length: 7 }, () => new THREE.Matrix4()), frames: new THREE.Vector4(), lamps: [] }));
+    matrices: Array.from({ length: 7 }, () => new THREE.Matrix4()), frames: new THREE.Vector4(), lamps: [], axis: { x: 1, z: 0 } }));
   updates = 0;
   private readonly scene = new THREE.Scene();
   private readonly material = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide });
@@ -88,13 +90,15 @@ export class DirectLight {
       const p = portalPosition(link.receiver.room, link.receiver.side), n = wallNormal(link.receiver.room, link.receiver.side);
       slot.frames.set(n.x, n.z, p.x * n.x + p.z * n.z, -n.z * p.x + n.x * p.z);
       slot.lamps = ROOM_LIGHTS[link.source.room].map(lamp => transformPoint(lamp, link.source, link.receiver));
+      slot.axis = rotate({ x: 1, z: 0 }, portalAngle(link.source, link.receiver));
       slot.lamps.forEach((lamp, index) => {
         const camera = slot.cameras[index]; camera.clearViewOffset(); camera.position.set(lamp.x, CEILING_LIGHT.height, lamp.z);
         camera.up.set(0, 1, 0); camera.lookAt(p.x, DOOR_HEIGHT / 2, p.z); camera.updateMatrixWorld(true);
         // All useful rays pass through this rectangle. Crop the depth camera
         // to it instead of spending a 1024² map on an almost empty light cone.
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const depth of [-.6, .6]) for (const lateral of [-1.1, 1.1]) for (const y of [0, DOOR_HEIGHT]) {
+        const emitterRadius = CEILING_PANEL_SIZE * Math.SQRT1_2;
+        for (const depth of [-.6 - emitterRadius, .6 + emitterRadius]) for (const lateral of [-1.1 - emitterRadius, 1.1 + emitterRadius]) for (const y of [0, DOOR_HEIGHT]) {
           this.point.set(p.x + n.x * depth - n.z * lateral, y, p.z + n.z * depth + n.x * lateral).project(camera);
           minX = Math.min(minX, this.point.x); minY = Math.min(minY, this.point.y);
           maxX = Math.max(maxX, this.point.x); maxY = Math.max(maxY, this.point.y);
@@ -121,7 +125,13 @@ export class DirectLight {
       for (const [slotIndex, slot] of this.slots.entries()) {
         if (!slot.link || !slot.dirty) continue;
         const { receiver, source } = slot.link;
-        for (const room of ROOM_IDS) { this.receiver[room].group.visible = room === receiver.room; this.source[room].group.visible = room === source.room; }
+        for (const room of ROOM_IDS) {
+          this.receiver[room].group.visible = room === receiver.room; this.source[room].group.visible = room === source.room;
+          this.receiver[room].walls.forEach((wall, side) => { wall.visible = side !== receiver.side; });
+          this.source[room].walls.forEach((wall, side) => { wall.visible = side !== source.side; });
+        }
+        // The two connected wall faces are evaluated against the whole panel
+        // analytically. A center-only depth silhouette would cut off penumbrae.
         const from = portalPosition(source.room, source.side), to = portalPosition(receiver.room, receiver.side);
         this.source[source.room].group.matrix.makeTranslation(to.x, 0, to.z)
           .multiply(this.matrix.makeRotationY(-portalAngle(source, receiver)))
@@ -149,32 +159,17 @@ export class DirectLight {
     const matrix = new THREE.Matrix4();
     for (const [row, room] of ROOM_IDS.entries()) {
       let count = 0;
-      const write = (lamp: Vec2, frame: THREE.Vector4, shadow: THREE.Matrix4, tile: number, endpoint?: SocketRef) => {
+      const write = (lamp: Vec2, frame: THREE.Vector4, shadow: THREE.Matrix4, tile: number, axis: Vec2) => {
         const out = (row * DATA_WIDTH + count * DATA_STRIDE) * 4;
         this.data.set([lamp.x, lamp.z, tile % 8, Math.floor(tile / 8)], out);
         frame.toArray(this.data, out + 4); shadow.toArray(this.data, out + 8);
-        if (endpoint) {
-          const p = portalPosition(endpoint.room, endpoint.side), n = wallNormal(endpoint.room, endpoint.side);
-          const source = new THREE.Vector3(lamp.x, CEILING_LIGHT.height, lamp.z);
-          for (const [faceIndex, face] of [-WALL_THICKNESS / 2, WALL_THICKNESS / 2].entries()) {
-            const center = new THREE.Vector3(p.x + n.x * face, DOOR_HEIGHT / 2, p.z + n.z * face);
-            const left = center.clone().add(new THREE.Vector3(n.z * DOOR_WIDTH / 2, -DOOR_HEIGHT / 2, -n.x * DOOR_WIDTH / 2));
-            const right = center.clone().add(new THREE.Vector3(-n.z * DOOR_WIDTH / 2, -DOOR_HEIGHT / 2, n.x * DOOR_WIDTH / 2));
-            const topLeft = left.clone().add(new THREE.Vector3(0, DOOR_HEIGHT, 0)), topRight = right.clone().add(new THREE.Vector3(0, DOOR_HEIGHT, 0));
-            [[left, topLeft], [right, topRight], [topLeft, topRight]].forEach(([a, b], edge) => {
-              const boundary = new THREE.Plane().setFromCoplanarPoints(source, a, b);
-              if (boundary.distanceToPoint(center) < 0) boundary.negate();
-              boundary.normal.toArray(this.data, out + (7 + faceIndex * 3 + edge) * 4);
-              this.data[out + (7 + faceIndex * 3 + edge) * 4 + 3] = boundary.constant;
-            });
-          }
-        }
+        this.data.set([axis.x, axis.z], out + 24);
         count++;
       };
       this.slots.forEach((slot, index) => {
         if (slot.link?.receiver.room !== room) return;
         slot.lamps.forEach((lamp, light) => {
-          write(lamp, slot.frames, slot.matrices[light], index * 7 + light, slot.link!.receiver);
+          write(lamp, slot.frames, slot.matrices[light], index * 7 + light, slot.axis);
         });
       });
       this.counts[row] = count;
@@ -191,7 +186,7 @@ export class DirectLight {
         this.starts[row * 4 + passage] = count;
         this.localCounts[row * 4 + passage] = ROOM_LIGHTS[room].length;
         ROOM_LIGHTS[room].forEach((lamp, light) => {
-          write(lamp, reverse.frames, matrix.copy(reverse.matrices[light]).multiply(transform), reverseIndex * 7 + light);
+          write(lamp, forward.frames, matrix.copy(reverse.matrices[light]).multiply(transform), reverseIndex * 7 + light, { x: 1, z: 0 });
         });
       });
     }
@@ -281,23 +276,19 @@ float directVisibility(int light, vec3 point, vec3 normal) {
   }
   return visibility;
 }
+${PANEL_APERTURE_SHADER}
+float directIncident(int light, vec3 point, vec3 normal, vec3 geometricNormal) {
+  float energy = directEnergy(point, normal, directRecord(light, 0).xy);
+  if (energy <= .000001) return 0.;
+  float aperture = directPanelVisibility(light, point);
+  if (aperture <= .000001) return 0.;
+  return energy * aperture * directVisibility(light, point, geometricNormal);
+}
 float directNeighborLight(vec3 point, vec3 normal, vec3 geometricNormal) {
   float light = 0.;
   for (int lamp = 0; lamp < 28; lamp++) {
     if (lamp >= directNeighborCount) break;
-    vec2 position = directRecord(lamp, 0).xy;
-    vec4 frame = directRecord(lamp, 1); float depth = frame.z - dot(point.xz, frame.xy);
-    if (depth < -.0001) continue;
-    bool visible = true;
-    for (int edge = 0; edge < 6; edge++) {
-      // Inside the 30 cm tunnel, the nearer wall face is behind the receiver.
-      // Its cone must not clip a ray that never crosses that face.
-      if (depth + (edge < 3 ? ${(-WALL_THICKNESS / 2).toFixed(6)} : ${(WALL_THICKNESS / 2).toFixed(6)}) <= 0.) continue;
-      if (dot(directRecord(lamp, 7 + edge), vec4(point, 1.)) < -.00001) { visible = false; break; }
-    }
-    if (!visible) continue;
-    float energy = directEnergy(point, normal, position);
-    if (energy > .000001) light += energy * directVisibility(lamp, point, geometricNormal);
+    light += directIncident(lamp, point, normal, geometricNormal);
   }
   return light;
 }

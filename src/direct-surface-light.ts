@@ -27,19 +27,11 @@ export class DirectSurfaceLight {
         void main() {
           if (any(lessThan(gl_FragCoord.xy, bakeBounds.xy)) || any(greaterThanEqual(gl_FragCoord.xy, bakeBounds.zw))) discard;
           vec3 normal = normalize(bakeNormal);
-          float light = 0.;
-          if (bakePassage < 0) light = directNeighborLight(directWorldPosition, normal, normal);
-          else for (int lamp = 0; lamp < 28; lamp++) {
-            if (lamp >= directNeighborCount) break;
-            // Both halves must use the same filtered depth silhouettes. A hard
-            // aperture cut on only the transported half biases edge texels.
-            light += directVisibility(lamp, directWorldPosition, normal)
-              * directEnergy(directWorldPosition, normal, directRecord(lamp, 0).xy);
-          }
+          float light = directNeighborLight(directWorldPosition, normal, normal);
           if (bakePassage >= 0) for (int lamp = 0; lamp < 7; lamp++) {
             if (lamp >= bakeLocalCount) break;
             int index = bakeLocalStart + lamp;
-            light += directVisibility(index, directWorldPosition, normal) * directEnergy(directWorldPosition, normal, directRecord(index, 0).xy);
+            light += directIncident(index, directWorldPosition, normal, normal);
           }
           gl_FragColor = vec4(light, 0., 0., 1.);
         }`,

@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 for (const deviceScaleFactor of [1, 2]) test.describe(`direct lighting at display scale ${deviceScaleFactor}`, () => {
 test.use({ deviceScaleFactor });
 
-test('neighbor shadows follow straight jamb edges at centimeter scale and stay cached while walking', async ({ page }) => {
+test('doorway penumbrae match the visible panel area, widen with distance and stay cached while walking', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -14,7 +14,7 @@ test('neighbor shadows follow straight jamb edges at centimeter scale and stay c
     const samplerPath = '/src/light-transfer-sampling.ts', lightingPath = '/src/lighting.ts';
     const THREE = await import(threePath), W = await import(worldPath);
     const { DIRECT_LIGHT_SHADER, DIRECT_SHADOW_SHADER } = await import(shaderPath);
-    const { transferPathBlocked } = await import(samplerPath), { CEILING_LIGHT } = await import(lightingPath);
+    const { transferPathBlocked } = await import(samplerPath), { CEILING_LIGHT, CEILING_PANEL_SIZE } = await import(lightingPath);
     const app = window.__samewhere, space = app.space, light = space.lightTransfer, renderer = space.renderer;
     const from = { room: 'C', side: 1 }, to = { room: 'B', side: 0 };
     app.game.world.balls.forEach((ball: any) => { ball.socket = null; });
@@ -29,19 +29,46 @@ test('neighbor shadows follow straight jamb edges at centimeter scale and stay c
     const lamp = { x: light.direct.data[row * 1024 * 4], y: light.direct.data[row * 1024 * 4 + 1] };
     const normalDistance = (lamp.x - p.x) * n.x + (lamp.y - p.z) * n.z;
     const lateralLamp = -(lamp.x - p.x) * n.z + (lamp.y - p.z) * n.x;
-    const probes: { point: any; expected: number; inside: boolean; depth: number; side: number; offset: number }[] = [];
-    for (const depth of [.8, 1.15, 1.5, 1.85, 2.2, 2.55, 2.9, 3.25]) for (const side of [-1, 1]) {
+    const axis = { x: light.direct.data[row * 1024 * 4 + 24], z: light.direct.data[row * 1024 * 4 + 25] };
+    // Independent reference: trace a dense grid on the real square emitter
+    // through both doorway faces. No polygon-clipping code is shared with GLSL.
+    const visiblePanel = (point: any) => {
+      let visible = 0; const size = 128;
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+        const u = ((x + .5) / size - .5) * CEILING_PANEL_SIZE, v = ((y + .5) / size - .5) * CEILING_PANEL_SIZE;
+        const dx = lamp.x + axis.x * u - axis.z * v - point.x, dz = lamp.y + axis.z * u + axis.x * v - point.z;
+        const step = n.x * dx + n.z * dz; let passes = true;
+        for (const face of [-.15, .15]) {
+          const t = (n.x * (p.x - point.x) + n.z * (p.z - point.z) + face) / step;
+          // A receiver exactly on a jamb face does not cross that face. Match
+          // the world-space tolerance used for the float32 surface positions.
+          if (Math.abs(n.x * (p.x - point.x) + n.z * (p.z - point.z) + face) < .000001 || t <= 0 || t >= 1) continue;
+          const lateral = -(point.x + t * dx - p.x) * n.z + (point.z + t * dz - p.z) * n.x;
+          const height = point.y + (CEILING_LIGHT.height - point.y) * t;
+          if (Math.abs(lateral) > .9 || height < 0 || height > W.DOOR_HEIGHT) { passes = false; break; }
+        }
+        if (passes) visible++;
+      }
+      return visible / (size * size);
+    };
+    const probes: { point: any; expected: number; blocked: boolean; depth: number; side: number; offset: number; mappedCheck?: boolean }[] = [];
+    for (const depth of [.2, .4, .8, 1.6, 3.2]) for (const side of [-1, 1]) {
       const bounds = [-.15, .15].map(face => (side * .9 * (normalDistance + depth) - lateralLamp * (depth + face)) / (normalDistance - face));
       const edge = side < 0 ? Math.max(...bounds) : Math.min(...bounds);
-      for (const offset of [-.025, -.01, .01, .025]) {
+      for (let step = -20; step <= 20; step++) {
+        const offset = step * .02;
         const lateral = edge + offset;
         const point = { x: p.x - n.x * depth - n.z * lateral, y: .002, z: p.z - n.z * depth + n.x * lateral };
         const t = depth / (depth + normalDistance), aperture = { x: point.x + (lamp.x - point.x) * t,
           y: point.y + (CEILING_LIGHT.height - point.y) * t, z: point.z + (lamp.y - point.z) * t };
         const q = W.transformPoint(aperture, from, to), source = W.transformPoint({ x: lamp.x, z: lamp.y }, from, to);
         const blocked = transferPathBlocked('C', point, aperture, 1) || transferPathBlocked('B', { ...q, y: aperture.y }, { ...source, y: CEILING_LIGHT.height }, 0);
-        probes.push({ point, expected: blocked ? 0 : 1, inside: offset * side < 0, depth, side, offset });
+        probes.push({ point, expected: visiblePanel(point), blocked, depth, side, offset });
       }
+    }
+    for (const depth of [.05, .15, .4, 1.6, 3.2]) for (const height of [.5, 1.6, 2.2, 2.8]) for (const lateral of [-1.2, -.9, 0, .9, 1.2]) {
+      const point = { x: p.x - n.x * depth - n.z * lateral, y: height, z: p.z - n.z * depth + n.x * lateral };
+      probes.push({ point, expected: visiblePanel(point), blocked: false, depth, side: 0, offset: lateral });
     }
     // Re-render the final irradiance texture with that one fixture too, so the
     // regression covers the shipped cache as well as the depth projection.
@@ -51,13 +78,14 @@ test('neighbor shadows follow straight jamb edges at centimeter scale and stay c
     const data = new Float32Array(probes.length * 4 * 2);
     probes.forEach((probe, i) => data.set([probe.point.x, probe.point.y, probe.point.z, 1], i * 4));
     probes.forEach((probe, i) => {
+      if (probe.side === 0) return;
       for (let vertex = 0; vertex < floorIndex.count; vertex += 3) {
         const ids = [0, 1, 2].map(k => floorIndex.getX(vertex + k));
         const points = ids.map(k => new THREE.Vector3().fromBufferAttribute(floorPosition, k));
         const weights = new THREE.Triangle(...points).getBarycoord(new THREE.Vector3(probe.point.x, 0, probe.point.z), new THREE.Vector3());
         if (!weights || Math.min(weights.x, weights.y, weights.z) < -.000001) continue;
         const uv = new THREE.Vector2(); ids.forEach((id, k) => uv.addScaledVector(new THREE.Vector2().fromBufferAttribute(floorUv, id), weights.getComponent(k)));
-        data.set([uv.x, uv.y, 0, 0], (probes.length + i) * 4); break;
+        data.set([uv.x, uv.y, 0, 0], (probes.length + i) * 4); probe.mappedCheck = true; break;
       }
     });
     const texture = new THREE.DataTexture(data, probes.length, 2, THREE.RGBAFormat, THREE.FloatType); texture.needsUpdate = true;
@@ -70,7 +98,7 @@ test('neighbor shadows follow straight jamb edges at centimeter scale and stay c
           vec3 p = texelFetch(probes, ivec2(int(gl_FragCoord.x), 0), 0).xyz;
           gl_FragColor = vec4(directNeighborLight(p, vec3(0., 1., 0.), vec3(0., 1., 0.)),
             directEnergy(p, vec3(0., 1., 0.), directRecord(0, 0).xy),
-            texture2D(surfaceLight, texelFetch(probes, ivec2(int(gl_FragCoord.x), 1), 0).xy).r, directVisibility(0, p, vec3(0., 1., 0.)));
+            texture2D(surfaceLight, texelFetch(probes, ivec2(int(gl_FragCoord.x), 1), 0).xy).r, directPanelVisibility(0, p));
         }`,
     });
     const scene = new THREE.Scene(), geometry = new THREE.PlaneGeometry(2, 2); scene.add(new THREE.Mesh(geometry, material));
@@ -81,17 +109,21 @@ test('neighbor shadows follow straight jamb edges at centimeter scale and stay c
       return { probes: probes.map((probe, i) => ({ ...probe, actual: pixels[i * 4], energy: pixels[i * 4 + 1], mapped: pixels[i * 4 + 2], visibility: pixels[i * 4 + 3] })), cached, before, after, error: renderer.getContext().getError() };
     } finally { renderer.setRenderTarget(null); geometry.dispose(); material.dispose(); texture.dispose(); target.dispose(); }
   });
-  const lit = result.probes.filter(probe => probe.inside && probe.expected > 0 && probe.energy > .001);
-  const blocked = result.probes.filter(probe => !probe.inside);
-  console.log('Centimeter-scale doorway shadows:', { lit: lit.length, blocked: blocked.length, cached: result.cached,
-    maxLitError: Math.max(...lit.map(probe => Math.abs(probe.actual / probe.energy - 1))) });
-  expect(lit.length).toBeGreaterThan(12);
-  // The four-tap depth filter may soften the edge. Its 50% contour must still
-  // lie within one centimeter, rather than following the former 25 cm grid.
-  for (const probe of lit) expect(probe.actual, JSON.stringify(probe)).toBeGreaterThan(probe.energy * .5);
-  for (const probe of blocked) expect(probe.actual, JSON.stringify(probe)).toBeLessThan(.000001);
-  for (const probe of lit.filter(probe => Math.abs(probe.offset) > .02)) expect(probe.mapped, JSON.stringify(probe)).toBeGreaterThan(probe.energy * .5);
-  for (const probe of blocked.filter(probe => Math.abs(probe.offset) > .02)) expect(probe.mapped, JSON.stringify(probe)).toBeLessThan(probe.energy * .5);
+  const partial = result.probes.filter(probe => probe.visibility > .05 && probe.visibility < .95);
+  const width = (depth: number, side: number) => {
+    const edge = result.probes.filter(probe => probe.depth === depth && probe.side === side && probe.visibility > .1 && probe.visibility < .9);
+    return edge.length > 1 ? Math.max(...edge.map(p => p.offset)) - Math.min(...edge.map(p => p.offset)) : 0;
+  };
+  console.log('Area-light doorway shadows:', { partial: partial.length, widths: [-1, 1].map(side => [width(.2, side), width(3.2, side)]),
+    maxAreaError: Math.max(...result.probes.map(probe => Math.abs(probe.visibility - probe.expected))), cached: result.cached });
+  expect(partial.length).toBeGreaterThan(30);
+  for (const probe of result.probes) expect(Math.abs(probe.visibility - probe.expected), JSON.stringify(probe)).toBeLessThan(.012);
+  for (const side of [-1, 1]) expect(width(3.2, side)).toBeGreaterThan(width(.2, side) + .1);
+  const mapped = result.probes.filter(probe => probe.side !== 0 && probe.depth >= .8 && probe.mappedCheck && !probe.blocked && probe.energy > .001);
+  expect(mapped.length).toBeGreaterThan(40);
+  // The cache must retain the complete irradiance, including the independent
+  // depth-map shadow of a pedestal when it overlaps an aperture penumbra.
+  for (const probe of mapped) expect(Math.abs((probe.mapped - probe.actual) / probe.energy), JSON.stringify(probe)).toBeLessThan(.15);
   expect(result.cached).toBe(true); expect(result.after).toEqual(result.before);
   expect(result.error).toBe(0); expect(errors).toEqual([]);
 });
