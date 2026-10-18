@@ -162,19 +162,19 @@ function preservePortalCoverage(material: THREE.MeshStandardMaterial) {
   material.customProgramCacheKey = () => `${key}:portal-coverage`;
 }
 
-/** Skip work whose direct-light contribution is exactly zero on these opaque PBR surfaces. */
+/** A normal map cannot expose the back of an opaque geometric face to light. */
 export function optimizeLighting(material: THREE.MeshStandardMaterial, enabled: THREE.IUniform<boolean>) {
   const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
   const lighting = THREE.ShaderChunk.lights_fragment_begin.replace(
     /(getSpotLightInfo\( spotLight, geometryPosition, directLight \);)([\s\S]*?RE_Direct\( directLight,[^;]+;)/,
-    '$1\n if (!surfaceOptimizations || (directLight.visible && dot(geometryNormal, directLight.direction) > 0.)) { $2\n }',
+    '$1\n if (dot(nonPerturbedNormal, directLight.direction) > 0. && (!surfaceOptimizations || (directLight.visible && dot(geometryNormal, directLight.direction) > 0.))) { $2\n }',
   );
   material.onBeforeCompile = (shader, renderer) => {
     before(shader, renderer); shader.uniforms.surfaceOptimizations = enabled;
     shader.fragmentShader = 'uniform bool surfaceOptimizations;\n' + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_begin>', lighting);
   };
-  material.customProgramCacheKey = () => `${key}:unlit-surfaces`;
+  material.customProgramCacheKey = () => `${key}:unlit-surfaces:geometric-facing`;
 }
 
 /** Shade contacts in linear light, so the main view and portal buffers agree. */
