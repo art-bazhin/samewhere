@@ -45,6 +45,21 @@ test('area bounce converges and has no wide hard occlusion band in the square ro
   assert.ok(jump < .006, `Largest irradiance jump over 3 cm: ${jump}`);
 });
 
+test('wall bounce stays continuous at the floor boundary in every room shape', () => {
+  const actual = new Float32Array(3), nearby = new Float32Array(3);
+  for (const room of ROOM_IDS) {
+    const sample = createBounceSampler(room);
+    for (const wall of roomWalls(room)) for (const along of [.15, .5, .85]) {
+      const normal = { x: -wall.normal.x, y: 0, z: -wall.normal.z };
+      const point = { x: wall.a.x + (wall.b.x - wall.a.x) * along + normal.x * .002, y: 0,
+        z: wall.a.z + (wall.b.z - wall.a.z) * along + normal.z * .002 };
+      sample(point, normal, actual); sample({ ...point, y: .00002 }, normal, nearby);
+      for (let c = 0; c < 3; c++) assert.ok(Math.abs(actual[c] - nearby[c]) < .001,
+        `${room}: ${JSON.stringify({ point, actual: [...actual], nearby: [...nearby] })}`);
+    }
+  }
+});
+
 test('conservative area bounds retain the exact wall and pedestal occlusion of individual rays', () => {
   const actual = new Float32Array(3), expected = new Float32Array(3);
   for (const room of ROOM_IDS) {

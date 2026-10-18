@@ -26,6 +26,50 @@ test('baked diffuse bounce visibly lights the ceiling without extra render passe
   expect(result.error).toBe(0); expect(errors).toEqual([]);
 });
 
+test('baked wall bounce has no dark band above the floor', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+  await page.evaluate(() => window.__samewhere.space.ready);
+  const result = await page.evaluate(async () => {
+    const path = '/node_modules/three/build/three.module.js', THREE = await import(path);
+    const space = window.__samewhere.space, renderer = space.renderer, room = space.rooms.A;
+    const material = space.assets.materials.wall, before = material.onBeforeCompile, key = material.customProgramCacheKey;
+    const render = space.render, clipping = renderer.clippingPlanes;
+    space.render = () => {}; renderer.clippingPlanes = []; space.lightTransfer.bind('A');
+    // Isolate the baked reflection from wallpaper, direct shadows and the
+    // deliberately narrow contact profile; keep the actual wall atlas UVs.
+    material.onBeforeCompile = (shader: any, context: any) => {
+      before.call(material, shader, context);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>',
+        'outgoingLight = sampleSurfaceLightmap(panelLight, vTransferUv).gba;\n#include <opaque_fragment>');
+    };
+    material.customProgramCacheKey = () => `${key.call(material)}:wall-floor-bounce-probe`; material.needsUpdate = true;
+    const camera = new THREE.OrthographicCamera(-.0001, .0001, .0001, -.0001, .001, 2);
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.FloatType }), pixel = new Float32Array(4);
+    renderer.setRenderTarget(target);
+    try {
+      const profiles = [-3, 0, 3].map(x => [.005, .05, .1, .2, .25].map(y => {
+        camera.position.set(x, y, -4); camera.lookAt(x, y, -5); camera.updateMatrixWorld(true);
+        renderer.render(room.scene, camera); renderer.readRenderTargetPixels(target, 0, 0, 1, 1, pixel);
+        return { x, y, bounce: pixel[0] };
+      }));
+      return { profiles, error: renderer.getContext().getError() };
+    } finally {
+      renderer.setRenderTarget(null); target.dispose(); space.render = render; renderer.clippingPlanes = clipping;
+      material.onBeforeCompile = before; material.customProgramCacheKey = key; material.needsUpdate = true;
+    }
+  });
+  await page.evaluate(() => {
+    document.getElementById('overlay')!.hidden = true; document.getElementById('hud')!.hidden = true;
+    const app = window.__samewhere;
+    Object.assign(app.game.player, { room: 'A', x: 0, z: -3, yaw: .3, pitch: -.65 }); app.space.render();
+  });
+  await page.screenshot({ path: 'test-results/wall-floor-bounce.png' });
+  console.log('Wall bounce near the floor:', result);
+  for (const profile of result.profiles) expect(profile[0].bounce, JSON.stringify(profile)).toBeGreaterThan(profile[4].bounce * .85);
+  expect(result.error).toBe(0); expect(errors).toEqual([]);
+});
+
 test('floor illumination stays continuous up to both jambs across every room shape', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   // Center a pixel on the sample ray. Nearby 1.5 mm probes isolate the seam

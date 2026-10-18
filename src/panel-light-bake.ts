@@ -124,9 +124,10 @@ export function createBounceSampler(room: RoomId, subdivisions = 4, optimized = 
   const patches = bouncePatches(room, subdivisions);
   const walls = roomWalls(room);
   return (surface: Point, normal: Point, result: Float32Array) => {
-    // Evaluate the interior limit at shared edges. Moving the reflector itself
-    // into the room would put corner receivers behind its emitting plane.
-    const point = { ...surface };
+    // Evaluate the interior limit at shared edges. At y=0, coplanar floor
+    // emitters would all be rejected, darkening the entire bottom atlas row.
+    // Keep reflectors on their real planes so corner receivers stay in front.
+    const point = { ...surface, y: Math.max(surface.y, .00001) };
     for (const wall of walls) {
       const x = point.x - wall.a.x, z = point.z - wall.a.z;
       const depth = x * wall.normal.x + z * wall.normal.z;
