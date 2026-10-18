@@ -1,7 +1,7 @@
 import { PEDESTAL_HEIGHT, pedestalOutline, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomWalls, type RoomId } from './world';
 
 export interface Point { x: number; y: number; z: number }
-export interface BounceArea { point: Point; normal: Point; halfU: Point; halfV: Point }
+export interface BounceArea { point: Point; normal: Point; halfU: Point; halfV: Point; vertices?: Point[] }
 const planes = new Float64Array(20);
 interface Bounds { min: Point; max: Point }
 const bounds = (points: Point[]): Bounds => ({
@@ -61,26 +61,34 @@ export function bounceAreaClear(room: RoomId, origin: Point, area: BounceArea, e
   return true;
 }
 
+// A rectangle clipped by a floor triangle has at most seven vertices, plus one
+// after clipping at the receiver's horizon. Vertices are offsets from the center.
 const polygon = new Float64Array(24), clipped = new Float64Array(24);
 
-/** Irradiance of a finite Lambertian rectangle. Near a surface, integrate its
+/** Irradiance of a finite Lambertian polygon. Near a surface, integrate its
  * projected solid angle instead of softening an inverse-square point source.
  * Small, distant cells use midpoint quadrature with a continuous transition. */
 export function bounceFormFactor(area: BounceArea & { area: number }, normal: Point,
   x: number, y: number, z: number, receive: number, emit: number, distance2: number) {
-  const midpoint = area.area * receive * emit / Math.max(distance2 * distance2, 1e-20);
-  if (distance2 >= area.area * 4) return midpoint;
   const { halfU: u, halfV: v } = area;
-  for (let i = 0; i < 4; i++) {
+  const radius = Math.abs(normal.x * u.x + normal.y * u.y + normal.z * u.z) + Math.abs(normal.x * v.x + normal.y * v.y + normal.z * v.z);
+  if (receive + radius <= 0) return 0;
+  const midpoint = area.area * Math.max(receive, 0) * emit / Math.max(distance2 * distance2, 1e-20);
+  // A thin clipped sliver can still cover a nearby receiver. Its area alone
+  // cannot determine when the point approximation is sufficiently far away.
+  const scale = area.vertices ? Math.max(area.area, 2 * (u.x * u.x + u.y * u.y + u.z * u.z + v.x * v.x + v.y * v.y + v.z * v.z)) : area.area;
+  if (distance2 >= scale * 4) return midpoint;
+  const vertices = area.vertices, vertexCount = vertices?.length ?? 4;
+  for (let i = 0; i < vertexCount; i++) {
     const a = i === 0 || i === 3 ? -1 : 1, b = i < 2 ? -1 : 1;
-    polygon[i * 3] = x + a * u.x + b * v.x;
-    polygon[i * 3 + 1] = y + a * u.y + b * v.y;
-    polygon[i * 3 + 2] = z + a * u.z + b * v.z;
+    polygon[i * 3] = x + (vertices ? vertices[i].x : a * u.x + b * v.x);
+    polygon[i * 3 + 1] = y + (vertices ? vertices[i].y : a * u.y + b * v.y);
+    polygon[i * 3 + 2] = z + (vertices ? vertices[i].z : a * u.z + b * v.z);
   }
   // Clip at the receiver's horizon before integrating the spherical polygon.
-  let count = 0, previous = 9;
+  let count = 0, previous = (vertexCount - 1) * 3;
   let before = normal.x * polygon[previous] + normal.y * polygon[previous + 1] + normal.z * polygon[previous + 2];
-  for (let i = 0; i < 12; i += 3) {
+  for (let i = 0; i < vertexCount * 3; i += 3) {
     const after = normal.x * polygon[i] + normal.y * polygon[i + 1] + normal.z * polygon[i + 2];
     if ((before < 0 && after > 0) || (before > 0 && after < 0)) {
       const t = before / (before - after);
@@ -100,6 +108,6 @@ export function bounceFormFactor(area: BounceArea & { area: number }, normal: Po
     integral += Math.atan2(length, ax * bx + ay * by + az * bz) * (nx * normal.x + ny * normal.y + nz * normal.z) / length;
   }
   const exact = Math.min(Math.PI, Math.abs(integral) / 2);
-  const t = Math.max(0, Math.min(1, (distance2 / area.area - 1) / 3)), blend = t * t * (3 - 2 * t);
+  const t = Math.max(0, Math.min(1, (distance2 / scale - 1) / 3)), blend = t * t * (3 - 2 * t);
   return exact * (1 - blend) + midpoint * blend;
 }

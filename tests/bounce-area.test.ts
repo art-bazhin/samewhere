@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { bounceFormFactor, type BounceArea } from '../src/bounce-area';
 import { createBounceSampler } from '../src/panel-light-bake';
 import { createBounceTransferSampler } from '../src/bounce-light-transfer';
-import { portalPosition, ROOM_IDS, roomWalls, wallNormal, type SocketRef } from '../src/world';
+import { floorBounceCells } from '../src/bounce-floor';
+import { portalPosition, ROOM_IDS, roomOutline, roomWalls, wallNormal, type SocketRef } from '../src/world';
 
 const factor = (area: BounceArea & { area: number }, point: { x: number; y: number; z: number }, normal = { x: 0, y: -1, z: 0 }) => {
   const x = area.point.x - point.x, y = area.point.y - point.y, z = area.point.z - point.z;
@@ -56,6 +57,25 @@ test('wall bounce stays continuous at the floor boundary in every room shape', (
       sample(point, normal, actual); sample({ ...point, y: .00002 }, normal, nearby);
       for (let c = 0; c < 3; c++) assert.ok(Math.abs(actual[c] - nearby[c]) < .001,
         `${room}: ${JSON.stringify({ point, actual: [...actual], nearby: [...nearby] })}`);
+    }
+  }
+});
+
+test('floor cells cover every outline and retain uniform irradiance along oblique walls', () => {
+  for (const room of ROOM_IDS) {
+    const outline = roomOutline(room), cells = [...floorBounceCells(outline)].map(({ cell }) => cell);
+    const area = Math.abs(outline.reduce((sum, p, i) => {
+      const q = outline[(i + 1) % outline.length]; return sum + p.x * q.z - q.x * p.z;
+    }, 0)) / 2;
+    assert.ok(Math.abs(cells.reduce((sum, cell) => sum + cell.area, 0) - area) < 1e-8, `${room}: floor partition has a gap or overlap`);
+    for (const [side, wall] of roomWalls(room).entries()) for (let i = 10; i <= 90; i += 5) {
+      const normal = { x: -wall.normal.x, y: 0, z: -wall.normal.z };
+      const point = { x: wall.a.x + (wall.b.x - wall.a.x) * i / 100 + normal.x * .002, y: .0001,
+        z: wall.a.z + (wall.b.z - wall.a.z) * i / 100 + normal.z * .002 };
+      // At the floor, a uniformly emitting surface fills half the wall's
+      // cosine-weighted hemisphere, irrespective of the grid or wall angle.
+      const irradiance = cells.reduce((sum, cell) => sum + factor(cell, point, normal), 0);
+      assert.ok(Math.abs(irradiance - Math.PI / 2) < .001, `${room}${side} at ${i}%: ${irradiance}`);
     }
   }
 });

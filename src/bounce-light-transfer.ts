@@ -40,6 +40,7 @@ export function createBounceTransferSampler(receiver: SocketRef, source: SocketR
     samples: area.samples.map(patch => ({ ...patch,
       virtual: { ...transformPoint(patch.point, source, receiver), y: patch.point.y }, direction: direction(patch.normal),
       halfU: direction(patch.halfU), halfV: direction(patch.halfV),
+      vertices: patch.vertices?.map(direction),
     })),
   }));
   const n = { ...wallNormal(receiver.room, receiver.side), y: 0 }, center = { ...portalPosition(receiver.room, receiver.side), y: 0 };
@@ -70,7 +71,7 @@ export function createBounceTransferSampler(receiver: SocketRef, source: SocketR
         const x = patch.virtual.x - point.x, y = patch.virtual.y - point.y, z = patch.virtual.z - point.z;
         const receive = normal.x * x + normal.y * y + normal.z * z;
         const emit = -(patch.direction.x * x + patch.direction.y * y + patch.direction.z * z);
-        if (receive <= 0 || emit <= 0) continue;
+        if (emit <= 0) continue;
         const distance2 = x * x + y * y + z * z;
         const form = bounceFormFactor(patch, normal, x, y, z, receive, emit, distance2);
         if (form < .000001) continue;

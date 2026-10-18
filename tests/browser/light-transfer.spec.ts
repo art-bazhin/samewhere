@@ -31,11 +31,13 @@ test('baked wall bounce has no dark band above the floor', async ({ page }) => {
   await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
   await page.evaluate(() => window.__samewhere.space.ready);
   const result = await page.evaluate(async () => {
-    const path = '/node_modules/three/build/three.module.js', THREE = await import(path);
-    const space = window.__samewhere.space, renderer = space.renderer, room = space.rooms.A;
+    const path = '/node_modules/three/build/three.module.js', worldPath = '/src/world.ts';
+    const THREE = await import(path), { roomWalls } = await import(worldPath);
+    const app = window.__samewhere, space = app.space, renderer = space.renderer;
+    app.game.world.balls.forEach((ball: any) => { ball.socket = null; }); app.sync();
     const material = space.assets.materials.wall, before = material.onBeforeCompile, key = material.customProgramCacheKey;
     const render = space.render, clipping = renderer.clippingPlanes;
-    space.render = () => {}; renderer.clippingPlanes = []; space.lightTransfer.bind('A');
+    space.render = () => {}; renderer.clippingPlanes = [];
     // Isolate the baked reflection from wallpaper, direct shadows and the
     // deliberately narrow contact profile; keep the actual wall atlas UVs.
     material.onBeforeCompile = (shader: any, context: any) => {
@@ -48,11 +50,19 @@ test('baked wall bounce has no dark band above the floor', async ({ page }) => {
     const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.FloatType }), pixel = new Float32Array(4);
     renderer.setRenderTarget(target);
     try {
-      const profiles = [-3, 0, 3].map(x => [.005, .05, .1, .2, .25].map(y => {
-        camera.position.set(x, y, -4); camera.lookAt(x, y, -5); camera.updateMatrixWorld(true);
-        renderer.render(room.scene, camera); renderer.readRenderTargetPixels(target, 0, 0, 1, 1, pixel);
-        return { x, y, bounce: pixel[0] };
-      }));
+      const profiles: { room: string; side: number; along: number; base: number; higher: number }[] = [];
+      for (const id of ['A', 'B', 'C', 'D']) {
+        space.lightTransfer.bind(id);
+        for (const [side, wall] of roomWalls(id).entries()) for (const along of id === 'A' ? [.2, .5, .8] : [.1, .3, .5, .7, .9]) {
+          const x = wall.a.x + (wall.b.x - wall.a.x) * along, z = wall.a.z + (wall.b.z - wall.a.z) * along;
+          const read = (height: number) => {
+            camera.position.set(x - wall.normal.x * .5, height, z - wall.normal.z * .5);
+            camera.lookAt(x, height, z); camera.updateMatrixWorld(true);
+            renderer.render(space.rooms[id].scene, camera); renderer.readRenderTargetPixels(target, 0, 0, 1, 1, pixel); return pixel[0];
+          };
+          profiles.push({ room: id, side, along, base: read(.005), higher: read(.25) });
+        }
+      }
       return { profiles, error: renderer.getContext().getError() };
     } finally {
       renderer.setRenderTarget(null); target.dispose(); space.render = render; renderer.clippingPlanes = clipping;
@@ -65,8 +75,14 @@ test('baked wall bounce has no dark band above the floor', async ({ page }) => {
     Object.assign(app.game.player, { room: 'A', x: 0, z: -3, yaw: .3, pitch: -.65 }); app.space.render();
   });
   await page.screenshot({ path: 'test-results/wall-floor-bounce.png' });
-  console.log('Wall bounce near the floor:', result);
-  for (const profile of result.profiles) expect(profile[0].bounce, JSON.stringify(profile)).toBeGreaterThan(profile[4].bounce * .85);
+  await page.evaluate(() => {
+    const app = window.__samewhere;
+    Object.assign(app.game.player, { room: 'B', x: 0, z: 3.8, yaw: Math.PI + .15, pitch: -.6 }); app.space.render();
+  });
+  await page.screenshot({ path: 'test-results/wall-floor-pentagon.png' });
+  console.log('Wall bounce near the floor:', [...result.profiles].sort((a, b) => a.base / a.higher - b.base / b.higher).slice(0, 5));
+  expect(result.profiles).toHaveLength(82);
+  for (const profile of result.profiles) expect(profile.base, JSON.stringify(profile)).toBeGreaterThan(profile.higher * (profile.room === 'A' ? .85 : .7));
   expect(result.error).toBe(0); expect(errors).toEqual([]);
 });
 

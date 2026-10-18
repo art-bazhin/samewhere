@@ -5,6 +5,7 @@ import type { SurfaceSamples } from './lightmap-layout';
 import { insideOutline } from './geometry';
 import { DOOR_HEIGHT, DOOR_WIDTH, ROOM_HEIGHT, roomOutline, roomWalls, type RoomId } from './world';
 import { bounceAreaClear, bounceFormFactor, type BounceArea } from './bounce-area';
+import { floorBounceCells } from './bounce-floor';
 
 interface Point { x: number; y: number; z: number }
 
@@ -64,18 +65,7 @@ export function bouncePatches(room: RoomId, subdivisions = 4): BouncePatch[] {
     group.samples.push(sample);
   };
   const carpet = new Color(0xb6a078), wallpaper = new Color(0xbda444), step = 2.5 / subdivisions;
-  const xs = outline.map(p => p.x), zs = outline.map(p => p.z);
-  const nx = Math.ceil((Math.max(...xs) - Math.min(...xs)) / step), nz = Math.ceil((Math.max(...zs) - Math.min(...zs)) / step);
-  const dx = (Math.max(...xs) - Math.min(...xs)) / nx, dz = (Math.max(...zs) - Math.min(...zs)) / nz;
-  for (let x = 0; x < nx; x++) for (let z = 0; z < nz; z++) {
-    const point = { x: Math.min(...xs) + (x + .5) * dx, y: 0, z: Math.min(...zs) + (z + .5) * dz };
-    const ix = Math.floor(x / subdivisions) * subdivisions, iz = Math.floor(z / subdivisions) * subdivisions;
-    const width = Math.min(subdivisions, nx - ix) * dx, depth = Math.min(subdivisions, nz - iz) * dz;
-    if (insideOutline(point, outline)) add(`floor:${ix}:${iz}`, {
-      point: { x: Math.min(...xs) + ix * dx + width / 2, y: 0, z: Math.min(...zs) + iz * dz + depth / 2 },
-      normal: { x: 0, y: 1, z: 0 }, halfU: { x: width / 2, y: 0, z: 0 }, halfV: { x: 0, y: 0, z: depth / 2 },
-    }, { point, normal: { x: 0, y: 1, z: 0 }, halfU: { x: dx / 2, y: 0, z: 0 }, halfV: { x: 0, y: 0, z: dz / 2 }, area: dx * dz, color: carpet });
-  }
+  for (const { key, group, cell } of floorBounceCells(outline, subdivisions)) add(key, group, { ...cell, color: carpet });
   for (const [side, wall] of roomWalls(room).entries()) {
     const normal = { x: -wall.normal.x, y: 0, z: -wall.normal.z };
     const rectangles = wall.portal === null ? [[0, wall.width, 0, ROOM_HEIGHT]] : [
@@ -145,7 +135,7 @@ export function createBounceSampler(room: RoomId, subdivisions = 4, optimized = 
       for (const patch of area.samples) {
         const x = patch.point.x - point.x, y = patch.point.y - point.y, z = patch.point.z - point.z;
         const receive = normal.x * x + normal.y * y + normal.z * z, emit = -(patch.normal.x * x + patch.normal.y * y + patch.normal.z * z);
-        if (receive <= 0 || emit <= 0) continue;
+        if (emit <= 0) continue;
         const distance2 = x * x + y * y + z * z;
         const form = bounceFormFactor(patch, normal, x, y, z, receive, emit, distance2);
         if (form < .000001 || !clear && transferPathBlocked(room, origin, patch.point, -1, optimized && interior)) continue;
