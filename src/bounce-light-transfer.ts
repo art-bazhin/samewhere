@@ -2,6 +2,7 @@ import { bouncePatches, type LightingBakeQuality } from './panel-light-bake';
 import { bounceAreaClear, bounceFormFactor, type BounceArea } from './bounce-area';
 import { APERTURE_EPSILON, LIGHT_RAY_OFFSET, transferPathBlocked } from './light-path';
 import { DOOR_HEIGHT, DOOR_WIDTH, portalAngle, portalDistance, portalPosition, rotate, transformPoint, WALL_THICKNESS, wallNormal, type SocketRef } from './world';
+import { addLightDirection, luminance } from './directional-lightmap';
 
 interface Point { x: number; y: number; z: number }
 
@@ -45,7 +46,8 @@ export function createBounceTransferSampler(receiver: SocketRef, source: SocketR
   }));
   const n = { ...wallNormal(receiver.room, receiver.side), y: 0 }, center = { ...portalPosition(receiver.room, receiver.side), y: 0 };
   const distance = portalDistance(receiver.room, receiver.side), planes = new Float64Array(40);
-  return (point: Point, normal: Point, values: Float32Array, offset: number) => {
+  return (point: Point, normal: Point, values: Float32Array, offset: number, moment?: Float32Array) => {
+    moment?.fill(0);
     const depth = Math.max(0, distance - n.x * point.x - n.z * point.z);
     const lateral = Math.max(0, Math.abs(-n.z * (point.x - center.x) + n.x * (point.z - center.z)) - DOOR_WIDTH / 2);
     const vertical = Math.max(0, -point.y, point.y - DOOR_HEIGHT);
@@ -97,8 +99,10 @@ export function createBounceTransferSampler(receiver: SocketRef, source: SocketR
           }
         }
         red += patch.color.r * form; green += patch.color.g * form; blue += patch.color.b * form;
+        if (moment) addLightDirection(moment, x, y, z, luminance(patch.color.r, patch.color.g, patch.color.b) * form);
       }
     }
     values[offset] = red * gain; values[offset + 1] = green * gain; values[offset + 2] = blue * gain;
+    if (moment) for (let channel = 0; channel < 4; channel++) moment[channel] *= gain;
   };
 }

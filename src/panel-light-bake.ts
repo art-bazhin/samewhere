@@ -6,6 +6,7 @@ import { insideOutline } from './geometry';
 import { DOOR_HEIGHT, DOOR_WIDTH, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, type RoomId } from './world';
 import { bounceAreaClear, bounceFormFactor, type BounceArea } from './bounce-area';
 import { floorBounceCells } from './bounce-floor';
+import { addLightDirection, LIGHTMAP_CHANNELS, luminance } from './directional-lightmap';
 
 interface Point { x: number; y: number; z: number }
 export type LightingBakeQuality = 'draft' | 'full';
@@ -99,15 +100,16 @@ export function bouncePatches(room: RoomId, subdivisions?: number, quality: Ligh
 }
 
 export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount: number, quality: LightingBakeQuality = 'full') {
-  const values = new Uint16Array(texelCount * 4), sample = panelLightSampler(room, 1 - SPOT_LIGHT_SHARE, quality), sampleSpot = spotLightSampler(room), sampleBounce = createBounceSampler(room, undefined, true, quality), bounce = new Float32Array(3);
+  const values = new Uint16Array(texelCount * LIGHTMAP_CHANNELS), sample = panelLightSampler(room, 1 - SPOT_LIGHT_SHARE, quality), sampleSpot = spotLightSampler(room), sampleBounce = createBounceSampler(room, undefined, true, quality), bounce = new Float32Array(3), moment = new Float32Array(4);
   const point = { x: 0, y: 0, z: 0 }, normal = { ...point };
   for (const texel of samples.texels) {
     const i = texel * 3;
     point.x = samples.positions[i]; point.y = samples.positions[i + 1]; point.z = samples.positions[i + 2];
     normal.x = samples.normals[i]; normal.y = samples.normals[i + 1]; normal.z = samples.normals[i + 2];
     const out = texel * 4; values[out] = DataUtils.toHalfFloat(sample(point, normal) + (samples.passages[texel] >= 0 ? sampleSpot(point, normal) : 0));
-    sampleBounce(point, normal, bounce);
+    sampleBounce(point, normal, bounce, moment);
     values[out + 1] = DataUtils.toHalfFloat(bounce[0]); values[out + 2] = DataUtils.toHalfFloat(bounce[1]); values[out + 3] = DataUtils.toHalfFloat(bounce[2]);
+    for (let channel = 0; channel < 4; channel++) values[texelCount * 4 + out + channel] = DataUtils.toHalfFloat(moment[channel]);
   }
   return values;
 }
@@ -116,7 +118,8 @@ export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount
 export function createBounceSampler(room: RoomId, subdivisions?: number, optimized = true, quality: LightingBakeQuality = 'full') {
   const patches = bouncePatches(room, subdivisions, quality);
   const walls = roomWalls(room);
-  return (surface: Point, normal: Point, result: Float32Array) => {
+  return (surface: Point, normal: Point, result: Float32Array, moment?: Float32Array) => {
+    moment?.fill(0);
     // Evaluate the interior limit at shared edges. At y=0, coplanar floor
     // emitters would all be rejected, darkening the entire bottom atlas row.
     // Keep reflectors on their real planes so corner receivers stay in front.
@@ -143,6 +146,7 @@ export function createBounceSampler(room: RoomId, subdivisions?: number, optimiz
         const form = bounceFormFactor(patch, normal, x, y, z, receive, emit, distance2);
         if (form < .000001 || !clear && transferPathBlocked(room, origin, patch.point, -1, optimized && interior)) continue;
         red += patch.color.r * form; green += patch.color.g * form; blue += patch.color.b * form;
+        if (moment) addLightDirection(moment, x, y, z, luminance(patch.color.r, patch.color.g, patch.color.b) * form);
       }
     }
     result[0] = red; result[1] = green; result[2] = blue;

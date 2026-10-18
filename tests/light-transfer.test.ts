@@ -6,6 +6,7 @@ import { createTransferSampler, transferAt, transferPathBlocked } from '../src/l
 import { bakingLayout, surfaceSamples } from '../src/lightmap-layout';
 import { bakeSurfaceTransfer } from '../src/surface-lightmap';
 import { DOOR_WIDTH, portalPosition, ROOM_IDS, ROOMS, wallNormal } from '../src/world';
+import { LIGHTMAP_CHANNELS } from '../src/directional-lightmap';
 
 test('sparse prepared fields reproduce the original summed lighting bit for bit', () => {
   const layout = bakingLayout('A'), samples = surfaceSamples(layout);
@@ -71,14 +72,16 @@ test('pedestals block transported light at their actual height and retain concav
 test('surface texels retain RGB bounce without baking coarse direct shadows', () => {
   const layout = bakingLayout('A'), samples = surfaceSamples(layout);
   const result = bakeSurfaceTransfer({ room: 'A', side: 0 }, { room: 'G', side: 0 }, samples, layout.width * layout.height);
-  assert.equal(result.length, layout.width * layout.height * 4);
-  assert.ok(result.every(value => Number.isFinite(value) && value >= 0)); assert.equal(result[0], 0);
+  const plane = layout.width * layout.height * 4;
+  assert.equal(result.length, layout.width * layout.height * LIGHTMAP_CHANNELS);
+  assert.ok(result.every(value => Number.isFinite(value)));
+  assert.ok(result.subarray(0, plane).every(value => value >= 0)); assert.equal(result[0], 0);
   const floor = Array.from(samples.texels).find(i => Math.abs(samples.positions[i * 3]) < .01 && Math.abs(samples.positions[i * 3 + 2] + 4) < .01 && samples.normals[i * 3 + 1] > .99)!;
   assert.equal(result[floor * 4], 0, 'Direct light is resolved in separate GPU maps');
   assert.ok(result[floor * 4 + 1] > .001, 'Diffuse bounce remains in the cache');
-  assert.ok(result.every((value, index) => index % 4 !== 0 || value === 0));
-  const bytes = ROOM_IDS.reduce((sum, room) => { const atlas = bakingLayout(room); return sum + atlas.width * atlas.height * 4 * 2 * 2; }, 0);
-  assert.ok(bytes < 4 * 1024 * 1024, 'Both RGBA buffers for all seven rooms fit within 4 MiB');
+  assert.ok(result.subarray(0, plane).every((value, index) => index % 4 !== 0 || value === 0));
+  const bytes = ROOM_IDS.reduce((sum, room) => { const atlas = bakingLayout(room); return sum + atlas.width * atlas.height * LIGHTMAP_CHANNELS * 2 * 2; }, 0);
+  assert.ok(bytes < 8 * 1024 * 1024, 'Both directional buffers for all seven rooms fit within 8 MiB');
 });
 
 test('surface UVs are deterministic and floor/thresholds share a padded chart', () => {

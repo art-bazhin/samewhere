@@ -212,8 +212,8 @@ test('each launch loads the compressed lighting asset without creating a bake wo
   console.log('Build-baked lighting startup:', launches);
   for (const launch of launches) {
     expect(launch.fields).toBe(812); expect(launch.jobs).toBe(0); expect(launch.workers).toBe(0); expect(launch.loadMs).toBeGreaterThan(0);
-    expect(launch.bytes).toBeLessThan(8 * 1024 * 1024);
-    expect(launch.twoDimensional).toBe(true); expect(launch.textureBytes).toBeLessThan(4 * 1024 * 1024);
+    expect(launch.bytes).toBeLessThan(16 * 1024 * 1024);
+    expect(launch.twoDimensional).toBe(true); expect(launch.textureBytes).toBeLessThan(8 * 1024 * 1024);
   }
   expect(requests).toHaveLength(2); expect(requests[0]).toBe(requests[1]); expect(encodings).toEqual(['br', 'br']); expect(errors).toEqual([]);
 });

@@ -8,11 +8,13 @@ import { portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomWalls, wallNormal } f
 import { DataUtils, Vector3 } from 'three';
 import { panelLightSampler } from '../src/panel-light-bake';
 import { encodeLighting, decodeLighting } from '../src/lighting-data';
+import { LIGHTMAP_CHANNELS } from '../src/directional-lightmap';
 
-const result = bakeLightTransfer();
+// Exercise the complete format/connection pipeline at development precision.
+const quality = 'draft', result = bakeLightTransfer(quality);
 
 test('independent bake batches reproduce the same room maps and connections', () => {
-  const partial = bakeLightingRooms(['E']);
+  const partial = bakeLightingRooms(['E'], quality);
   assert.deepEqual(Object.keys(partial.panels), ['E']);
   assert.deepEqual(partial.panels.E, result.panels.E);
   assert.deepEqual(partial.atlases.E, result.atlases.E);
@@ -35,19 +37,23 @@ test('panel light and reflected light remain finite, bounded and occluded by ped
   let bytes = 0, reflected = 0;
   for (const room of ROOM_IDS) {
     const [width, height] = result.atlases[room], map = result.panels[room];
-    assert.equal(map.length, width * height * 4); bytes += map.byteLength;
-    for (let i = 0; i < map.length; i += 4) {
+    assert.equal(map.length, width * height * LIGHTMAP_CHANNELS); bytes += map.byteLength;
+    const plane = width * height * 4;
+    for (let i = 0; i < plane; i += 4) {
       const rgba = Array.from(map.subarray(i, i + 4), value => DataUtils.fromHalfFloat(value));
       assert.ok(rgba.every(value => Number.isFinite(value) && value >= 0 && value < 100));
       assert.ok(rgba[1] >= rgba[2] && rgba[2] >= rgba[3], 'Warm materials cannot create a blue bounce');
       if (rgba[1] > .001) reflected++;
+      const moment = Array.from(map.subarray(plane + i, plane + i + 4), value => DataUtils.fromHalfFloat(value));
+      assert.ok(moment.every(Number.isFinite));
+      assert.ok(Math.hypot(...moment.slice(0, 3)) <= moment[3] * 1.002 + .00001, 'Directional energy remains bounded');
     }
     const lamp = ROOMS[room].pedestals[0], sample = panelLightSampler(room);
     assert.ok(sample({ x: lamp.x, y: 1.21, z: lamp.z }, { x: 0, y: 1, z: 0 }) > 0);
     assert.equal(sample({ x: lamp.x, y: .01, z: lamp.z }, { x: 0, y: 1, z: 0 }), 0, 'Pedestal blocks the floor directly beneath it');
     assert.equal(sample({ x: lamp.x, y: 1.21, z: lamp.z }, { x: 0, y: -1, z: 0 }), 0);
   }
-  assert.ok(bytes <= 3 * 1024 * 1024); assert.ok(reflected > 1000);
+  assert.ok(bytes <= 6 * 1024 * 1024); assert.ok(reflected > 1000);
 });
 
 test('build calculation prepares every directed connection using compact, bounded surface texels', () => {
@@ -62,12 +68,12 @@ test('build calculation prepares every directed connection using compact, bounde
     let end = 0, samples = 0;
     for (let run = 0; run < field.runs.length; run += 2) {
       assert.ok(field.runs[run] >= end); assert.ok(field.runs[run + 1] > 0);
-      end = field.runs[run] + field.runs[run + 1]; assert.ok(end <= width * height * 4); samples += field.runs[run + 1];
+      end = field.runs[run] + field.runs[run + 1]; assert.ok(end <= width * height * LIGHTMAP_CHANNELS); samples += field.runs[run + 1];
     }
-    assert.equal(samples, field.values.length); assert.ok(field.values.every(value => Number.isFinite(value) && value > 0));
+    assert.equal(samples, field.values.length); assert.ok(field.values.every(value => Number.isFinite(value) && value !== 0));
     bytes += field.runs.byteLength + field.values.byteLength;
   }
-  assert.ok(bytes < 8 * 1024 * 1024);
+  assert.ok(bytes < 16 * 1024 * 1024);
 });
 
 test('every ceiling receives baked floor and wall bounce on its inward-facing surface', () => {
@@ -98,7 +104,7 @@ test('the complete build bake matches independent surface bakes, including conca
   ] as const) {
     const layout = bakingLayout(receiver.room), key = `${receiver.room}${receiver.side}<${source.room}${source.side}`;
     assert.deepEqual([layout.width, layout.height], result.atlases[receiver.room]);
-    const expected = compressTransfer(receiver.room, key, bakeSurfaceTransfer(receiver, source, surfaceSamples(layout), layout.width * layout.height), 4);
+    const expected = compressTransfer(receiver.room, key, bakeSurfaceTransfer(receiver, source, surfaceSamples(layout), layout.width * layout.height, quality), 4);
     assert.deepEqual(result.fields.find(field => field.key === key), expected);
   }
 });

@@ -58,6 +58,8 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
     blue: new THREE.MeshPhysicalMaterial({ ...ballSurface, color: 0x2466c9 }),
     lamp: new THREE.MeshBasicMaterial({ color: 0xfffbd6, map: diffuser }),
   };
+  for (const material of [materials.wall, materials.floor, materials.ceiling, materials.pedestal, materials.socket])
+    material.normalScale.setScalar(100);
   // Front-face depth keeps a solid pedestal's interior occluded at the floor.
   materials.pedestal.shadowSide = THREE.FrontSide;
   // The saucers close its top cutouts and have no downward-facing back shell.
