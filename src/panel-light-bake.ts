@@ -3,7 +3,8 @@ import { CEILING_LIGHT, ceilingPanelSamples, ROOM_LIGHTS, SPOT_LIGHT_SHARE } fro
 import { transferPathBlocked } from './light-path';
 import type { SurfaceSamples } from './lightmap-layout';
 import { insideOutline } from './geometry';
-import { DOOR_WIDTH, ROOM_HEIGHT, roomOutline, roomWalls, type RoomId } from './world';
+import { DOOR_HEIGHT, DOOR_WIDTH, ROOM_HEIGHT, roomOutline, roomWalls, type RoomId } from './world';
+import { bounceAreaClear, bounceFormFactor, type BounceArea } from './bounce-area';
 
 interface Point { x: number; y: number; z: number }
 
@@ -45,53 +46,111 @@ function spotLightSampler(room: RoomId) {
   };
 }
 
-/** Coarse Lambertian patches approximate one warm diffuse reflection. */
-export function bouncePatches(room: RoomId) {
-  const direct = panelLightSampler(room, 1), outline = roomOutline(room), patches: { point: Point; normal: Point; area: number; color: Color }[] = [];
-  const carpet = new Color(0xb6a078), wallpaper = new Color(0xbda444), step = 2.5;
+interface BounceSample extends BounceArea { area: number; color: Color }
+export interface BouncePatch extends BounceArea { samples: BounceSample[] }
+const bounceCache = new Map<string, BouncePatch[]>();
+/** Surface quadrature, at most 62.5 cm per cell. A group only accelerates
+ * visibility queries; its cells retain independent illumination and occlusion. */
+export function bouncePatches(room: RoomId, subdivisions = 4): BouncePatch[] {
+  const key = `${room}:${subdivisions}`, cached = bounceCache.get(key);
+  if (cached) return cached;
+  const direct = panelLightSampler(room, 1), outline = roomOutline(room), patches = new Map<string, BouncePatch>();
+  const lamp = new Color(CEILING_LIGHT.color);
+  const add = (key: string, patch: BounceArea, sample: BounceSample) => {
+    sample.color = sample.color.clone().multiply(lamp).multiplyScalar(direct(sample.point, sample.normal) / Math.PI);
+    if (Math.max(sample.color.r, sample.color.g, sample.color.b) <= .000001) return;
+    let group = patches.get(key);
+    if (!group) { group = { ...patch, samples: [] }; patches.set(key, group); }
+    group.samples.push(sample);
+  };
+  const carpet = new Color(0xb6a078), wallpaper = new Color(0xbda444), step = 2.5 / subdivisions;
   const xs = outline.map(p => p.x), zs = outline.map(p => p.z);
   const nx = Math.ceil((Math.max(...xs) - Math.min(...xs)) / step), nz = Math.ceil((Math.max(...zs) - Math.min(...zs)) / step);
   const dx = (Math.max(...xs) - Math.min(...xs)) / nx, dz = (Math.max(...zs) - Math.min(...zs)) / nz;
   for (let x = 0; x < nx; x++) for (let z = 0; z < nz; z++) {
-    const point = { x: Math.min(...xs) + (x + .5) * dx, y: .015, z: Math.min(...zs) + (z + .5) * dz };
-    if (insideOutline(point, outline)) patches.push({ point, normal: { x: 0, y: 1, z: 0 }, area: dx * dz, color: carpet });
+    const point = { x: Math.min(...xs) + (x + .5) * dx, y: 0, z: Math.min(...zs) + (z + .5) * dz };
+    const ix = Math.floor(x / subdivisions) * subdivisions, iz = Math.floor(z / subdivisions) * subdivisions;
+    const width = Math.min(subdivisions, nx - ix) * dx, depth = Math.min(subdivisions, nz - iz) * dz;
+    if (insideOutline(point, outline)) add(`floor:${ix}:${iz}`, {
+      point: { x: Math.min(...xs) + ix * dx + width / 2, y: 0, z: Math.min(...zs) + iz * dz + depth / 2 },
+      normal: { x: 0, y: 1, z: 0 }, halfU: { x: width / 2, y: 0, z: 0 }, halfV: { x: 0, y: 0, z: depth / 2 },
+    }, { point, normal: { x: 0, y: 1, z: 0 }, halfU: { x: dx / 2, y: 0, z: 0 }, halfV: { x: 0, y: 0, z: dz / 2 }, area: dx * dz, color: carpet });
   }
-  for (const wall of roomWalls(room)) {
-    const count = Math.ceil(wall.width / 3.5);
-    for (let i = 0; i < count; i++) {
-      const t = (i + .5) / count, lateral = (t - .5) * wall.width;
-      // No reflected-light emitter may occupy a potentially open doorway.
-      if (wall.portal !== null && Math.abs(lateral) < DOOR_WIDTH / 2 + wall.width / count / 2) continue;
-      patches.push({ point: { x: wall.a.x + (wall.b.x - wall.a.x) * t - wall.normal.x * .015,
-        y: ROOM_HEIGHT / 2, z: wall.a.z + (wall.b.z - wall.a.z) * t - wall.normal.z * .015 },
-        normal: { x: -wall.normal.x, y: 0, z: -wall.normal.z }, area: wall.width * ROOM_HEIGHT / count, color: wallpaper });
+  for (const [side, wall] of roomWalls(room).entries()) {
+    const normal = { x: -wall.normal.x, y: 0, z: -wall.normal.z };
+    const rectangles = wall.portal === null ? [[0, wall.width, 0, ROOM_HEIGHT]] : [
+      [0, wall.width / 2 - DOOR_WIDTH / 2, 0, ROOM_HEIGHT],
+      [wall.width / 2 + DOOR_WIDTH / 2, wall.width, 0, ROOM_HEIGHT],
+      [wall.width / 2 - DOOR_WIDTH / 2, wall.width / 2 + DOOR_WIDTH / 2, DOOR_HEIGHT, ROOM_HEIGHT],
+    ];
+    for (const [region, [left, right, low, high]] of rectangles.entries()) {
+      const columns = Math.ceil((right - left) / step), rows = Math.ceil((high - low) / step);
+      const width = (right - left) / columns, height = (high - low) / rows;
+      const position = (along: number, y: number) => ({ x: wall.a.x + (wall.b.x - wall.a.x) * along / wall.width,
+        y, z: wall.a.z + (wall.b.z - wall.a.z) * along / wall.width });
+      const horizontal = (length: number) => ({ x: (wall.b.x - wall.a.x) * length / wall.width / 2, y: 0, z: (wall.b.z - wall.a.z) * length / wall.width / 2 });
+      for (let x = 0; x < columns; x++) for (let y = 0; y < rows; y++) {
+        const ix = Math.floor(x / subdivisions) * subdivisions, iy = Math.floor(y / subdivisions) * subdivisions;
+        const groupWidth = Math.min(subdivisions, columns - ix) * width, groupHeight = Math.min(subdivisions, rows - iy) * height;
+        add(`wall:${side}:${region}:${ix}:${iy}`, {
+          point: position(left + ix * width + groupWidth / 2, low + iy * height + groupHeight / 2), normal,
+          halfU: horizontal(groupWidth), halfV: { x: 0, y: groupHeight / 2, z: 0 },
+        }, {
+          point: position(left + (x + .5) * width, low + (y + .5) * height), normal,
+          halfU: horizontal(width), halfV: { x: 0, y: height / 2, z: 0 }, area: width * height, color: wallpaper,
+        });
+      }
     }
   }
-  const lamp = new Color(CEILING_LIGHT.color);
-  return patches.map(patch => ({ ...patch, color: patch.color.clone().multiply(lamp).multiplyScalar(direct(patch.point, patch.normal) / Math.PI) }))
-    .filter(patch => Math.max(patch.color.r, patch.color.g, patch.color.b) > .0001);
+  const result = [...patches.values()]; bounceCache.set(key, result); return result;
 }
 
 export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount: number) {
-  const values = new Uint16Array(texelCount * 4), sample = panelLightSampler(room), sampleSpot = spotLightSampler(room), patches = bouncePatches(room);
+  const values = new Uint16Array(texelCount * 4), sample = panelLightSampler(room), sampleSpot = spotLightSampler(room), sampleBounce = createBounceSampler(room), bounce = new Float32Array(3);
   const point = { x: 0, y: 0, z: 0 }, normal = { ...point };
   for (const texel of samples.texels) {
     const i = texel * 3;
     point.x = samples.positions[i]; point.y = samples.positions[i + 1]; point.z = samples.positions[i + 2];
     normal.x = samples.normals[i]; normal.y = samples.normals[i + 1]; normal.z = samples.normals[i + 2];
     const out = texel * 4; values[out] = DataUtils.toHalfFloat(sample(point, normal) + (samples.passages[texel] >= 0 ? sampleSpot(point, normal) : 0));
-    const origin = { x: point.x + normal.x * .005, y: point.y + normal.y * .005, z: point.z + normal.z * .005 };
-    let red = 0, green = 0, blue = 0;
-    for (const patch of patches) {
-      const x = patch.point.x - point.x, y = patch.point.y - point.y, z = patch.point.z - point.z;
-      const receive = normal.x * x + normal.y * y + normal.z * z, emit = -(patch.normal.x * x + patch.normal.y * y + patch.normal.z * z);
-      if (receive <= 0 || emit <= 0) continue;
-      const distance2 = x * x + y * y + z * z;
-      const form = patch.area * receive * emit / (distance2 * distance2 + patch.area * patch.area * .25);
-      if (form < .0001 || transferPathBlocked(room, origin, patch.point, -1)) continue;
-      red += patch.color.r * form; green += patch.color.g * form; blue += patch.color.b * form;
-    }
-    values[out + 1] = DataUtils.toHalfFloat(red); values[out + 2] = DataUtils.toHalfFloat(green); values[out + 3] = DataUtils.toHalfFloat(blue);
+    sampleBounce(point, normal, bounce);
+    values[out + 1] = DataUtils.toHalfFloat(bounce[0]); values[out + 2] = DataUtils.toHalfFloat(bounce[1]); values[out + 3] = DataUtils.toHalfFloat(bounce[2]);
   }
   return values;
+}
+
+/** One diffuse reflection, integrated over independently lit surface cells. */
+export function createBounceSampler(room: RoomId, subdivisions = 4, optimized = true) {
+  const patches = bouncePatches(room, subdivisions);
+  const walls = roomWalls(room);
+  return (surface: Point, normal: Point, result: Float32Array) => {
+    // Evaluate the interior limit at shared edges. Moving the reflector itself
+    // into the room would put corner receivers behind its emitting plane.
+    const point = { ...surface };
+    for (const wall of walls) {
+      const x = point.x - wall.a.x, z = point.z - wall.a.z;
+      const depth = x * wall.normal.x + z * wall.normal.z;
+      const along = (x * (wall.b.x - wall.a.x) + z * (wall.b.z - wall.a.z)) / wall.width;
+      if (depth > -.001 && depth < .00001 && along >= -.001 && along <= wall.width + .001) {
+        point.x -= wall.normal.x * (depth + .001); point.z -= wall.normal.z * (depth + .001);
+      }
+    }
+    const origin = { x: point.x + normal.x * .005, y: point.y + normal.y * .005, z: point.z + normal.z * .005 };
+    const interior = insideOutline(origin, roomOutline(room));
+    let red = 0, green = 0, blue = 0;
+    for (const area of patches) {
+      if (area.normal.x * (point.x - area.point.x) + area.normal.y * (point.y - area.point.y) + area.normal.z * (point.z - area.point.z) <= 0) continue;
+      const clear = optimized && bounceAreaClear(room, origin, area, -1, interior);
+      for (const patch of area.samples) {
+        const x = patch.point.x - point.x, y = patch.point.y - point.y, z = patch.point.z - point.z;
+        const receive = normal.x * x + normal.y * y + normal.z * z, emit = -(patch.normal.x * x + patch.normal.y * y + patch.normal.z * z);
+        if (receive <= 0 || emit <= 0) continue;
+        const distance2 = x * x + y * y + z * z;
+        const form = bounceFormFactor(patch, normal, x, y, z, receive, emit, distance2);
+        if (form < .000001 || !clear && transferPathBlocked(room, origin, patch.point, -1, optimized && interior)) continue;
+        red += patch.color.r * form; green += patch.color.g * form; blue += patch.color.b * form;
+      }
+    }
+    result[0] = red; result[1] = green; result[2] = blue;
+  };
 }

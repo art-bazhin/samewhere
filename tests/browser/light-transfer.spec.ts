@@ -122,7 +122,7 @@ test('startup preparation keeps the displayed room visible without black frames'
   expect(result.black).toEqual([]); expect(result.last!.luma).toBeGreaterThan(5);
 });
 
-test('each launch computes all lighting in one worker without fetching an asset', async ({ page }) => {
+test('each launch computes all lighting in one startup job without fetching an asset', async ({ page }) => {
   const errors: string[] = [], requests: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => { if (/\/lighting\/|\.bin\.gz(?:\?|$)/.test(request.url())) requests.push(request.url()); });

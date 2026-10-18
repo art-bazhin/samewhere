@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bakeLightTransfer } from '../src/light-transfer-bake';
+import { bakeLightTransfer, bakeLightingRooms } from '../src/light-transfer-bake';
 import { compressTransfer } from '../src/light-transfer-cache';
 import { bakingLayout, surfaceSamples } from '../src/lightmap-layout';
 import { bakeSurfaceTransfer } from '../src/surface-lightmap';
@@ -9,6 +9,14 @@ import { DataUtils, Vector3 } from 'three';
 import { panelLightSampler } from '../src/panel-light-bake';
 
 const result = bakeLightTransfer();
+
+test('independent worker batches reproduce the same room maps and connections', () => {
+  const partial = bakeLightingRooms(['E']);
+  assert.deepEqual(Object.keys(partial.panels), ['E']);
+  assert.deepEqual(partial.panels.E, result.panels.E);
+  assert.deepEqual(partial.atlases.E, result.atlases.E);
+  assert.deepEqual(partial.fields, result.fields.filter(field => field.room === 'E'));
+});
 
 test('panel light and reflected light remain finite, bounded and occluded by pedestals', () => {
   let bytes = 0, reflected = 0;
