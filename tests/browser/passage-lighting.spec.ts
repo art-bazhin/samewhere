@@ -24,7 +24,9 @@ test('hexagon and Y passages keep complete carpet lighting continuous at oblique
     const camera = new THREE.PerspectiveCamera(.01, 1, .001, 30), pixel = new Float32Array(4), samples: any[] = [];
     const read = (endpoint: any, lateral: number, eye: any) => {
       const p = portalPosition(endpoint.room, endpoint.side), n = wallNormal(endpoint.room, endpoint.side);
-      const point = new THREE.Vector3(p.x - n.x * .0015 - n.z * lateral, 0, p.z - n.z * .0015 + n.x * lateral);
+      // Detailed shadows can legitimately change across 3 mm. Probe a 0.2 mm
+      // gap to isolate a discontinuity from the actual, now sharper gradient.
+      const point = new THREE.Vector3(p.x - n.x * .0001 - n.z * lateral, 0, p.z - n.z * .0001 + n.x * lateral);
       camera.position.copy(eye); camera.lookAt(point); camera.updateMatrixWorld(true); space.lightTransfer.bind(endpoint.room);
       renderer.render(space.rooms[endpoint.room].scene, camera); renderer.readRenderTargetPixels(target, 0, 0, 1, 1, pixel);
       return Array.from(pixel.subarray(0, 3));
@@ -35,6 +37,9 @@ test('hexagon and Y passages keep complete carpet lighting continuous at oblique
         const from = { room: 'C', side: c }, to = { room: 'E', side: y };
         app.game.world.balls.forEach((ball: any) => { ball.socket = null; });
         app.game.world.balls[0].socket = from; app.game.world.balls[1].socket = to; app.sync();
+        // This test renders scenes directly, bypassing renderFrame's synchronous
+        // update of the separate doorway shadow atlas.
+        space.lightTransfer.direct.update();
         const p = portalPosition('C', c), n = wallNormal('C', c);
         for (const distance of [.8, 3]) {
           const eye = new THREE.Vector3(p.x - n.x * distance, 1.65, p.z - n.z * distance);

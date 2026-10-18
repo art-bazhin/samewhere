@@ -91,7 +91,7 @@ export class SpaceRenderer {
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.assets = createMaterials(this.renderer);
     this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations, this.assets.environment.texture)])) as Record<RoomId, RoomVisual>;
-    this.lightTransfer = new LightTransfer(this.rooms);
+    this.lightTransfer = new LightTransfer(this.rooms, this.renderer);
     for (const room of Object.values(this.rooms)) preparePortalSurfaces(room);
     const litMaterials = new Set<THREE.Material>(Object.values(this.assets.materials));
     for (const room of Object.values(this.rooms)) room.scene.traverse(object => {
@@ -174,6 +174,7 @@ export class SpaceRenderer {
     }
   }
   private async prepareRooms() {
+    this.lightTransfer.direct.prepare();
     // Match the portal framebuffer's actual sample count. A single-sample
     // texture does not warm the driver's multisampled linear-light pipeline.
     const target = new THREE.WebGLRenderTarget(64, 64, { samples: this.portalSamples, resolveDepthBuffer: false }), camera = this.camera.clone();
@@ -463,6 +464,7 @@ export class SpaceRenderer {
   private renderFrame() {
     this.updateCamera(); this.passes = 0; this.portalPixels = 0; this.shadowPixels = 0; this.occludedPortals = 0; this.renderer.info.reset();
     this.gpuTiming.begin();
+    this.lightTransfer.direct.update();
     try { this.renderRoom(this.game.player.room, this.camera, 0, FULL, null); this.preparePendingShadow(); }
     finally { this.gpuTiming.end(); }
     this.drawCalls = this.renderer.info.render.calls; this.passes++;

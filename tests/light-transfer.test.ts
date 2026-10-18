@@ -68,13 +68,15 @@ test('pedestals block transported light at their actual height and retain concav
   assert.equal(transferPathBlocked('G', { x: -.05, y: .5, z: .3 }, { x: .05, y: .5, z: .3 }, 0), false);
 });
 
-test('surface texels retain direct and RGB bounce light with bounded 2D storage', () => {
+test('surface texels retain RGB bounce without baking coarse direct shadows', () => {
   const layout = bakingLayout('A'), samples = surfaceSamples(layout);
   const result = bakeSurfaceTransfer({ room: 'A', side: 0 }, { room: 'G', side: 0 }, samples, layout.width * layout.height);
   assert.equal(result.length, layout.width * layout.height * 4);
   assert.ok(result.every(value => Number.isFinite(value) && value >= 0)); assert.equal(result[0], 0);
   const floor = Array.from(samples.texels).find(i => Math.abs(samples.positions[i * 3]) < .01 && Math.abs(samples.positions[i * 3 + 2] + 4) < .01 && samples.normals[i * 3 + 1] > .99)!;
-  assert.ok(result[floor * 4] > .1);
+  assert.equal(result[floor * 4], 0, 'Direct light is resolved in separate GPU maps');
+  assert.ok(result[floor * 4 + 1] > .001, 'Diffuse bounce remains in the cache');
+  assert.ok(result.every((value, index) => index % 4 !== 0 || value === 0));
   const bytes = ROOM_IDS.reduce((sum, room) => { const atlas = bakingLayout(room); return sum + atlas.width * atlas.height * 4 * 2 * 2; }, 0);
   assert.ok(bytes < 4 * 1024 * 1024, 'Both RGBA buffers for all seven rooms fit within 4 MiB');
 });

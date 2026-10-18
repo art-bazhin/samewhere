@@ -18,11 +18,12 @@ const powerOfTwo = (value: number) => 2 ** Math.ceil(Math.log2(value));
 const rounded = (value: number) => Math.round(value * 10000) / 10000;
 
 /** One atlas per room. Coplanar floor/threshold and both wall variants share UVs. */
-export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId): SurfaceLayout {
+export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = false): SurfaceLayout {
   const charts = new Map<string, SurfaceChart>(), meshes: THREE.Mesh[] = [];
   scene.updateMatrixWorld(true);
   scene.traverse(object => {
     if (!(object instanceof THREE.Mesh) || !(object.material instanceof THREE.MeshStandardMaterial)) return;
+    if (direct && object.name === 'ceiling') return;
     const mesh = object, original = mesh.geometry;
     const curved = mesh.name === 'socket-ball' || mesh.name === 'socket-bowl';
     // Only the extra UV attribute is per instance. Positions, normals, indices
@@ -95,7 +96,8 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId): SurfaceL
       chart.width = 10; chart.height = 8;
       chart.step.set((chart.max.x - chart.min.x) / (chart.width - PADDING * 2 - 1), (chart.max.y - chart.min.y) / (chart.height - PADDING * 2 - 1));
     } else {
-      const spacing = chart.passage !== undefined ? PASSAGE_LIGHT_SPACING : chart.triangles[0].mesh.name === 'ceiling' ? LIGHTMAP_SPACING * 2 : LIGHTMAP_SPACING;
+      const spacing = chart.passage !== undefined ? (direct ? .0125 : PASSAGE_LIGHT_SPACING)
+        : direct ? .025 : chart.triangles[0].mesh.name === 'ceiling' ? LIGHTMAP_SPACING * 2 : LIGHTMAP_SPACING;
       chart.min.x = Math.floor((chart.min.x + .00001) / spacing) * spacing;
       chart.min.y = Math.floor((chart.min.y + .00001) / spacing) * spacing;
       chart.step.setScalar(spacing);
@@ -115,17 +117,17 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId): SurfaceL
   for (const mesh of meshes) {
     const count = mesh.geometry.getAttribute('position').count, attribute = new THREE.Float32BufferAttribute(count * 2, 2);
     for (let i = 0; i < count; i++) attribute.setXY(i, .5 / width, .5 / height); // Reserved black texel.
-    mesh.geometry.setAttribute('transferUv', attribute);
+    mesh.geometry.setAttribute(direct ? 'directUv' : 'transferUv', attribute);
   }
   const assign = (chart: SurfaceChart, attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, vertex: number, p: THREE.Vector2) => attribute.setXY(vertex,
       (chart.x + PADDING + (p.x - chart.min.x) / chart.step.x + .5) / width,
       (chart.y + PADDING + (p.y - chart.min.y) / chart.step.y + .5) / height);
   for (const chart of list) {
     if (chart.curvedMesh) {
-      const geometry = chart.curvedMesh.geometry, uv = geometry.getAttribute('uv'), attribute = geometry.getAttribute('transferUv');
+      const geometry = chart.curvedMesh.geometry, uv = geometry.getAttribute('uv'), attribute = geometry.getAttribute(direct ? 'directUv' : 'transferUv');
       for (let i = 0; i < uv.count; i++) assign(chart, attribute, i, new THREE.Vector2(uv.getX(i), uv.getY(i)));
     }
-    for (const triangle of chart.triangles) triangle.uv.forEach((p, i) => assign(chart, triangle.mesh.geometry.getAttribute('transferUv'), triangle.vertices[i], p));
+    for (const triangle of chart.triangles) triangle.uv.forEach((p, i) => assign(chart, triangle.mesh.geometry.getAttribute(direct ? 'directUv' : 'transferUv'), triangle.vertices[i], p));
   }
   return { room, width, height, charts: list };
 }
@@ -199,7 +201,7 @@ export function surfaceSamples(layout: SurfaceLayout): SurfaceSamples {
   return { positions, normals, texels: new Uint32Array(texels), passages };
 }
 
-function* chartTriangles(chart: SurfaceChart): Generator<Triangle> {
+export function* chartTriangles(chart: SurfaceChart): Generator<Triangle> {
   if (!chart.curvedMesh) { yield* chart.triangles; return; }
   const mesh = chart.curvedMesh, geometry = mesh.geometry, position = geometry.getAttribute('position'), normal = geometry.getAttribute('normal'), uv = geometry.getAttribute('uv');
   const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld), count = geometry.index?.count ?? position.count;
