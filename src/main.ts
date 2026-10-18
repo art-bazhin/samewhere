@@ -16,6 +16,8 @@ const crosshair = $('crosshair'), interaction = $('interaction');
 let interactionText = '';
 let mouseInput: 'raw' | 'standard' = 'standard';
 const MOVE_SPEED = 5;
+const DEBUG_ROOMS = ['G', 'A', 'B', 'C', 'D', 'E', 'F'] as const;
+let debugRoomIndex = 0;
 let space: SpaceRenderer;
 let locked = false, started = false, debug = false, disposed = false;
 let fullscreenPending = false;
@@ -53,8 +55,16 @@ function toggleSweep() {
   toast('Тест плавности: 6 секунд без мыши · F4 — остановить');
 }
 function reset() {
-  stopSweep(); mouseLook.reset();
+  stopSweep(); mouseLook.reset(); debugRoomIndex = 0;
   game.reset(); sync(); toast('Начальное состояние');
+}
+function nextDebugRoom() {
+  stopSweep(); keys.clear(); mouseLook.reset();
+  const room = DEBUG_ROOMS[debugRoomIndex];
+  debugRoomIndex = (debugRoomIndex + 1) % DEBUG_ROOMS.length;
+  // The hub's central pedestal occupies the origin; this spot is clear in every room.
+  Object.assign(game.player, { room, x: 0, z: 1, yaw: 0, pitch: 0 });
+  sync(); toast(`Отладка: ${ROOMS[room].name}`);
 }
 function undo() {
   stopSweep(); mouseLook.reset();
@@ -130,6 +140,7 @@ document.addEventListener('keydown', event => {
   if (event.code === 'F3') { event.preventDefault(); debug = !debug; $('debug').hidden = !debug; return; }
   if (event.code === 'F4') { event.preventDefault(); if (locked && !event.repeat) toggleSweep(); return; }
   if (!locked) return;
+  if (event.code === 'Tab') { event.preventDefault(); if (!event.repeat) nextDebugRoom(); return; }
   if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(event.code)) event.preventDefault();
   keys.add(event.code);
   if (event.repeat) return;
