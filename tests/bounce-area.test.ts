@@ -99,6 +99,17 @@ test('partial panel visibility has no coarse steps along the cross-room side wal
   }
 });
 
+test('baked panel angular response matches a tilted receiver without changing flat energy', () => {
+  const sample = panelLightSampler('F', undefined, 'draft'), point = { x: 3.144, y: .6, z: .25 };
+  const normal = { x: 1, y: 0, z: 0 }, gradient = new Float64Array(4), epsilon = .0001;
+  const value = sample(point, normal, gradient);
+  const plus = sample(point, { x: Math.cos(epsilon), y: Math.sin(epsilon), z: 0 });
+  const minus = sample(point, { x: Math.cos(epsilon), y: -Math.sin(epsilon), z: 0 });
+  assert.ok(value > .001);
+  assert.equal(gradient[3], value);
+  assert.ok(Math.abs((plus - minus) / (2 * epsilon) - gradient[1]) < .00001);
+});
+
 test('draft and full bakes keep separate precision and reusable reflector data', () => {
   const samples = { positions: new Float32Array([.3, 1.5, -6.998, .4, 1.5, -6.998]),
     normals: new Float32Array([0, 0, 1, 0, 0, 1]), texels: new Uint32Array([0, 1]), passages: new Int8Array([-1, -1]) };

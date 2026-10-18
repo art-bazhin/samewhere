@@ -1,13 +1,13 @@
 import type { BakedLighting } from './light-transfer-bake';
 import { ROOM_IDS, ROOMS, type RoomId } from './world';
-import { LIGHTMAP_CHANNELS } from './directional-lightmap';
+import { LIGHTMAP_CHANNELS, PANEL_LIGHTMAP_CHANNELS } from './directional-lightmap';
 
 interface Section { offset: number; length: number }
 interface Header {
   revision: string; elapsedMs: number; atlases: BakedLighting['atlases']; panels: Record<RoomId, Section>;
   fields: { room: RoomId; key: string; channels: number; runs: Section; values: Section }[];
 }
-const MAGIC = 'SWLIGHT2', PREFIX = 12;
+const MAGIC = 'SWLIGHT3', PREFIX = 12;
 
 /** Lossless binary storage: half-float panels, float32 transfers and uint32 runs. */
 export function encodeLighting(data: BakedLighting, revision: string): Uint8Array {
@@ -45,7 +45,7 @@ export function decodeLighting(buffer: ArrayBuffer, revision: string): BakedLigh
   };
   const panels = Object.fromEntries(ROOM_IDS.map(room => {
     const size = header.atlases?.[room], panel = view(header.panels?.[room], Uint16Array);
-    if (!size || !size.every(value => Number.isInteger(value) && value > 0) || size.length !== 2 || panel.length !== size[0] * size[1] * LIGHTMAP_CHANNELS) throw new Error(`Invalid lighting atlas: ${room}`);
+    if (!size || !size.every(value => Number.isInteger(value) && value > 0) || size.length !== 2 || panel.length !== size[0] * size[1] * PANEL_LIGHTMAP_CHANNELS) throw new Error(`Invalid lighting atlas: ${room}`);
     return [room, panel];
   })) as BakedLighting['panels'];
   const sockets = ROOM_IDS.flatMap(room => Array.from({ length: ROOMS[room].sides }, (_, side) => `${room}${side}`));

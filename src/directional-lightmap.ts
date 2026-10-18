@@ -1,5 +1,6 @@
-/** Two RGBA planes: existing irradiance, then its angular gradient and luminance. */
+/** Neighbor bounce uses two RGBA planes; local panels append the direct-light gradient. */
 export const LIGHTMAP_CHANNELS = 8;
+export const PANEL_LIGHTMAP_CHANNELS = 12;
 
 export const luminance = (r: number, g: number, b: number) => .2126 * r + .7152 * g + .0722 * b;
 

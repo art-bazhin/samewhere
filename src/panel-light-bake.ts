@@ -6,7 +6,7 @@ import { insideOutline } from './geometry';
 import { DOOR_HEIGHT, DOOR_WIDTH, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, type RoomId } from './world';
 import { bounceAreaClear, bounceFormFactor, type BounceArea } from './bounce-area';
 import { floorBounceCells } from './bounce-floor';
-import { addLightGradient, LIGHTMAP_CHANNELS, luminance } from './directional-lightmap';
+import { addLightGradient, PANEL_LIGHTMAP_CHANNELS, luminance } from './directional-lightmap';
 
 interface Point { x: number; y: number; z: number }
 export type LightingBakeQuality = 'draft' | 'full';
@@ -16,7 +16,8 @@ export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE, qu
   const subdivisions = quality === 'full' && ROOMS[room].outline ? 9 : 3;
   const sources = ROOM_LIGHTS[room].flatMap(lamp => ceilingPanelSamples(lamp, subdivisions));
   const weight = CEILING_LIGHT.intensity * share / subdivisions ** 2;
-  return (point: Point, normal: Point) => {
+  return (point: Point, normal: Point, gradient?: Float64Array) => {
+    gradient?.fill(0);
     const origin = { x: point.x + normal.x * LIGHT_RAY_OFFSET, y: point.y + normal.y * LIGHT_RAY_OFFSET, z: point.z + normal.z * LIGHT_RAY_OFFSET };
     let light = 0;
     for (const source of sources) {
@@ -27,7 +28,12 @@ export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE, qu
       if (transferPathBlocked(room, origin, source, -1)) continue;
       const cutoff = Math.max(0, 1 - (distance2 / source.distance ** 2) ** 2);
       light += weight * y * cosine * cutoff * cutoff / Math.max(distance2 * distance2, .0001);
+      if (gradient) {
+        const slope = weight * y * cutoff * cutoff / Math.max(distance2 * distance2, .0001);
+        gradient[0] += x * slope; gradient[1] += y * slope; gradient[2] += z * slope;
+      }
     }
+    if (gradient) gradient[3] = light;
     return light;
   };
 }
@@ -35,7 +41,8 @@ export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE, qu
 /** Analytic counterpart of the live spot's diffuse term, used at floor joins. */
 function spotLightSampler(room: RoomId) {
   const cone = Math.cos(CEILING_LIGHT.angle), penumbra = Math.cos(CEILING_LIGHT.angle * (1 - CEILING_LIGHT.penumbra));
-  return (point: Point, normal: Point) => {
+  return (point: Point, normal: Point, gradient?: Float64Array) => {
+    gradient?.fill(0);
     let light = 0;
     const origin = { x: point.x + normal.x * LIGHT_RAY_OFFSET, y: point.y + normal.y * LIGHT_RAY_OFFSET, z: point.z + normal.z * LIGHT_RAY_OFFSET };
     for (const lamp of ROOM_LIGHTS[room]) {
@@ -45,7 +52,12 @@ function spotLightSampler(room: RoomId) {
       const spot = Math.max(0, Math.min(1, (y / distance - cone) / (penumbra - cone)));
       const cutoff = Math.max(0, 1 - (distance / lamp.distance) ** 4);
       light += CEILING_LIGHT.intensity * SPOT_LIGHT_SHARE * spot * spot * (3 - 2 * spot) * cutoff * cutoff * cosine / Math.max(distance * distance, .01);
+      if (gradient) {
+        const slope = CEILING_LIGHT.intensity * SPOT_LIGHT_SHARE * spot * spot * (3 - 2 * spot) * cutoff * cutoff / Math.max(distance * distance, .01) / distance;
+        gradient[0] += x * slope; gradient[1] += y * slope; gradient[2] += z * slope;
+      }
     }
+    if (gradient) gradient[3] = light;
     return light;
   };
 }
@@ -100,16 +112,21 @@ export function bouncePatches(room: RoomId, subdivisions?: number, quality: Ligh
 }
 
 export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount: number, quality: LightingBakeQuality = 'full') {
-  const values = new Uint16Array(texelCount * LIGHTMAP_CHANNELS), sample = panelLightSampler(room, 1 - SPOT_LIGHT_SHARE, quality), sampleSpot = spotLightSampler(room), sampleBounce = createBounceSampler(room, undefined, true, quality), bounce = new Float32Array(3), moment = new Float32Array(4);
+  const values = new Uint16Array(texelCount * PANEL_LIGHTMAP_CHANNELS), sample = panelLightSampler(room, 1 - SPOT_LIGHT_SHARE, quality), sampleSpot = spotLightSampler(room), sampleBounce = createBounceSampler(room, undefined, true, quality), bounce = new Float32Array(3), moment = new Float32Array(4);
+  const direct = new Float64Array(4), spot = new Float64Array(4);
   const point = { x: 0, y: 0, z: 0 }, normal = { ...point };
   for (const texel of samples.texels) {
     const i = texel * 3;
     point.x = samples.positions[i]; point.y = samples.positions[i + 1]; point.z = samples.positions[i + 2];
     normal.x = samples.normals[i]; normal.y = samples.normals[i + 1]; normal.z = samples.normals[i + 2];
-    const out = texel * 4; values[out] = DataUtils.toHalfFloat(sample(point, normal) + (samples.passages[texel] >= 0 ? sampleSpot(point, normal) : 0));
+    const out = texel * 4, panel = sample(point, normal, direct);
+    spot.fill(0);
+    const passage = samples.passages[texel] >= 0 ? sampleSpot(point, normal, spot) : 0;
+    values[out] = DataUtils.toHalfFloat(panel + passage);
     sampleBounce(point, normal, bounce, moment);
     values[out + 1] = DataUtils.toHalfFloat(bounce[0]); values[out + 2] = DataUtils.toHalfFloat(bounce[1]); values[out + 3] = DataUtils.toHalfFloat(bounce[2]);
     for (let channel = 0; channel < 4; channel++) values[texelCount * 4 + out + channel] = DataUtils.toHalfFloat(moment[channel]);
+    for (let channel = 0; channel < 4; channel++) values[texelCount * 8 + out + channel] = DataUtils.toHalfFloat(direct[channel] + spot[channel]);
   }
   return values;
 }

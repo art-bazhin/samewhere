@@ -23,10 +23,11 @@ test('normal maps affect reflected light on the shadowed lower pedestal and pres
     // bounce probe can disappear under the room's other lighting components.
     material.normalScale.setScalar(100);
     const fullRelief = render(), field = space.lightTransfer.fields.A;
-    const maps = [field.panel, field.texture], saved = maps.map((map: any) => map.image.data.slice(map.image.data.length / 2));
-    maps.forEach((map: any) => { map.image.data.fill(0, map.image.data.length / 2); map.needsUpdate = true; });
+    const maps = [field.panel, field.texture], plane = field.texture.image.data.length / 2;
+    const saved = maps.map((map: any) => map.image.data.slice(plane));
+    maps.forEach((map: any) => { map.image.data.fill(0, plane); map.needsUpdate = true; });
     const fullOriginal = render();
-    maps.forEach((map: any, index: number) => { map.image.data.set(saved[index], map.image.data.length / 2); map.needsUpdate = true; });
+    maps.forEach((map: any, index: number) => { map.image.data.set(saved[index], plane); map.needsUpdate = true; });
     let fullDifference = 0, fullEnergy = 0;
     for (let i = 0; i < fullRelief.length; i += 4) { fullDifference += Math.abs(fullRelief[i] - fullOriginal[i]); fullEnergy += fullOriginal[i]; }
     material.color.set(0xffffff); material.map = null;

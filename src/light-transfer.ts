@@ -7,7 +7,7 @@ import lightingUrl, { revision as lightingRevision } from 'virtual:samewhere-lig
 import { decodeLighting } from './lighting-data';
 import { SURFACE_LIGHTMAP_FILTER } from './lightmap-filter';
 import { DirectLight } from './direct-light';
-import { DIRECTIONAL_LIGHTMAP_SHADER, LIGHTMAP_CHANNELS } from './directional-lightmap';
+import { DIRECTIONAL_LIGHTMAP_SHADER, LIGHTMAP_CHANNELS, PANEL_LIGHTMAP_CHANNELS } from './directional-lightmap';
 
 interface FieldBuffer { texture: THREE.DataTexture; key: string }
 interface RoomField extends FieldBuffer {
@@ -25,6 +25,7 @@ export class LightTransfer {
     transferredLight: { value: null as THREE.DataTexture | null },
     transferColor: { value: new THREE.Color(CEILING_LIGHT.color) }, transferGain: { value: 0 },
     panelLight: { value: null as THREE.DataTexture | null },
+    lightmapSize: { value: new THREE.Vector2() },
     passageCount: { value: 0 },
     passageFrames: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
     passageAtlases: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
@@ -45,14 +46,14 @@ export class LightTransfer {
     this.direct = new DirectLight(renderer, rooms);
     this.fields = Object.fromEntries(ROOM_IDS.map(room => {
       const layout = prepareSurfaceLayout(rooms[room].scene, room), { width, height } = layout;
-      const storage = () => {
+      const storage = (channels = LIGHTMAP_CHANNELS) => {
         // Stack both planes in one texture: seven-light rooms already approach
         // WebGL's fragment sampler limit, so directions must not add samplers.
-        const texture = new THREE.DataTexture(new Uint16Array(width * height * LIGHTMAP_CHANNELS), width, height * 2, THREE.RGBAFormat, THREE.HalfFloatType);
+        const texture = new THREE.DataTexture(new Uint16Array(width * height * channels), width, height * channels / 4, THREE.RGBAFormat, THREE.HalfFloatType);
         texture.minFilter = texture.magFilter = THREE.LinearFilter; texture.needsUpdate = true;
         return { texture, key: '' };
       };
-      const buffers = Array.from({ length: 2 }, storage), panel = storage();
+      const buffers = Array.from({ length: 2 }, () => storage()), panel = storage(PANEL_LIGHTMAP_CHANNELS);
       const passages: RoomField['passages'] = [];
       for (const chart of layout.charts) if (chart.passage !== undefined) {
         const p = portalPosition(room, chart.passage), n = wallNormal(room, chart.passage);
@@ -66,6 +67,7 @@ export class LightTransfer {
     })) as Record<RoomId, RoomField>;
     this.uniforms.transferredLight.value = this.fields.A.texture;
     this.uniforms.panelLight.value = this.fields.A.panel;
+    this.uniforms.lightmapSize.value.set(this.fields.A.texture.image.width, this.fields.A.texture.image.height / 2);
     this.ready = this.load();
   }
   private async load() {
@@ -122,6 +124,7 @@ export class LightTransfer {
     this.direct.bind(room, this.enabled);
     this.uniforms.transferredLight.value = field.texture;
     this.uniforms.panelLight.value = field.panel;
+    this.uniforms.lightmapSize.value.set(field.texture.image.width, field.texture.image.height / 2);
     this.uniforms.transferGain.value = preparing || this.enabled && !!field.key ? 1 : 0;
     this.uniforms.passageCount.value = this.enabled && field.key ? field.active.length : 0;
     field.active.forEach((side, index) => {
@@ -142,8 +145,9 @@ export class LightTransfer {
           vTransferUv += portalLightUvOffset;
         #endif`);
       shader.fragmentShader = `${SURFACE_LIGHTMAP_FILTER.replaceAll('sampleSurfaceLightmap', 'sampleLightmapPlane')}
-        vec4 sampleSurfaceLightmap(sampler2D lightmap, vec2 uv) { return sampleLightmapPlane(lightmap, uv * vec2(1., .5)); }
-        vec4 sampleSurfaceDirection(sampler2D lightmap, vec2 uv) { return sampleLightmapPlane(lightmap, (uv + vec2(0., 1.)) * vec2(1., .5)); }
+        uniform vec2 lightmapSize;
+        vec4 sampleSurfaceLightmap(sampler2D lightmap, vec2 uv) { return sampleLightmapPlane(lightmap, uv * lightmapSize / vec2(textureSize(lightmap, 0))); }
+        vec4 sampleSurfaceDirection(sampler2D lightmap, vec2 uv) { return sampleSurfaceLightmap(lightmap, uv + vec2(0., 1.)); }
         ${DIRECTIONAL_LIGHTMAP_SHADER}
         varying vec2 vTransferUv;
         varying vec2 vDirectUv; uniform sampler2D directSurfaceLight;
@@ -157,7 +161,8 @@ export class LightTransfer {
           roomLight.gba *= socketVisibility.y;
         #endif
         vec3 roomBounce = directionalBounce(roomLight.gba, sampleSurfaceDirection(panelLight, vTransferUv), normal, nonPerturbedNormal);
-        reflectedLight.directDiffuse += (roomLight.r * transferColor + roomBounce) * BRDF_Lambert(material.diffuseColor);
+        vec3 roomDirect = directionalBounce(roomLight.r * transferColor, sampleSurfaceLightmap(panelLight, vTransferUv + vec2(0., 2.)), normal, nonPerturbedNormal);
+        reflectedLight.directDiffuse += (roomDirect + roomBounce) * BRDF_Lambert(material.diffuseColor);
         if (transferGain > 0.) reflectedLight.directDiffuse += texture2D(directSurfaceLight, vDirectUv).r * transferColor * BRDF_Lambert(material.diffuseColor);
         if (transferGain > 0.) {
           vec4 transported = sampleSurfaceLightmap(transferredLight, vTransferUv);

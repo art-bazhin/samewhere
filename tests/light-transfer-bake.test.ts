@@ -8,7 +8,7 @@ import { portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomWalls, wallNormal } f
 import { DataUtils, Vector3 } from 'three';
 import { panelLightSampler } from '../src/panel-light-bake';
 import { encodeLighting, decodeLighting } from '../src/lighting-data';
-import { LIGHTMAP_CHANNELS, luminance } from '../src/directional-lightmap';
+import { LIGHTMAP_CHANNELS, PANEL_LIGHTMAP_CHANNELS, luminance } from '../src/directional-lightmap';
 
 // Exercise the complete format/connection pipeline at development precision.
 const quality = 'draft', result = bakeLightTransfer(quality);
@@ -37,7 +37,7 @@ test('panel light and reflected light remain finite, bounded and occluded by ped
   let bytes = 0, reflected = 0;
   for (const room of ROOM_IDS) {
     const [width, height] = result.atlases[room], map = result.panels[room];
-    assert.equal(map.length, width * height * LIGHTMAP_CHANNELS); bytes += map.byteLength;
+    assert.equal(map.length, width * height * PANEL_LIGHTMAP_CHANNELS); bytes += map.byteLength;
     const plane = width * height * 4;
     for (let i = 0; i < plane; i += 4) {
       const rgba = Array.from(map.subarray(i, i + 4), value => DataUtils.fromHalfFloat(value));
@@ -48,13 +48,16 @@ test('panel light and reflected light remain finite, bounded and occluded by ped
       assert.ok(moment.every(Number.isFinite));
       assert.ok(Math.abs(moment[3] - luminance(rgba[1], rgba[2], rgba[3])) <= moment[3] * .002 + .00001,
         'Angular response retains the original reflected energy');
+      const direct = Array.from(map.subarray(plane * 2 + i, plane * 2 + i + 4), value => DataUtils.fromHalfFloat(value));
+      assert.ok(direct.every(Number.isFinite));
+      assert.equal(direct[3], rgba[0], 'Direct response retains the original panel energy');
     }
     const lamp = ROOMS[room].pedestals[0], sample = panelLightSampler(room);
     assert.ok(sample({ x: lamp.x, y: 1.21, z: lamp.z }, { x: 0, y: 1, z: 0 }) > 0);
     assert.equal(sample({ x: lamp.x, y: .01, z: lamp.z }, { x: 0, y: 1, z: 0 }), 0, 'Pedestal blocks the floor directly beneath it');
     assert.equal(sample({ x: lamp.x, y: 1.21, z: lamp.z }, { x: 0, y: -1, z: 0 }), 0);
   }
-  assert.ok(bytes <= 6 * 1024 * 1024); assert.ok(reflected > 1000);
+  assert.ok(bytes <= 9 * 1024 * 1024); assert.ok(reflected > 1000);
 });
 
 test('build calculation prepares every directed connection using compact, bounded surface texels', () => {
