@@ -11,8 +11,8 @@ export const ROOM_LIGHTS = Object.fromEntries(ROOM_IDS.map(room =>
   [room, ROOMS[room].pedestals.map(({ x, z }) => ({ x, z }))])) as Record<RoomId, Vec2[]>;
 
 // Broad static diffuse light is integrated over the visible panel. The remaining
-// spot contribution retains live ball shadows; balls reflect the visible panels
-// through their environment map instead of duplicating them with spot highlights.
+// spot contribution retains live shadows. Balls and carpet use environment
+// reflections rather than highlights from only the current room's spots.
 export const SPOT_LIGHT_SHARE = .45;
 
 /** Same deterministic area-light probes for local and neighboring illumination. */

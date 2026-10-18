@@ -141,7 +141,9 @@ export function surfaceSamples(layout: SurfaceLayout): SurfaceSamples {
     const origin = portalPosition(layout.room, chart.passage), n = wallNormal(layout.room, chart.passage);
     for (let y = 0; y < chart.height; y++) for (let x = 0; x < chart.width; x++) {
       const lateral = Math.max(chart.min.x, Math.min(chart.max.x, chart.min.x + (x - PADDING) * chart.step.x));
-      const depth = Math.max(0, Math.min(chart.max.y, (y - PADDING) * chart.step.y));
+      // The cubic filter needs a real sample across the transition plane.
+      // Repeating depth zero here biases each room toward its own light slope.
+      const depth = Math.min(chart.max.y, (y - PADDING) * chart.step.y);
       const texel = (chart.y + y) * layout.width + chart.x + x;
       positions.set([origin.x - n.x * depth - n.z * lateral, .002, origin.z - n.z * depth + n.x * lateral], texel * 3);
       normals[texel * 3 + 1] = 1; passages[texel] = chart.passage; distance[texel] = 0;

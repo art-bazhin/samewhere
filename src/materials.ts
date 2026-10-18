@@ -64,23 +64,8 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   materials.socket.shadowSide = THREE.FrontSide;
   withWallContacts(materials.wall);
   withPedestalContacts(materials.pedestal);
-  for (const material of [materials.red, materials.blue]) {
-    // Visible ceiling panels already supply the resin and clearcoat reflections
-    // through the environment map. Spots provide diffuse light and shadows only,
-    // otherwise each panel gains a second, circular highlight on the balls.
-    material.onBeforeCompile = shader => {
-      shader.fragmentShader = shader.fragmentShader.replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>
-        void RE_Direct_BallDiffuse(const in IncidentLight directLight, const in vec3 geometryPosition,
-          const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal,
-          const in PhysicalMaterial material, inout ReflectedLight reflectedLight) {
-          vec3 irradiance = saturate(dot(geometryNormal, directLight.direction)) * directLight.color;
-          reflectedLight.directDiffuse += irradiance * BRDF_Lambert(material.diffuseColor);
-        }
-        #undef RE_Direct
-        #define RE_Direct RE_Direct_BallDiffuse`);
-    };
-    material.customProgramCacheKey = () => 'ball-panel-reflections';
-  }
+  // Panel reflections already supply the resin and clearcoat highlights.
+  for (const material of [materials.red, materials.blue]) withEnvironmentSpecular(material);
   materials.socket.onBeforeCompile = shader => {
     shader.vertexShader = 'attribute float socketOccupied; varying float vSocketOccupied; varying vec3 bowlPosition; varying vec2 socketOffset;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
@@ -136,6 +121,24 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   return { materials, textures, environment, optimizations, ready: Promise.all(pending).then(() => {}) };
 }
 export type MaterialSet = ReturnType<typeof createMaterials>['materials'];
+
+/** Keep diffuse light/shadows from spots, and source highlights from the environment. */
+function withEnvironmentSpecular(material: THREE.MeshStandardMaterial) {
+  const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    before(shader, renderer);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>
+      void RE_Direct_SurfaceDiffuse(const in IncidentLight directLight, const in vec3 geometryPosition,
+        const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal,
+        const in PhysicalMaterial material, inout ReflectedLight reflectedLight) {
+        vec3 irradiance = saturate(dot(geometryNormal, directLight.direction)) * directLight.color;
+        reflectedLight.directDiffuse += irradiance * BRDF_Lambert(material.diffuseColor);
+      }
+      #undef RE_Direct
+      #define RE_Direct RE_Direct_SurfaceDiffuse`);
+  };
+  material.customProgramCacheKey = () => `${key}:environment-specular`;
+}
 
 /** Keep MSAA-covered boundary fragments and the solid caps at the portal plane. */
 function preservePortalCoverage(material: THREE.MeshStandardMaterial) {
@@ -218,6 +221,9 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
   withContactShading(material, `${contacts}\n${boundaryContactDistance(room, true, PEDESTAL_CONTACT_STRENGTH)}`, PEDESTAL_CONTACT_STRENGTH,
     { boundedContacts: enabled, contactOpenings: openings },
     `uniform bool boundedContacts; uniform int contactOpenings[${ROOMS[room].sides}];`);
+  // The carpet's broad reflections use the shared environment on both sides of
+  // a portal. Local-only spot highlights would stop at the transition plane.
+  withEnvironmentSpecular(material);
   return withDistanceFade(material);
 }
 

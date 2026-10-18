@@ -22,12 +22,12 @@ export function transferPathBlocked(room: RoomId, a: Point, b: Point, exit: numb
     if (wall.portal === exit) continue;
     const t = intersection(a, b, wall.a, wall.b);
     if (t < 0) continue;
-    // A scene includes its half of an open passage. Its visible threshold and
-    // reveals remain lit by this room's lamps, even beyond the inner wall face.
+    // Include the full wall thickness for passage-filter guard samples across
+    // the transition plane, as well as this scene's visible half of the reveal.
     const inPassage = (p: Point) => {
       const depth = (p.x - wall.center.x) * wall.normal.x + (p.z - wall.center.z) * wall.normal.z;
       const lateral = -(p.x - wall.center.x) * wall.normal.z + (p.z - wall.center.z) * wall.normal.x;
-      return wall.portal !== null && depth >= -.0001 && depth <= WALL_THICKNESS / 2 + .003 &&
+      return wall.portal !== null && depth >= -.0001 && depth <= WALL_THICKNESS + .003 &&
         Math.abs(lateral) <= DOOR_WIDTH / 2 + .003 && p.y >= 0 && p.y <= DOOR_HEIGHT;
     };
     if (!inPassage(a) && !inPassage(b)) return true;
