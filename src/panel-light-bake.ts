@@ -1,6 +1,6 @@
 import { Color, DataUtils } from 'three';
 import { CEILING_LIGHT, ceilingPanelSamples, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
-import { transferPathBlocked } from './light-path';
+import { LIGHT_RAY_OFFSET, transferPathBlocked } from './light-path';
 import type { SurfaceSamples } from './lightmap-layout';
 import { insideOutline } from './geometry';
 import { DOOR_HEIGHT, DOOR_WIDTH, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, type RoomId } from './world';
@@ -16,7 +16,7 @@ export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE, qu
   const sources = ROOM_LIGHTS[room].flatMap(lamp => ceilingPanelSamples(lamp, subdivisions));
   const weight = CEILING_LIGHT.intensity * share / subdivisions ** 2;
   return (point: Point, normal: Point) => {
-    const origin = { x: point.x + normal.x * .005, y: point.y + normal.y * .005, z: point.z + normal.z * .005 };
+    const origin = { x: point.x + normal.x * LIGHT_RAY_OFFSET, y: point.y + normal.y * LIGHT_RAY_OFFSET, z: point.z + normal.z * LIGHT_RAY_OFFSET };
     let light = 0;
     for (const source of sources) {
       const x = source.x - point.x, y = source.y - point.y, z = source.z - point.z;
@@ -36,7 +36,7 @@ function spotLightSampler(room: RoomId) {
   const cone = Math.cos(CEILING_LIGHT.angle), penumbra = Math.cos(CEILING_LIGHT.angle * (1 - CEILING_LIGHT.penumbra));
   return (point: Point, normal: Point) => {
     let light = 0;
-    const origin = { x: point.x + normal.x * .005, y: point.y + normal.y * .005, z: point.z + normal.z * .005 };
+    const origin = { x: point.x + normal.x * LIGHT_RAY_OFFSET, y: point.y + normal.y * LIGHT_RAY_OFFSET, z: point.z + normal.z * LIGHT_RAY_OFFSET };
     for (const lamp of ROOM_LIGHTS[room]) {
       const source = { ...lamp, y: CEILING_LIGHT.height }, x = source.x - point.x, y = source.y - point.y, z = source.z - point.z;
       const distance = Math.hypot(x, y, z), cosine = (normal.x * x + normal.y * y + normal.z * z) / distance;
@@ -129,7 +129,7 @@ export function createBounceSampler(room: RoomId, subdivisions?: number, optimiz
         point.x -= wall.normal.x * (depth + .001); point.z -= wall.normal.z * (depth + .001);
       }
     }
-    const origin = { x: point.x + normal.x * .005, y: point.y + normal.y * .005, z: point.z + normal.z * .005 };
+    const origin = { x: point.x + normal.x * LIGHT_RAY_OFFSET, y: point.y + normal.y * LIGHT_RAY_OFFSET, z: point.z + normal.z * LIGHT_RAY_OFFSET };
     const interior = insideOutline(origin, roomOutline(room));
     let red = 0, green = 0, blue = 0;
     for (const area of patches) {

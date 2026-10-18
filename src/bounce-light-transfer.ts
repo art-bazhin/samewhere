@@ -1,6 +1,6 @@
 import { bouncePatches, type LightingBakeQuality } from './panel-light-bake';
 import { bounceAreaClear, bounceFormFactor, type BounceArea } from './bounce-area';
-import { APERTURE_EPSILON, transferPathBlocked } from './light-path';
+import { APERTURE_EPSILON, LIGHT_RAY_OFFSET, transferPathBlocked } from './light-path';
 import { DOOR_HEIGHT, DOOR_WIDTH, portalAngle, portalDistance, portalPosition, rotate, transformPoint, WALL_THICKNESS, wallNormal, type SocketRef } from './world';
 
 interface Point { x: number; y: number; z: number }
@@ -52,7 +52,7 @@ export function createBounceTransferSampler(receiver: SocketRef, source: SocketR
     const reach = Math.hypot(depth, lateral, vertical);
     if (reach >= 2) return;
     const t = Math.max(0, (reach - .5) / 1.5), gain = 1 - t * t * (3 - 2 * t);
-    const origin = { x: point.x + normal.x * .005, y: point.y + normal.y * .005, z: point.z + normal.z * .005 };
+    const origin = { x: point.x + normal.x * LIGHT_RAY_OFFSET, y: point.y + normal.y * LIGHT_RAY_OFFSET, z: point.z + normal.z * LIGHT_RAY_OFFSET };
     const sourceOrigin = { ...transformPoint(origin, receiver, source), y: origin.y };
     aperturePlanes(point, n, center, distance, planes);
     let red = 0, green = 0, blue = 0;

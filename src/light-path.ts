@@ -2,6 +2,7 @@ import { insideOutline } from './geometry';
 import { DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, ROOM_IDS, ROOMS, roomWalls, WALL_THICKNESS, type RoomId, type Vec2 } from './world';
 
 interface Point extends Vec2 { y: number }
+export const SURFACE_SAMPLE_OFFSET = .002, LIGHT_RAY_OFFSET = .005;
 // Surface samples are stored as float32; a point exactly on a jamb must not
 // become an outside-aperture sample after transforming or rounding coordinates.
 export const APERTURE_EPSILON = .00001;

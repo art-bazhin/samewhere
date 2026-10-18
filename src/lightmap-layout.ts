@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, portalPosition, ROOMS, roomWalls, WALL_THICKNESS, wallNormal, type RoomId } from './world';
 import { createRoom } from './room-visual';
-import { closestOnSegment, insideOutline } from './geometry';
+import { closestOnSegment, insideOutline, offsetOutline } from './geometry';
+import { LIGHT_RAY_OFFSET, SURFACE_SAMPLE_OFFSET } from './light-path';
 
 export const LIGHTMAP_SPACING = .25;
 export const PASSAGE_LIGHT_SPACING = .1, PASSAGE_LIGHT_WIDTH = 1.1, PASSAGE_LIGHT_DEPTH = .6;
@@ -139,6 +140,7 @@ export function surfaceSamples(layout: SurfaceLayout): SurfaceSamples {
   const distance = new Float32Array(count).fill(Infinity), weights = new THREE.Vector3(), point = new THREE.Vector3(), normal = new THREE.Vector3();
   const closest = new THREE.Vector2();
   const walls = roomWalls(layout.room), outline = walls.map(wall => wall.a);
+  const inset = offsetOutline(outline, -(SURFACE_SAMPLE_OFFSET + LIGHT_RAY_OFFSET));
   for (const chart of layout.charts) if (chart.passage !== undefined) {
     const origin = portalPosition(layout.room, chart.passage), n = wallNormal(layout.room, chart.passage);
     for (let y = 0; y < chart.height; y++) for (let x = 0; x < chart.width; x++) {
@@ -152,6 +154,10 @@ export function surfaceSamples(layout: SurfaceLayout): SurfaceSamples {
     }
   }
   for (const chart of layout.charts) for (const triangle of chartTriangles(chart)) {
+    const p = triangle.positions[0], n = triangle.normals[0];
+    const wallSurface = (triangle.mesh.name === 'room-wall' || triangle.mesh.name === 'boundary-wall') && walls.some(wall =>
+      n.x * wall.normal.x + n.z * wall.normal.z < -.999 &&
+      Math.abs((p.x - wall.center.x) * wall.normal.x + (p.z - wall.center.z) * wall.normal.z) < .0001);
     const uv = triangle.uv.map(p => new THREE.Vector2((p.x - chart.min.x) / chart.step.x + PADDING, (p.y - chart.min.y) / chart.step.y + PADDING));
     const [a, b, c] = uv, determinant = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
     if (Math.abs(determinant) < 1e-10) continue;
@@ -192,7 +198,23 @@ export function surfaceSamples(layout: SurfaceLayout): SurfaceSamples {
         point.x = position.x - nearest.normal.x * .003 + dx / length * .003;
         point.z = position.z - nearest.normal.z * .003 + dz / length * .003;
       }
-      point.addScaledVector(normal, .002);
+      point.addScaledVector(normal, SURFACE_SAMPLE_OFFSET);
+      // Project the ray origin into the inset footprint, then recover the
+      // receiver. Both offsets stay inside every adjacent face at sharp corners.
+      // Jambs retain their real positions in the doorway outside that footprint.
+      if (wallSurface) {
+        const origin = { x: point.x + normal.x * LIGHT_RAY_OFFSET, z: point.z + normal.z * LIGHT_RAY_OFFSET };
+        if (!insideOutline(origin, inset)) {
+          let nearest = origin, best = Infinity;
+          for (let edge = 0; edge < inset.length; edge++) {
+            const q = closestOnSegment(origin, inset[edge], inset[(edge + 1) % inset.length]);
+            const distance = (q.x - origin.x) ** 2 + (q.z - origin.z) ** 2;
+            if (distance < best) { best = distance; nearest = q; }
+          }
+          point.x = nearest.x - normal.x * LIGHT_RAY_OFFSET;
+          point.z = nearest.z - normal.z * LIGHT_RAY_OFFSET;
+        }
+      }
       positions.set(point.toArray(), index * 3); normals.set(normal.toArray(), index * 3);
     }
   }
