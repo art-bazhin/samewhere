@@ -3,9 +3,9 @@ import { DOOR_WIDTH, pedestalOutline, ROOM_HEIGHT, roomOutline, roomWalls, WALL_
 
 // Maximum contact darkening in linear light.
 export const WALL_CONTACT_STRENGTH = .1, PEDESTAL_CONTACT_STRENGTH = .2;
-const WALL_EDGE_STRENGTH = .05, PEDESTAL_EDGE_STRENGTH = .1;
+const WALL_EDGE_STRENGTH = .025, PEDESTAL_EDGE_STRENGTH = .05;
 // Exponential decay in inverse meters; characteristic length = 1 / CONTACT_FALLOFF.
-const CONTACT_FALLOFF = 10;
+const CONTACT_FALLOFF = 50;
 
 /** The same linear-light contact profile on every architectural surface. */
 export function withContactShading(material: THREE.MeshStandardMaterial, distance: string,
