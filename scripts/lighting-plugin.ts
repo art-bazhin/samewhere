@@ -6,12 +6,13 @@ import { join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import ts from 'typescript';
 import type { Plugin, ResolvedConfig } from 'vite';
+import type { LightingBakeQuality } from '../src/panel-light-bake';
 
 const MODULE = 'virtual:samewhere-lighting', ID = `\0${MODULE}`;
 const execute = promisify(execFile);
 
 /** Follow the bake's local imports, so new algorithm dependencies invalidate it too. */
-export async function lightingRevision(root: string, entry = 'scripts/bake-lighting.ts') {
+export async function lightingRevision(root: string, quality: LightingBakeQuality = 'full', entry = 'scripts/bake-lighting.ts') {
   const sources = new Map<string, string>();
   async function visit(path: string) {
     if (sources.has(path)) return;
@@ -27,7 +28,7 @@ export async function lightingRevision(root: string, entry = 'scripts/bake-light
   for (const file of ['scripts/lighting-plugin.ts', 'package.json', 'package-lock.json']) {
     const path = resolve(root, file); sources.set(path, await readFile(path, 'utf8'));
   }
-  const hash = createHash('sha256').update(process.version);
+  const hash = createHash('sha256').update(process.version).update('\0').update(quality);
   for (const [path, source] of [...sources].sort(([a], [b]) => a.localeCompare(b))) hash.update(relative(root, path)).update('\0').update(source).update('\0');
   return { revision: hash.digest('hex'), files: new Set(sources.keys()) };
 }
@@ -37,18 +38,19 @@ export function lightingPlugin(): Plugin {
   let config: ResolvedConfig, files = new Set<string>();
   let current: { revision: string; path: string } | undefined, pending: Promise<NonNullable<typeof current>> | undefined;
   const cache = () => resolve(config.root, 'node_modules/.cache/samewhere-lighting');
+  const quality = (): LightingBakeQuality => config.command === 'build' ? 'full' : 'draft';
   async function generate(): Promise<NonNullable<typeof current>> {
-    const input = await lightingRevision(config.root); files = input.files;
+    const input = await lightingRevision(config.root, quality()); files = input.files;
     if (current?.revision === input.revision) return current;
     const path = join(cache(), `${input.revision}.bin`);
     try { await Promise.all(['', '.br', '.gz'].map(suffix => access(path + suffix))); }
     catch {
-      config.logger.info('[lighting] Preparing build-time lighting…');
-      const result = await execute(process.execPath, ['--import', 'tsx', resolve(config.root, 'scripts/bake-lighting.ts'), path, input.revision], { cwd: config.root });
+      config.logger.info(`[lighting] Preparing ${quality()} lighting…`);
+      const result = await execute(process.execPath, ['--import', 'tsx', resolve(config.root, 'scripts/bake-lighting.ts'), path, input.revision, quality()], { cwd: config.root });
       config.logger.info(result.stdout.trim());
     }
     // An edit during a running bake must never publish data for the wrong sources.
-    if ((await lightingRevision(config.root)).revision !== input.revision) return generate();
+    if ((await lightingRevision(config.root, quality())).revision !== input.revision) return generate();
     return current = { revision: input.revision, path };
   }
   const ensure = () => pending ??= generate().finally(() => { pending = undefined; });

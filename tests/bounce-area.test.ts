@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { DataUtils } from 'three';
 import { bounceFormFactor, type BounceArea } from '../src/bounce-area';
-import { createBounceSampler } from '../src/panel-light-bake';
+import { bakePanelLight, createBounceSampler, panelLightSampler } from '../src/panel-light-bake';
 import { createBounceTransferSampler } from '../src/bounce-light-transfer';
 import { floorBounceCells } from '../src/bounce-floor';
 import { portalPosition, ROOM_IDS, roomOutline, roomWalls, wallNormal, type SocketRef } from '../src/world';
@@ -61,6 +62,38 @@ test('wall bounce stays continuous at the floor boundary in every room shape', (
   }
 });
 
+test('reflected light has no sampling stripes across the cross-room alcove wall', () => {
+  const sample = createBounceSampler('F'), rgb = new Float32Array(3), normal = { x: 0, y: 0, z: 1 };
+  for (const y of [.5, 1.5, 2.5]) {
+    let previous = 0;
+    for (let i = 0; i <= 32; i++) {
+      sample({ x: -.8 + i * .05, y, z: -6.998 }, normal, rgb);
+      if (i) assert.ok(Math.abs(rgb[0] - previous) < .001, `Irradiance jump at height ${y}, x=${-.8 + i * .05}: ${rgb[0] - previous}`);
+      previous = rgb[0];
+    }
+  }
+});
+
+test('partial panel visibility has no coarse steps along the cross-room side wall', () => {
+  const sample = panelLightSampler('F'), normal = { x: 1, y: 0, z: 0 };
+  let previous = sample({ x: -1.698, y: 1.5, z: -4.4 }, normal);
+  for (let i = 1; i <= 440; i++) {
+    const value = sample({ x: -1.698, y: 1.5, z: -4.4 - i * .005 }, normal);
+    assert.ok(Math.abs(value - previous) < .003, `Panel irradiance jump: ${value - previous}`);
+    previous = value;
+  }
+});
+
+test('draft and full bakes keep separate precision and reusable reflector data', () => {
+  const samples = { positions: new Float32Array([.3, 1.5, -6.998, .4, 1.5, -6.998]),
+    normals: new Float32Array([0, 0, 1, 0, 0, 1]), texels: new Uint32Array([0, 1]), passages: new Int8Array([-1, -1]) };
+  const draft = bakePanelLight('F', samples, 2, 'draft'), full = bakePanelLight('F', samples, 2, 'full');
+  const jump = (values: Uint16Array) => Math.abs(DataUtils.fromHalfFloat(values[1]) - DataUtils.fromHalfFloat(values[5]));
+  assert.ok(jump(draft) > .003, 'Draft keeps the coarse grid');
+  assert.ok(jump(full) < .001, 'Full precision resolves the occlusion stripe');
+  assert.deepEqual(bakePanelLight('F', samples, 2, 'draft'), draft);
+});
+
 test('floor cells cover every outline and retain uniform irradiance along oblique walls', () => {
   for (const room of ROOM_IDS) {
     const outline = roomOutline(room), cells = [...floorBounceCells(outline)].map(({ cell }) => cell);
@@ -83,7 +116,7 @@ test('floor cells cover every outline and retain uniform irradiance along obliqu
 test('conservative area bounds retain the exact wall and pedestal occlusion of individual rays', () => {
   const actual = new Float32Array(3), expected = new Float32Array(3);
   for (const room of ROOM_IDS) {
-    const sample = createBounceSampler(room), reference = createBounceSampler(room, 4, false);
+    const sample = createBounceSampler(room), reference = createBounceSampler(room, undefined, false);
     for (const wall of roomWalls(room)) for (const along of [.001, .15, .5, .85, .999]) for (const y of [.05, 1, 2.5, 3.45]) {
       const normal = { x: -wall.normal.x, y: 0, z: -wall.normal.z };
       const point = { x: wall.a.x + (wall.b.x - wall.a.x) * along + normal.x * .002, y,
@@ -111,7 +144,7 @@ test('area and aperture bounds preserve reflection through thick doorways and se
   ];
   const actual = new Float32Array(3), expected = new Float32Array(3);
   for (const [receiver, source] of pairs) {
-    const sample = createBounceTransferSampler(receiver, source), reference = createBounceTransferSampler(receiver, source, 4, false);
+    const sample = createBounceTransferSampler(receiver, source), reference = createBounceTransferSampler(receiver, source, undefined, false);
     const p = portalPosition(receiver.room, receiver.side), n = wallNormal(receiver.room, receiver.side);
     for (const depth of [-.1, 0, .02, .3, 1.2]) for (const lateral of [-1.05, -.9, -.895, 0, .895, .9, 1.05]) for (const y of [.002, 1.6, 2.59]) {
       const point = { x: Math.fround(p.x - n.x * depth - n.z * lateral), y, z: Math.fround(p.z - n.z * depth + n.x * lateral) };

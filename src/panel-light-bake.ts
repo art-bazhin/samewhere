@@ -3,16 +3,18 @@ import { CEILING_LIGHT, ceilingPanelSamples, ROOM_LIGHTS, SPOT_LIGHT_SHARE } fro
 import { transferPathBlocked } from './light-path';
 import type { SurfaceSamples } from './lightmap-layout';
 import { insideOutline } from './geometry';
-import { DOOR_HEIGHT, DOOR_WIDTH, ROOM_HEIGHT, roomOutline, roomWalls, type RoomId } from './world';
+import { DOOR_HEIGHT, DOOR_WIDTH, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, type RoomId } from './world';
 import { bounceAreaClear, bounceFormFactor, type BounceArea } from './bounce-area';
 import { floorBounceCells } from './bounce-floor';
 
 interface Point { x: number; y: number; z: number }
+export type LightingBakeQuality = 'draft' | 'full';
 
-/** Nine deterministic probes cover the fluorescent diffuser's actual footprint. */
-export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE) {
-  const sources = ROOM_LIGHTS[room].flatMap(ceilingPanelSamples);
-  const weight = CEILING_LIGHT.intensity * share / 9;
+/** Resolve partial panel visibility around concave corners without changing its energy. */
+export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE, quality: LightingBakeQuality = 'full') {
+  const subdivisions = quality === 'full' && ROOMS[room].outline ? 9 : 3;
+  const sources = ROOM_LIGHTS[room].flatMap(lamp => ceilingPanelSamples(lamp, subdivisions));
+  const weight = CEILING_LIGHT.intensity * share / subdivisions ** 2;
   return (point: Point, normal: Point) => {
     const origin = { x: point.x + normal.x * .005, y: point.y + normal.y * .005, z: point.z + normal.z * .005 };
     let light = 0;
@@ -50,12 +52,13 @@ function spotLightSampler(room: RoomId) {
 interface BounceSample extends BounceArea { area: number; color: Color }
 export interface BouncePatch extends BounceArea { samples: BounceSample[] }
 const bounceCache = new Map<string, BouncePatch[]>();
-/** Surface quadrature, at most 62.5 cm per cell. A group only accelerates
- * visibility queries; its cells retain independent illumination and occlusion. */
-export function bouncePatches(room: RoomId, subdivisions = 4): BouncePatch[] {
-  const key = `${room}:${subdivisions}`, cached = bounceCache.get(key);
+/** Concave rooms need finer cells to resolve visibility around inner corners.
+ * Groups only accelerate queries; cells retain independent light and occlusion. */
+export function bouncePatches(room: RoomId, subdivisions?: number, quality: LightingBakeQuality = 'full'): BouncePatch[] {
+  subdivisions ??= quality === 'full' && ROOMS[room].outline ? 16 : 4;
+  const key = `${room}:${subdivisions}:${quality}`, cached = bounceCache.get(key);
   if (cached) return cached;
-  const direct = panelLightSampler(room, 1), outline = roomOutline(room), patches = new Map<string, BouncePatch>();
+  const direct = panelLightSampler(room, 1, quality), outline = roomOutline(room), patches = new Map<string, BouncePatch>();
   const lamp = new Color(CEILING_LIGHT.color);
   const add = (key: string, patch: BounceArea, sample: BounceSample) => {
     sample.color = sample.color.clone().multiply(lamp).multiplyScalar(direct(sample.point, sample.normal) / Math.PI);
@@ -95,8 +98,8 @@ export function bouncePatches(room: RoomId, subdivisions = 4): BouncePatch[] {
   const result = [...patches.values()]; bounceCache.set(key, result); return result;
 }
 
-export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount: number) {
-  const values = new Uint16Array(texelCount * 4), sample = panelLightSampler(room), sampleSpot = spotLightSampler(room), sampleBounce = createBounceSampler(room), bounce = new Float32Array(3);
+export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount: number, quality: LightingBakeQuality = 'full') {
+  const values = new Uint16Array(texelCount * 4), sample = panelLightSampler(room, 1 - SPOT_LIGHT_SHARE, quality), sampleSpot = spotLightSampler(room), sampleBounce = createBounceSampler(room, undefined, true, quality), bounce = new Float32Array(3);
   const point = { x: 0, y: 0, z: 0 }, normal = { ...point };
   for (const texel of samples.texels) {
     const i = texel * 3;
@@ -110,8 +113,8 @@ export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount
 }
 
 /** One diffuse reflection, integrated over independently lit surface cells. */
-export function createBounceSampler(room: RoomId, subdivisions = 4, optimized = true) {
-  const patches = bouncePatches(room, subdivisions);
+export function createBounceSampler(room: RoomId, subdivisions?: number, optimized = true, quality: LightingBakeQuality = 'full') {
+  const patches = bouncePatches(room, subdivisions, quality);
   const walls = roomWalls(room);
   return (surface: Point, normal: Point, result: Float32Array) => {
     // Evaluate the interior limit at shared edges. At y=0, coplanar floor

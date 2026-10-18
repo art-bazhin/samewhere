@@ -1,11 +1,12 @@
 import type { SurfaceSamples } from './lightmap-layout';
 import type { SocketRef } from './world';
 import { createBounceTransferSampler } from './bounce-light-transfer';
+import type { LightingBakeQuality } from './panel-light-bake';
 
 /** RGB diffuse bounce only; detailed direct light uses separate GPU maps. */
-export function bakeSurfaceTransfer(receiver: SocketRef, source: SocketRef, samples: SurfaceSamples, texelCount: number) {
+export function bakeSurfaceTransfer(receiver: SocketRef, source: SocketRef, samples: SurfaceSamples, texelCount: number, quality: LightingBakeQuality = 'full') {
   const values = new Float32Array(texelCount * 4), point = { x: 0, y: 0, z: 0 }, normal = { ...point };
-  const sampleBounce = createBounceTransferSampler(receiver, source);
+  const sampleBounce = createBounceTransferSampler(receiver, source, undefined, true, quality);
   for (const texel of samples.texels) {
     const passage = samples.passages[texel];
     if (passage >= 0 && passage !== receiver.side) continue;

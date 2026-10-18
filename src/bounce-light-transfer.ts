@@ -1,4 +1,4 @@
-import { bouncePatches } from './panel-light-bake';
+import { bouncePatches, type LightingBakeQuality } from './panel-light-bake';
 import { bounceAreaClear, bounceFormFactor, type BounceArea } from './bounce-area';
 import { APERTURE_EPSILON, transferPathBlocked } from './light-path';
 import { DOOR_HEIGHT, DOOR_WIDTH, portalAngle, portalDistance, portalPosition, rotate, transformPoint, WALL_THICKNESS, wallNormal, type SocketRef } from './world';
@@ -32,9 +32,9 @@ function apertureCoverage(point: Point, area: BounceArea, planes: Float64Array) 
 }
 
 /** The same surface-area quadrature used locally crosses each open doorway. */
-export function createBounceTransferSampler(receiver: SocketRef, source: SocketRef, subdivisions = 4, optimized = true) {
+export function createBounceTransferSampler(receiver: SocketRef, source: SocketRef, subdivisions?: number, optimized = true, quality: LightingBakeQuality = 'full') {
   const angle = portalAngle(source, receiver), direction = (p: Point) => ({ ...rotate(p, angle), y: p.y });
-  const emitters = bouncePatches(source.room, subdivisions).map(area => ({ area,
+  const emitters = bouncePatches(source.room, subdivisions, quality).map(area => ({ area,
     virtual: { point: { ...transformPoint(area.point, source, receiver), y: area.point.y }, normal: direction(area.normal),
       halfU: direction(area.halfU), halfV: direction(area.halfV) },
     samples: area.samples.map(patch => ({ ...patch,

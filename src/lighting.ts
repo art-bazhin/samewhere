@@ -19,9 +19,9 @@ export const ROOM_LIGHTS = Object.fromEntries(ROOM_IDS.map(room =>
 export const SPOT_LIGHT_SHARE = .45;
 
 /** Same deterministic area-light probes for local and neighboring illumination. */
-export function ceilingPanelSamples(lamp: CeilingLamp) {
-  return Array.from({ length: 9 }, (_, i) => ({
-    x: lamp.x + (i % 3 - 1) * CEILING_PANEL_SIZE / 3,
-    y: CEILING_LIGHT.height, z: lamp.z + (Math.floor(i / 3) - 1) * CEILING_PANEL_SIZE / 3, distance: lamp.distance,
+export function ceilingPanelSamples(lamp: CeilingLamp, subdivisions = 3) {
+  return Array.from({ length: subdivisions ** 2 }, (_, i) => ({
+    x: lamp.x + ((i % subdivisions + .5) / subdivisions - .5) * CEILING_PANEL_SIZE,
+    y: CEILING_LIGHT.height, z: lamp.z + ((Math.floor(i / subdivisions) + .5) / subdivisions - .5) * CEILING_PANEL_SIZE, distance: lamp.distance,
   }));
 }

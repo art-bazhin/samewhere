@@ -14,6 +14,9 @@ test('lighting revision follows nested/new bake dependencies and the dependency 
     await put('src/level.ts', "import './light';"); await put('src/light.ts', 'export const intensity = 25;');
     await put('scripts/lighting-plugin.ts', ''); await put('package.json', '{}'); await put('package-lock.json', '{}');
     const first = await lightingRevision(root);
+    const draft = await lightingRevision(root, 'draft');
+    assert.notEqual(draft.revision, first.revision, 'Draft and full lighting must have separate assets');
+    assert.equal((await lightingRevision(root, 'draft')).revision, draft.revision);
     assert.ok(first.files.has(join(root, 'src/light.ts')));
     assert.equal((await lightingRevision(root)).revision, first.revision);
     await put('src/unrelated.ts', 'export const hud = true;');
