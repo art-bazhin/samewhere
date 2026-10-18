@@ -9,3 +9,7 @@ All commits must follow Conventional Commits:
 - Mark breaking changes with `!` or a `BREAKING CHANGE:` footer.
 
 Examples: `feat: implement the Samewhere prototype`, `fix(portals): preserve image resolution`, `docs: update controls`.
+
+# Lighting data
+
+Vite automatically generates the lighting binary for `npm run build` and `npm run dev`. Its cache key follows the bake script's transitive local imports and the dependency lockfile; relevant edits during development regenerate the data and reload the game. Keep new bake dependencies reachable through imports. After changes to geometry, lighting or baking, run `npm run build` to verify that generation succeeds. Do not edit or commit generated lighting files.

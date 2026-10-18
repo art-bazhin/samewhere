@@ -3,7 +3,8 @@ import { CEILING_LIGHT } from './lighting';
 import { PASSAGE_LIGHT_DEPTH, PASSAGE_LIGHT_WIDTH, prepareSurfaceLayout } from './lightmap-layout';
 import { combineTransfers, type PreparedTransfer } from './light-transfer-cache';
 import { connections, portalPosition, ROOM_IDS, wallNormal, type RoomId, type WorldState } from './world';
-import type { TransferResult } from './light-transfer-worker';
+import lightingUrl, { revision as lightingRevision } from 'virtual:samewhere-lighting';
+import { decodeLighting } from './lighting-data';
 import { SURFACE_LIGHTMAP_FILTER } from './lightmap-filter';
 import { DirectLight } from './direct-light';
 
@@ -13,7 +14,7 @@ interface RoomField extends FieldBuffer {
   passages: { frame: THREE.Vector4; atlas: THREE.Vector4 }[]; active: number[];
 }
 
-/** Startup-baked diffuse bounce and separately cached, detailed direct light. */
+/** Build-baked diffuse bounce and separately cached, detailed direct light. */
 export class LightTransfer {
   enabled = true;
   readonly ready: Promise<void>;
@@ -29,12 +30,13 @@ export class LightTransfer {
     passageDirectAtlases: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
   };
   revision = 0;
-  readonly jobs = 1; // One startup job; interactions never submit another bake.
+  readonly jobs = 0; // All CPU lighting is prepared by the build.
   lastBakeMs = 0;
+  loadMs = 0;
   cacheSize = 0;
   preparedBytes = 0;
   private readonly prepared = new Map<string, PreparedTransfer>();
-  private readonly worker = new Worker(new URL('./light-transfer-worker.ts', import.meta.url), { type: 'module' });
+  private readonly download = new AbortController();
   private state = '';
   private initialized = false;
 
@@ -61,26 +63,22 @@ export class LightTransfer {
     })) as Record<RoomId, RoomField>;
     this.uniforms.transferredLight.value = this.fields.A.texture;
     this.uniforms.panelLight.value = this.fields.A.panel;
-    this.ready = new Promise<void>((resolve, reject) => {
-      this.worker.onerror = event => { this.worker.terminate(); reject(new Error(event.message)); };
-      this.worker.onmessage = ({ data }: MessageEvent<TransferResult>) => {
-        this.worker.terminate();
-        if ('error' in data) { reject(new Error(data.error)); return; }
-        for (const room of ROOM_IDS) {
-          const image = this.fields[room].texture.image;
-          if (image.width !== data.atlases[room][0] || image.height !== data.atlases[room][1]) {
-            reject(new Error(`Lighting layout mismatch in room ${room}`)); return;
-          }
-          this.fields[room].panel.image.data = data.panels[room]; this.fields[room].panel.needsUpdate = true;
-        }
-        this.lastBakeMs = data.elapsedMs; this.cacheSize = data.fields.length;
-        for (const field of data.fields) {
-          this.prepared.set(field.key, field); this.preparedBytes += field.values.byteLength + field.runs.byteLength;
-        }
-        this.initialized = true; this.apply(); resolve();
-      };
-      this.worker.postMessage(null);
-    });
+    this.ready = this.load();
+  }
+  private async load() {
+    const start = performance.now(), response = await fetch(lightingUrl, { signal: this.download.signal });
+    if (!response.ok) throw new Error(`Lighting download failed: ${response.status}`);
+    const data = decodeLighting(await response.arrayBuffer(), lightingRevision);
+    for (const room of ROOM_IDS) {
+      const image = this.fields[room].texture.image;
+      if (image.width !== data.atlases[room][0] || image.height !== data.atlases[room][1]) throw new Error(`Lighting layout mismatch in room ${room}`);
+      this.fields[room].panel.image.data = data.panels[room]; this.fields[room].panel.needsUpdate = true;
+    }
+    this.lastBakeMs = data.elapsedMs; this.cacheSize = data.fields.length;
+    for (const field of data.fields) {
+      this.prepared.set(field.key, field); this.preparedBytes += field.values.byteLength + field.runs.byteLength;
+    }
+    this.initialized = true; this.apply(); this.loadMs = performance.now() - start;
   }
   sync(world: WorldState) {
     this.direct.sync(world);
@@ -179,7 +177,7 @@ export class LightTransfer {
     material.customProgramCacheKey = () => `${key}:neighbor-geometric-direct`;
   }
   dispose() {
-    this.worker.terminate(); this.prepared.clear();
+    this.download.abort(); this.prepared.clear();
     this.direct.dispose();
     for (const field of Object.values(this.fields)) { field.panel.dispose(); for (const buffer of field.buffers) buffer.texture.dispose(); }
   }

@@ -7,15 +7,28 @@ import { bakeSurfaceTransfer } from '../src/surface-lightmap';
 import { portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomWalls, wallNormal } from '../src/world';
 import { DataUtils, Vector3 } from 'three';
 import { panelLightSampler } from '../src/panel-light-bake';
+import { encodeLighting, decodeLighting } from '../src/lighting-data';
 
 const result = bakeLightTransfer();
 
-test('independent worker batches reproduce the same room maps and connections', () => {
+test('independent bake batches reproduce the same room maps and connections', () => {
   const partial = bakeLightingRooms(['E']);
   assert.deepEqual(Object.keys(partial.panels), ['E']);
   assert.deepEqual(partial.panels.E, result.panels.E);
   assert.deepEqual(partial.atlases.E, result.atlases.E);
   assert.deepEqual(partial.fields, result.fields.filter(field => field.room === 'E'));
+});
+
+test('lighting binary preserves every sample and rejects stale or incomplete data', () => {
+  const binary = encodeLighting(result, 'test-revision'), buffer = binary.buffer as ArrayBuffer;
+  const decoded = decodeLighting(buffer, 'test-revision');
+  assert.deepEqual(decoded, { ...result, fields: [...result.fields].sort((a, b) => a.key.localeCompare(b.key)) });
+  assert.equal(decoded.panels.A.buffer, buffer);
+  assert.equal(decoded.fields[0].values.buffer, buffer);
+  assert.throws(() => decodeLighting(buffer, 'other-revision'), /revision mismatch/);
+  assert.throws(() => decodeLighting(buffer.slice(0, 8), 'test-revision'), /Invalid lighting file/);
+  assert.throws(() => decodeLighting(buffer.slice(0, 16), 'test-revision'), /Invalid lighting header/);
+  assert.throws(() => decodeLighting(buffer.slice(0, -4), 'test-revision'), /Invalid lighting section/);
 });
 
 test('panel light and reflected light remain finite, bounded and occluded by pedestals', () => {
@@ -37,7 +50,7 @@ test('panel light and reflected light remain finite, bounded and occluded by ped
   assert.ok(bytes <= 3 * 1024 * 1024); assert.ok(reflected > 1000);
 });
 
-test('startup calculation prepares every directed connection using compact, bounded surface texels', () => {
+test('build calculation prepares every directed connection using compact, bounded surface texels', () => {
   const sockets = ROOM_IDS.flatMap(room => Array.from({ length: ROOMS[room].sides }, (_, side) => `${room}${side}`));
   const expected = sockets.flatMap(receiver => sockets.filter(source => receiver !== source).map(source => `${receiver}<${source}`)).sort();
   assert.deepEqual(result.fields.map(field => field.key).sort(), expected);
@@ -77,7 +90,7 @@ test('every ceiling receives baked floor and wall bounce on its inward-facing su
   }
 });
 
-test('the complete startup job matches independent surface bakes, including concave rooms', () => {
+test('the complete build bake matches independent surface bakes, including concave rooms', () => {
   for (const [receiver, source] of [
     [{ room: 'A', side: 0 }, { room: 'G', side: 0 }],
     [{ room: 'G', side: 3 }, { room: 'A', side: 1 }],

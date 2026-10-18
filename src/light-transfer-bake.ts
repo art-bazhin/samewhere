@@ -7,12 +7,12 @@ import { ROOM_IDS, ROOMS, type RoomId } from './world';
 export interface BakedLighting { elapsedMs: number; fields: PreparedTransfer[]; atlases: Record<RoomId, [number, number]>; panels: Record<RoomId, Uint16Array> }
 export interface BakedRoomLighting { elapsedMs: number; fields: PreparedTransfer[]; atlases: Partial<BakedLighting['atlases']>; panels: Partial<BakedLighting['panels']> }
 
-/** One startup job. No filesystem, assets, or DOM; runs in a Web Worker. */
+/** Build-time calculation; independent of filesystem, assets, DOM and WebGL. */
 export function bakeLightTransfer(): BakedLighting {
   return bakeLightingRooms(ROOM_IDS) as BakedLighting;
 }
 
-/** Independent receiving rooms can be prepared concurrently at startup. */
+/** Receiving rooms can also be baked independently for verification. */
 export function bakeLightingRooms(rooms: RoomId[]): BakedRoomLighting {
   const start = performance.now(), fields: PreparedTransfer[] = [];
   const layouts = Object.fromEntries(rooms.map(room => {

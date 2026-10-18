@@ -166,43 +166,44 @@ test('startup preparation keeps the displayed room visible without black frames'
   expect(result.black).toEqual([]); expect(result.last!.luma).toBeGreaterThan(5);
 });
 
-test('each launch computes all lighting in one startup job without fetching an asset', async ({ page }) => {
-  const errors: string[] = [], requests: string[] = [];
+test('each launch loads the compressed lighting asset without creating a bake worker', async ({ page }) => {
+  const errors: string[] = [], requests: string[] = [], encodings: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  page.on('request', request => { if (/\/lighting\/|\.bin\.gz(?:\?|$)/.test(request.url())) requests.push(request.url()); });
+  const asset = /\/assets\/lighting-[a-f0-9]{64}\.bin(?:\?|$)/;
+  page.on('request', request => { if (asset.test(request.url())) requests.push(request.url()); });
+  page.on('response', response => { if (asset.test(response.url())) encodings.push(response.headers()['content-encoding']); });
+  await page.addInitScript(() => {
+    (window as any).__bakeWorkers = 0;
+    const OriginalWorker = window.Worker;
+    window.Worker = class extends OriginalWorker {
+      constructor(url: string | URL, options?: WorkerOptions) { super(url, options); (window as any).__bakeWorkers++; }
+    };
+  });
   const launches = [];
   for (let launch = 0; launch < 2; launch++) {
     await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
-    await expect(page.locator('#play-button')).toBeDisabled();
-    const responsiveFrames = await page.evaluate(async () => {
-      const light = window.__samewhere.space.lightTransfer;
-      let frames = 0, pending = true;
-      const heartbeat = () => { if (pending) { frames++; requestAnimationFrame(heartbeat); } };
-      requestAnimationFrame(heartbeat);
-      await light.ready; pending = false; return frames;
-    });
     await page.evaluate(() => window.__samewhere.space.ready);
     await expect(page.locator('#play-button')).toBeEnabled();
-    launches.push({ responsiveFrames, ...await page.evaluate(() => {
+    launches.push(await page.evaluate(() => {
       const light = window.__samewhere.space.lightTransfer;
       const buffers: any[] = Object.values(light.fields).flatMap((field: any) => field.buffers);
-      return { fields: light.cacheSize, jobs: light.jobs, bakeMs: light.lastBakeMs, bytes: light.preparedBytes,
+      return { fields: light.cacheSize, jobs: light.jobs, loadMs: light.loadMs, readyMs: performance.now(), bytes: light.preparedBytes,
+        workers: (window as any).__bakeWorkers,
         twoDimensional: buffers.every(buffer => buffer.texture.isDataTexture && !buffer.texture.isData3DTexture),
         textureBytes: buffers.reduce((sum, buffer) => sum + buffer.texture.image.data.byteLength, 0) };
-    }) });
+    }));
   }
-  console.log('Startup lighting calculation:', launches);
+  console.log('Build-baked lighting startup:', launches);
   for (const launch of launches) {
-    expect(launch.fields).toBe(812); expect(launch.jobs).toBe(1); expect(launch.bakeMs).toBeGreaterThan(0);
-    expect(launch.responsiveFrames).toBeGreaterThan(0); expect(launch.bytes).toBeLessThan(8 * 1024 * 1024);
+    expect(launch.fields).toBe(812); expect(launch.jobs).toBe(0); expect(launch.workers).toBe(0); expect(launch.loadMs).toBeGreaterThan(0);
+    expect(launch.bytes).toBeLessThan(8 * 1024 * 1024);
     expect(launch.twoDimensional).toBe(true); expect(launch.textureBytes).toBeLessThan(4 * 1024 * 1024);
   }
-  expect(requests).toEqual([]); expect(errors).toEqual([]);
+  expect(requests).toHaveLength(2); expect(requests[0]).toBe(requests[1]); expect(encodings).toEqual(['br', 'br']); expect(errors).toEqual([]);
 });
 
-test('a calculation failure reports an error and keeps entry disabled', async ({ page }) => {
-  await page.route(url => url.pathname.endsWith('/light-transfer-worker.ts') && url.searchParams.has('worker_file'),
-    route => route.fulfill({ contentType: 'text/javascript', body: "self.onmessage = () => self.postMessage({ error: 'Test lighting failure' });" }));
+for (const status of [503, 200]) test(`lighting download failure (${status}) reports an error and keeps entry disabled`, async ({ page }) => {
+  await page.route(/\/assets\/lighting-[a-f0-9]{64}\.bin/, route => route.fulfill({ status, contentType: 'application/octet-stream', body: 'Invalid lighting' }));
   await page.goto('/');
   await expect(page.locator('#error')).toBeVisible();
   await expect(page.locator('#error')).toContainText('Не удалось подготовить пространство');
@@ -210,7 +211,7 @@ test('a calculation failure reports an error and keeps entry disabled', async ({
   const result = await page.evaluate(() => {
     const light = window.__samewhere.space.lightTransfer; return { jobs: light.jobs, fields: light.cacheSize };
   });
-  expect(result).toEqual({ jobs: 1, fields: 0 });
+  expect(result).toEqual({ jobs: 0, fields: 0 });
 });
 
 test('neighbor light changes the receiving floor without extra render passes or walking-time updates', async ({ page }) => {
