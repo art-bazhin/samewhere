@@ -30,12 +30,14 @@ function clip(polygon: Vec2[], triangle: Vec2[]) {
   return polygon;
 }
 
-/** A complete floor partition, including small cells whose centers lie outside
- * an oblique wall. Interior rectangles retain their original sampling pattern. */
-export function* floorBounceCells(outline: Vec2[], subdivisions = 4): Generator<{
+/** Partition the exposed floor, clipping cells at walls and pedestal footprints.
+ * Interior rectangles retain their original sampling pattern. */
+export function* floorBounceCells(outline: Vec2[], subdivisions = 4, holes: Vec2[][] = []): Generator<{
   key: string; group: BounceArea; cell: BounceArea & { area: number };
 }> {
-  const triangles = ShapeUtils.triangulateShape(outline.map(p => new Vector2(p.x, p.z)), []).map(indices => indices.map(i => outline[i]));
+  const vertices = [outline, ...holes].flat();
+  const triangles = ShapeUtils.triangulateShape(outline.map(p => new Vector2(p.x, p.z)), holes.map(hole => hole.map(p => new Vector2(p.x, p.z))))
+    .map(indices => indices.map(i => vertices[i]));
   const minX = Math.min(...outline.map(p => p.x)), maxX = Math.max(...outline.map(p => p.x));
   const minZ = Math.min(...outline.map(p => p.z)), maxZ = Math.max(...outline.map(p => p.z)), step = 2.5 / subdivisions;
   const nx = Math.ceil((maxX - minX) / step), nz = Math.ceil((maxZ - minZ) / step), dx = (maxX - minX) / nx, dz = (maxZ - minZ) / nz;

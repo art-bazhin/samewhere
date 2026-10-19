@@ -3,7 +3,7 @@ import { CEILING_LIGHT, ceilingPanelSamples, ROOM_LIGHTS, SPOT_LIGHT_SHARE } fro
 import { LIGHT_RAY_OFFSET, transferPathBlocked } from './light-path';
 import type { SurfaceSamples } from './lightmap-layout';
 import { insideOutline } from './geometry';
-import { DOOR_HEIGHT, DOOR_WIDTH, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, type RoomId } from './world';
+import { DOOR_HEIGHT, DOOR_WIDTH, pedestalOutline, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, type RoomId } from './world';
 import { bounceAreaClear, bounceFormFactor, type BounceArea } from './bounce-area';
 import { floorBounceCells } from './bounce-floor';
 import { addLightGradient, PANEL_LIGHTMAP_CHANNELS, luminance } from './directional-lightmap';
@@ -81,7 +81,8 @@ export function bouncePatches(room: RoomId, subdivisions?: number, quality: Ligh
     group.samples.push(sample);
   };
   const carpet = new Color(0xb6a078), wallpaper = new Color(0xbda444), step = 2.5 / subdivisions;
-  for (const { key, group, cell } of floorBounceCells(outline, subdivisions)) add(key, group, { ...cell, color: carpet });
+  const holes = ROOMS[room].pedestals.map(p => pedestalOutline(p.controls).map(v => ({ x: p.x + v.x, z: p.z + v.z })));
+  for (const { key, group, cell } of floorBounceCells(outline, subdivisions, holes)) add(key, group, { ...cell, color: carpet });
   for (const [side, wall] of roomWalls(room).entries()) {
     const normal = { x: -wall.normal.x, y: 0, z: -wall.normal.z };
     const rectangles = wall.portal === null ? [[0, wall.width, 0, ROOM_HEIGHT]] : [

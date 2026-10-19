@@ -5,7 +5,8 @@ import { bounceFormFactor, type BounceArea } from '../src/bounce-area';
 import { bakePanelLight, createBounceSampler, panelLightSampler } from '../src/panel-light-bake';
 import { createBounceTransferSampler } from '../src/bounce-light-transfer';
 import { floorBounceCells } from '../src/bounce-floor';
-import { portalPosition, ROOM_IDS, roomOutline, roomWalls, wallNormal, type SocketRef } from '../src/world';
+import { pedestalOutline, portalPosition, ROOM_IDS, ROOMS, roomOutline, roomWalls, wallNormal, type SocketRef } from '../src/world';
+import { insideOutline } from '../src/geometry';
 
 const factor = (area: BounceArea & { area: number }, point: { x: number; y: number; z: number }, normal = { x: 0, y: -1, z: 0 }) => {
   const x = area.point.x - point.x, y = area.point.y - point.y, z = area.point.z - point.z;
@@ -136,6 +137,31 @@ test('floor cells cover every outline and retain uniform irradiance along obliqu
       const irradiance = cells.reduce((sum, cell) => sum + factor(cell, point, normal), 0);
       assert.ok(Math.abs(irradiance - Math.PI / 2) < .001, `${room}${side} at ${i}%: ${irradiance}`);
     }
+  }
+});
+
+test('floor reflectors cover only exposed floor around every pedestal shape', () => {
+  const area = (polygon: { x: number; z: number }[]) => Math.abs(polygon.reduce((sum, p, i) => {
+    const q = polygon[(i + 1) % polygon.length]; return sum + p.x * q.z - q.x * p.z;
+  }, 0)) / 2;
+  for (const room of ROOM_IDS) {
+    const outline = roomOutline(room), holes = ROOMS[room].pedestals.map(p => pedestalOutline(p.controls).map(v => ({ x: p.x + v.x, z: p.z + v.z })));
+    const cells = [...floorBounceCells(outline, 4, holes)].map(({ cell }) => cell);
+    assert.ok(Math.abs(cells.reduce((sum, cell) => sum + cell.area, 0) - area(outline) + holes.reduce((sum, hole) => sum + area(hole), 0)) < 1e-8,
+      `${room}: exposed floor has a gap or overlap`);
+    for (const cell of cells) assert.ok(holes.every(hole => !insideOutline(cell.point, hole)), `${room}: reflector center lies inside a pedestal`);
+  }
+});
+
+test('draft reflected direction at the H pedestal foot agrees with dense floor integration', () => {
+  const pedestal = ROOMS.F.pedestals.find(p => p.controls === 'G')!;
+  const draft = createBounceSampler('F', 4, true, 'draft'), dense = createBounceSampler('F', 16, true, 'draft');
+  const rgb = new Float32Array(3), actual = new Float32Array(4), expected = new Float32Array(4);
+  for (const y of [.00001, .025, .05, .1, .2, .4]) {
+    const point = { x: pedestal.x - .313, y, z: pedestal.z }, normal = { x: -1, y: 0, z: 0 };
+    draft(point, normal, rgb, actual); dense(point, normal, rgb, expected);
+    assert.ok(actual[1] < 0, `At ${y} m, the floor contribution must not flip upward`);
+    for (let i = 0; i < 4; i++) assert.ok(Math.abs(actual[i] - expected[i]) < .06, `${y} m: coarse angular response diverges from the dense reference`);
   }
 });
 
