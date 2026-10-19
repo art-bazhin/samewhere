@@ -165,17 +165,21 @@ function preservePortalCoverage(material: THREE.MeshStandardMaterial) {
 /** A normal map cannot expose the back of an opaque geometric face to light. */
 export function optimizeLighting(material: THREE.MeshStandardMaterial, enabled: THREE.IUniform<boolean>) {
   const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
-  const lighting = THREE.ShaderChunk.lights_fragment_begin.replace(
+  const lighting = 'float directReliefDistance2 = 0.;\n' + THREE.ShaderChunk.lights_fragment_begin.replace(
     /(getSpotLightInfo\( spotLight, geometryPosition, directLight \);)([\s\S]*?RE_Direct\( directLight,[^;]+;)/,
     '$1\n if (dot(nonPerturbedNormal, directLight.direction) > 0. && (!surfaceOptimizations || (directLight.visible && dot(geometryNormal, directLight.direction) > 0.))) { $2\n }',
-  ).replace(/RE_Direct\( directLight,[^;]+;/g, call => `{
+  ).replace(/get(Spot|Point)LightInfo\( (\w+), geometryPosition, directLight \);/g,
+    '$&\n directReliefDistance2 = dot($2.position - geometryPosition, $2.position - geometryPosition);')
+  .replace('getDirectionalLightInfo( directionalLight, directLight );', '$&\n directReliefDistance2 = 0.;')
+  .replace(/RE_Direct\( directLight,[^;]+;/g, call => `{
     vec3 diffuseBefore = reflectedLight.directDiffuse;
     ${call}
     #ifdef USE_NORMALMAP
       float reference = max(0., dot(nonPerturbedNormal, directLight.direction));
       float response = max(0., dot(geometryNormal, directLight.direction));
       vec3 gradient = reliefLightGradient(directLight.direction, nonPerturbedNormal, reference);
-      float gain = max(0., dot(geometryNormal, gradient)) / max(response, .000001);
+      float relief = max(0., reference + dot(geometryNormal - nonPerturbedNormal, gradient) * directReliefDistanceGain(directReliefDistance2));
+      float gain = relief / max(response, .000001);
       reflectedLight.directDiffuse = diffuseBefore + (reflectedLight.directDiffuse - diffuseBefore) * gain;
     #endif
   }`);

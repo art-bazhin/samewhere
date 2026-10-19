@@ -30,8 +30,8 @@ test('neighbor light retains normal relief both in the doorway blend and inside 
         shader.fragmentShader = shader.fragmentShader.replace(
           'reflectedLight.directDiffuse += (roomDirect + bounceGain * roomBounce) * BRDF_Lambert(material.diffuseColor);', '');
         for (const field of ['directField', 'joinedField', 'localField']) shader.fragmentShader = shader.fragmentShader.replace(
-          `directionalBounce(${field}.r * transferColor, vec4(${field}.gba, ${field}.r), normal, nonPerturbedNormal)`,
-          `(probeScalar ? ${field}.r * transferColor : directionalBounce(${field}.r * transferColor, vec4(${field}.gba, ${field}.r), normal, nonPerturbedNormal))`);
+          `directionalDirect(${field}.r * transferColor, vec4(${field}.gba, ${field}.r), normal, nonPerturbedNormal)`,
+          `(probeScalar ? ${field}.r * transferColor : directionalDirect(${field}.r * transferColor, vec4(${field}.gba, ${field}.r), normal, nonPerturbedNormal))`);
         shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>',
           'outgoingLight = reflectedLight.directDiffuse;\n#include <opaque_fragment>');
       };

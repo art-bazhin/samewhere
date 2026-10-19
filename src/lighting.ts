@@ -5,6 +5,9 @@ export const CEILING_LIGHT = { color: 0xfff5d7, intensity: 25, distance: 20, ang
 export const CEILING_GRID_WIDTH = .024;
 export const CEILING_PANEL_SIZE = CEILING_TILE_SIZE - CEILING_GRID_WIDTH;
 export const ROOM_FILL_LIGHT = { hemisphere: .24, ambient: .016, environment: .12 };
+export const NORMAL_RESPONSE_CURVE = 4;
+/** Compensate inverse-square falloff only in the normal-map response. */
+export const DIRECT_RELIEF = { referenceDistance: 10 / Math.sqrt(15), maxGain: 25 };
 
 /** Fixtures and all lighting calculations share the pedestal-aligned positions. */
 export interface CeilingLamp extends Vec2 { distance: number }

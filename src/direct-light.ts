@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { DirectSurfaceLight } from './direct-surface-light';
 import { CEILING_LIGHT, CEILING_PANEL_SIZE, ROOM_LIGHTS, SPOT_LIGHT_SHARE, type CeilingLamp } from './lighting';
 import { PANEL_APERTURE_SHADER } from './panel-aperture';
+import { LIGHT_GRADIENT_SHADER } from './directional-lightmap';
 import { connections, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalAngle, portalPosition, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomWalls, rotate, transformPoint, wallNormal, type RoomId, type SocketRef, type Vec2, type WorldState } from './world';
 
 const TILE_WIDTH = 256, TILE_HEIGHT = 512, ATLAS_SIZE = 2048;
@@ -238,6 +239,7 @@ export class DirectLight {
 }
 
 export const DIRECT_LIGHT_SHADER = `
+${LIGHT_GRADIENT_SHADER}
 uniform sampler2D directShadowAtlas, directLightData;
 uniform int directNeighborCount, directRow;
 uniform int directLocalStarts[4], directLocalCounts[4];
@@ -290,7 +292,8 @@ vec4 directIncidentField(int light, vec3 point, vec3 normal) {
   vec2 lamp = directRecord(light, 0).xy;
   vec3 ray = vec3(lamp.x, ${CEILING_LIGHT.height.toFixed(6)}, lamp.y) - point;
   // Keep the geometric irradiance and its world-space normal gradient together.
-  return vec4(energy, ray * (energy / max(dot(normal, ray), .000001)));
+  vec3 gradient = ray * (energy / max(dot(normal, ray), .000001));
+  return vec4(energy, directLightGradient(gradient, normal, energy, dot(ray, ray)));
 }
 vec4 directNeighborField(vec3 point, vec3 normal) {
   vec4 light = vec4(0.);

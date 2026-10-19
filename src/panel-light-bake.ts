@@ -6,13 +6,13 @@ import { insideOutline } from './geometry';
 import { DOOR_HEIGHT, DOOR_WIDTH, pedestalOutline, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, type RoomId } from './world';
 import { bounceAreaClear, bounceFormFactor, type BounceArea } from './bounce-area';
 import { floorBounceCells } from './bounce-floor';
-import { addLightGradient, PANEL_LIGHTMAP_CHANNELS, luminance } from './directional-lightmap';
+import { addDirectLightGradient, addLightGradient, PANEL_LIGHTMAP_CHANNELS, luminance } from './directional-lightmap';
 
 interface Point { x: number; y: number; z: number }
 export type LightingBakeQuality = 'draft' | 'full';
 
 /** Resolve partial panel visibility around concave corners without changing its energy. */
-export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE, quality: LightingBakeQuality = 'full') {
+export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE, quality: LightingBakeQuality = 'full', relief = false) {
   const subdivisions = quality === 'full' && ROOMS[room].outline ? 9 : 3;
   const sources = ROOM_LIGHTS[room].flatMap(lamp => ceilingPanelSamples(lamp, subdivisions));
   const weight = CEILING_LIGHT.intensity * share / subdivisions ** 2;
@@ -30,7 +30,8 @@ export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE, qu
       light += weight * y * cosine * cutoff * cutoff / Math.max(distance2 * distance2, .0001);
       if (gradient) {
         const slope = weight * y * cutoff * cutoff / Math.max(distance2 * distance2, .0001);
-        gradient[0] += x * slope; gradient[1] += y * slope; gradient[2] += z * slope;
+        if (relief) addDirectLightGradient(gradient, x, y, z, normal, slope, distance2);
+        else { gradient[0] += x * slope; gradient[1] += y * slope; gradient[2] += z * slope; }
       }
     }
     if (gradient) gradient[3] = light;
@@ -39,7 +40,7 @@ export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE, qu
 }
 
 /** Analytic counterpart of the live spot's diffuse term, used at floor joins. */
-function spotLightSampler(room: RoomId) {
+function spotLightSampler(room: RoomId, relief = false) {
   const cone = Math.cos(CEILING_LIGHT.angle), penumbra = Math.cos(CEILING_LIGHT.angle * (1 - CEILING_LIGHT.penumbra));
   return (point: Point, normal: Point, gradient?: Float64Array) => {
     gradient?.fill(0);
@@ -54,7 +55,8 @@ function spotLightSampler(room: RoomId) {
       light += CEILING_LIGHT.intensity * SPOT_LIGHT_SHARE * spot * spot * (3 - 2 * spot) * cutoff * cutoff * cosine / Math.max(distance * distance, .01);
       if (gradient) {
         const slope = CEILING_LIGHT.intensity * SPOT_LIGHT_SHARE * spot * spot * (3 - 2 * spot) * cutoff * cutoff / Math.max(distance * distance, .01) / distance;
-        gradient[0] += x * slope; gradient[1] += y * slope; gradient[2] += z * slope;
+        if (relief) addDirectLightGradient(gradient, x, y, z, normal, slope, distance * distance);
+        else { gradient[0] += x * slope; gradient[1] += y * slope; gradient[2] += z * slope; }
       }
     }
     if (gradient) gradient[3] = light;
@@ -113,7 +115,7 @@ export function bouncePatches(room: RoomId, subdivisions?: number, quality: Ligh
 }
 
 export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount: number, quality: LightingBakeQuality = 'full') {
-  const values = new Uint16Array(texelCount * PANEL_LIGHTMAP_CHANNELS), sample = panelLightSampler(room, 1 - SPOT_LIGHT_SHARE, quality), sampleSpot = spotLightSampler(room), sampleBounce = createBounceSampler(room, undefined, true, quality), bounce = new Float32Array(3), moment = new Float32Array(4);
+  const values = new Uint16Array(texelCount * PANEL_LIGHTMAP_CHANNELS), sample = panelLightSampler(room, 1 - SPOT_LIGHT_SHARE, quality, true), sampleSpot = spotLightSampler(room, true), sampleBounce = createBounceSampler(room, undefined, true, quality), bounce = new Float32Array(3), moment = new Float32Array(4);
   const direct = new Float64Array(4), spot = new Float64Array(4);
   const point = { x: 0, y: 0, z: 0 }, normal = { ...point };
   for (const texel of samples.texels) {
