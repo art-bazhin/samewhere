@@ -10,7 +10,7 @@ const PADDING = 1;
 interface Triangle { mesh: THREE.Mesh; vertices: number[]; positions: THREE.Vector3[]; normals: THREE.Vector3[]; uv: THREE.Vector2[] }
 export interface SurfaceChart {
   triangles: Triangle[]; curved: boolean; curvedMesh?: THREE.Mesh; min: THREE.Vector2; max: THREE.Vector2; step: THREE.Vector2;
-  passage?: number;
+  passage?: number; passageLocal?: boolean;
   x: number; y: number; width: number; height: number;
 }
 export interface SurfaceLayout { room: RoomId; width: number; height: number; charts: SurfaceChart[] }
@@ -92,6 +92,10 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = 
   for (let side = 0; side < ROOMS[room].sides; side++) list.push({ triangles: [], curved: false, passage: side,
     min: new THREE.Vector2(-PASSAGE_LIGHT_WIDTH, 0), max: new THREE.Vector2(PASSAGE_LIGHT_WIDTH, PASSAGE_LIGHT_DEPTH),
     step: new THREE.Vector2(), x: 0, y: 0, width: 0, height: 0 });
+  // Keep opposing direct-light directions separate until the normal response
+  // has been evaluated. Only the small GPU passage charts need a second copy.
+  if (direct) for (const chart of [...list]) if (chart.passage !== undefined)
+    list.push({ ...chart, passageLocal: true, step: new THREE.Vector2() });
   for (const chart of list) {
     if (chart.curved) {
       chart.width = 10; chart.height = 8;

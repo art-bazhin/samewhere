@@ -2,33 +2,33 @@ import * as THREE from 'three';
 import { chartTriangles, prepareSurfaceLayout, type SurfaceChart, type SurfaceLayout } from './lightmap-layout';
 import { BALL_RADIUS, PEDESTAL_HEIGHT, portalPosition, ROOM_IDS, SOCKET_DEPTH, SOCKET_OPENING, wallNormal, type RoomId } from './world';
 
-interface DirectSurface { layout: Pick<SurfaceLayout, 'width' | 'height'>; target: THREE.WebGLRenderTarget; scene: THREE.Scene; passages: THREE.Vector4[]; active: number[] }
+interface DirectSurface { layout: Pick<SurfaceLayout, 'width' | 'height'>; target: THREE.WebGLRenderTarget; scene: THREE.Scene; passages: THREE.Vector4[]; localPassages: THREE.Vector4[]; active: number[] }
 
-/** Fine direct irradiance is rendered only when a connection changes. Normal
- * frames need one bilinear lookup, independent of the number of neighbor lamps. */
+/** Fine direct irradiance is rendered only when a connection changes. Regular
+ * surfaces need one bilinear lookup, independent of the number of neighbor lamps. */
 export class DirectSurfaceLight {
   readonly fields: Record<RoomId, DirectSurface>;
   readonly uniform = { value: null as THREE.Texture | null };
   updates = 0;
   private readonly material: THREE.ShaderMaterial;
   private readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  private readonly bakePassage = { value: -1 };
+  private readonly bakeLocal = { value: false };
   private readonly bakeLocalStart = { value: 0 };
   private readonly bakeLocalCount = { value: 0 };
 
   constructor(rooms: Record<RoomId, { scene: THREE.Scene }>, uniforms: Record<string, THREE.IUniform>, declarations: string, shadows: string) {
     this.material = new THREE.ShaderMaterial({
-      uniforms: { ...uniforms, bakePassage: this.bakePassage, bakeLocalStart: this.bakeLocalStart, bakeLocalCount: this.bakeLocalCount },
+      uniforms: { ...uniforms, bakeLocal: this.bakeLocal, bakeLocalStart: this.bakeLocalStart, bakeLocalCount: this.bakeLocalCount },
       depthTest: false, depthWrite: false, side: THREE.DoubleSide,
       vertexShader: `attribute vec2 directUv; attribute vec4 directBounds; varying vec4 bakeBounds; varying vec3 directWorldPosition; varying vec3 bakeNormal;
         void main() { directWorldPosition = position; bakeNormal = normal; bakeBounds = directBounds; gl_Position = vec4(directUv * 2. - 1., 0., 1.); }`,
       fragmentShader: `${declarations}\n#include <packing>\n${shadows}
-        varying vec3 bakeNormal; varying vec4 bakeBounds; uniform int bakePassage, bakeLocalStart, bakeLocalCount;
+        varying vec3 bakeNormal; varying vec4 bakeBounds; uniform int bakeLocalStart, bakeLocalCount; uniform bool bakeLocal;
         void main() {
           if (any(lessThan(gl_FragCoord.xy, bakeBounds.xy)) || any(greaterThanEqual(gl_FragCoord.xy, bakeBounds.zw))) discard;
           vec3 normal = normalize(bakeNormal);
-          vec4 light = directNeighborField(directWorldPosition, normal);
-          if (bakePassage >= 0) for (int lamp = 0; lamp < 7; lamp++) {
+          vec4 light = bakeLocal ? vec4(0.) : directNeighborField(directWorldPosition, normal);
+          if (bakeLocal) for (int lamp = 0; lamp < 7; lamp++) {
             if (lamp >= bakeLocalCount) break;
             int index = bakeLocalStart + lamp;
             light += directIncidentField(index, directWorldPosition, normal);
@@ -37,12 +37,12 @@ export class DirectSurfaceLight {
         }`,
     });
     this.fields = Object.fromEntries(ROOM_IDS.map(room => {
-      const layout = prepareSurfaceLayout(rooms[room].scene, room, true), scene = new THREE.Scene(), passages: THREE.Vector4[] = [];
+      const layout = prepareSurfaceLayout(rooms[room].scene, room, true), scene = new THREE.Scene(), passages: THREE.Vector4[] = [], localPassages: THREE.Vector4[] = [];
       const positions: number[] = [], normals: number[] = [], uvs: number[] = [], bounds: number[] = [];
       for (const chart of layout.charts) {
         if (chart.passage !== undefined) {
           const p = portalPosition(room, chart.passage), n = wallNormal(room, chart.passage);
-          passages[chart.passage] = new THREE.Vector4((chart.x + 1.5 - chart.min.x / chart.step.x) / layout.width,
+          (chart.passageLocal ? localPassages : passages)[chart.passage] = new THREE.Vector4((chart.x + 1.5 - chart.min.x / chart.step.x) / layout.width,
             (chart.y + 1.5 - chart.min.y / chart.step.y) / layout.height, 1 / (chart.step.x * layout.width), 1 / (chart.step.y * layout.height));
           const xs = [chart.min.x - chart.step.x, chart.min.x + (chart.width - 2) * chart.step.x];
           const ys = [-chart.step.y, (chart.height - 2) * chart.step.y];
@@ -51,7 +51,7 @@ export class DirectSurfaceLight {
           const passPositions: number[] = [], passNormals: number[] = [], passUvs: number[] = [], passBounds: number[] = [];
           for (const indices of [[0, 1, 2], [0, 2, 3]]) this.triangle(layout, chart, indices.map(i => corners[i]), indices.map(i => vertex(corners[i])),
             indices.map(() => new THREE.Vector3(0, 1, 0)), passPositions, passNormals, passUvs, passBounds);
-          const mesh = this.mesh(passPositions, passNormals, passUvs, passBounds); mesh.userData.passage = chart.passage; scene.add(mesh);
+          const mesh = this.mesh(passPositions, passNormals, passUvs, passBounds); mesh.userData.passage = chart.passage; mesh.userData.local = !!chart.passageLocal; scene.add(mesh);
         } else if (chart.curvedMesh) {
           // These charts contain only 8×6 useful samples. Rasterizing every
           // triangle of each shared 64×48 sphere would duplicate megabytes of
@@ -90,7 +90,7 @@ export class DirectSurfaceLight {
       const mesh = this.mesh(positions, normals, uvs, bounds); mesh.userData.passage = -1; scene.add(mesh);
       const target = new THREE.WebGLRenderTarget(layout.width, layout.height,
         { type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
-      return [room, { layout: { width: layout.width, height: layout.height }, target, scene, passages, active: [] as number[] }];
+      return [room, { layout: { width: layout.width, height: layout.height }, target, scene, passages, localPassages, active: [] as number[] }];
     })) as Record<RoomId, DirectSurface>;
     this.uniform.value = this.fields.A.target.texture;
   }
@@ -127,7 +127,8 @@ export class DirectSurfaceLight {
       const side = object.userData.passage as number, index = field.active.indexOf(side);
       object.visible = preparing || side < 0 || index >= 0;
       object.onBeforeRender = () => {
-        this.bakePassage.value = side; this.bakeLocalStart.value = index < 0 ? 0 : starts[index]; this.bakeLocalCount.value = index < 0 ? 0 : counts[index];
+        this.bakeLocalStart.value = index < 0 ? 0 : starts[index]; this.bakeLocalCount.value = index < 0 ? 0 : counts[index];
+        this.bakeLocal.value = !!object.userData.local;
         this.material.uniformsNeedUpdate = true;
       };
     }

@@ -32,6 +32,7 @@ export class LightTransfer {
     passageFrames: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
     passageAtlases: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
     passageDirectAtlases: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
+    passageLocalAtlases: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
   };
   revision = 0;
   readonly jobs = 0; // All CPU lighting is prepared by the build.
@@ -133,6 +134,7 @@ export class LightTransfer {
       this.uniforms.passageFrames.value[index].copy(field.passages[side].frame);
       this.uniforms.passageAtlases.value[index].copy(field.passages[side].atlas);
       this.uniforms.passageDirectAtlases.value[index].copy(this.direct.surfaces.fields[room].passages[side]);
+      this.uniforms.passageLocalAtlases.value[index].copy(this.direct.surfaces.fields[room].localPassages[side]);
     });
   }
   install(material: THREE.MeshStandardMaterial) {
@@ -155,7 +157,7 @@ export class LightTransfer {
         varying vec2 vDirectUv; uniform sampler2D directSurfaceLight;
         uniform sampler2D transferredLight; uniform vec3 transferColor; uniform float transferGain; uniform float bounceGain;
         uniform sampler2D panelLight;
-        uniform int passageCount; uniform vec4 passageFrames[4]; uniform vec4 passageAtlases[4]; uniform vec4 passageDirectAtlases[4];\n` + shader.fragmentShader;
+        uniform int passageCount; uniform vec4 passageFrames[4]; uniform vec4 passageAtlases[4]; uniform vec4 passageDirectAtlases[4]; uniform vec4 passageLocalAtlases[4];\n` + shader.fragmentShader;
       shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `
         vec4 roomLight = sampleSurfaceLightmap(panelLight, vTransferUv);
         #ifdef SOCKET_BALL_SHADOW
@@ -184,12 +186,16 @@ export class LightTransfer {
             if (depth < -.0001 || depth >= ${PASSAGE_LIGHT_DEPTH.toFixed(4)} || abs(lateral) >= ${PASSAGE_LIGHT_WIDTH.toFixed(4)}) continue;
             float blend = (1. - smoothstep(.15, ${PASSAGE_LIGHT_DEPTH.toFixed(4)}, depth)) * (1. - smoothstep(.9, ${PASSAGE_LIGHT_WIDTH.toFixed(4)}, abs(lateral)));
             vec2 uv = atlas.xy + vec2(lateral, max(0., depth)) * atlas.zw;
-            vec4 joined = sampleSurfaceLightmap(panelLight, uv) + sampleSurfaceLightmap(transferredLight, uv);
             vec4 directAtlas = passageDirectAtlases[passage];
             vec4 joinedField = texture2D(directSurfaceLight, directAtlas.xy + vec2(lateral, max(0., depth)) * directAtlas.zw);
             vec3 joinedDirect = directionalBounce(joinedField.r * transferColor, vec4(joinedField.gba, joinedField.r), normal, nonPerturbedNormal);
-            vec4 joinedDirection = sampleSurfaceDirection(panelLight, uv) + sampleSurfaceDirection(transferredLight, uv);
-            vec3 diffuse = (joinedDirect + bounceGain * directionalBounce(joined.gba, joinedDirection, normal, nonPerturbedNormal)) * BRDF_Lambert(material.diffuseColor);
+            vec4 localAtlas = passageLocalAtlases[passage];
+            vec4 localField = texture2D(directSurfaceLight, localAtlas.xy + vec2(lateral, max(0., depth)) * localAtlas.zw);
+            // Clamp and curve each side's response before adding opposing light.
+            vec3 localDirect = directionalBounce(localField.r * transferColor, vec4(localField.gba, localField.r), normal, nonPerturbedNormal);
+            vec3 localBounce = directionalBounce(sampleSurfaceLightmap(panelLight, uv).gba, sampleSurfaceDirection(panelLight, uv), normal, nonPerturbedNormal);
+            vec3 neighborBounce = directionalBounce(sampleSurfaceLightmap(transferredLight, uv).gba, sampleSurfaceDirection(transferredLight, uv), normal, nonPerturbedNormal);
+            vec3 diffuse = (joinedDirect + localDirect + bounceGain * (localBounce + neighborBounce)) * BRDF_Lambert(material.diffuseColor);
             reflectedLight.directDiffuse = mix(reflectedLight.directDiffuse, diffuse, blend);
           }
         #endif
