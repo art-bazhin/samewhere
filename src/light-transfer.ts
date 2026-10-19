@@ -24,6 +24,8 @@ export class LightTransfer {
   readonly uniforms = {
     transferredLight: { value: null as THREE.DataTexture | null },
     transferColor: { value: new THREE.Color(CEILING_LIGHT.color) }, transferGain: { value: 0 },
+    bounceGain: { value: 1 },
+    normalResponseCurve: { value: 4 },
     panelLight: { value: null as THREE.DataTexture | null },
     lightmapSize: { value: new THREE.Vector2() },
     passageCount: { value: 0 },
@@ -151,7 +153,7 @@ export class LightTransfer {
         ${DIRECTIONAL_LIGHTMAP_SHADER}
         varying vec2 vTransferUv;
         varying vec2 vDirectUv; uniform sampler2D directSurfaceLight;
-        uniform sampler2D transferredLight; uniform vec3 transferColor; uniform float transferGain;
+        uniform sampler2D transferredLight; uniform vec3 transferColor; uniform float transferGain; uniform float bounceGain;
         uniform sampler2D panelLight;
         uniform int passageCount; uniform vec4 passageFrames[4]; uniform vec4 passageAtlases[4]; uniform vec4 passageDirectAtlases[4];\n` + shader.fragmentShader;
       shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `
@@ -162,12 +164,12 @@ export class LightTransfer {
         #endif
         vec3 roomBounce = directionalBounce(roomLight.gba, sampleSurfaceDirection(panelLight, vTransferUv), normal, nonPerturbedNormal);
         vec3 roomDirect = directionalBounce(roomLight.r * transferColor, sampleSurfaceLightmap(panelLight, vTransferUv + vec2(0., 2.)), normal, nonPerturbedNormal);
-        reflectedLight.directDiffuse += (roomDirect + roomBounce) * BRDF_Lambert(material.diffuseColor);
+        reflectedLight.directDiffuse += (roomDirect + bounceGain * roomBounce) * BRDF_Lambert(material.diffuseColor);
         if (transferGain > 0.) reflectedLight.directDiffuse += texture2D(directSurfaceLight, vDirectUv).r * transferColor * BRDF_Lambert(material.diffuseColor);
         if (transferGain > 0.) {
           vec4 transported = sampleSurfaceLightmap(transferredLight, vTransferUv);
           vec3 transportedBounce = directionalBounce(transported.gba, sampleSurfaceDirection(transferredLight, vTransferUv), normal, nonPerturbedNormal);
-          reflectedLight.directDiffuse += transferGain * transportedBounce * BRDF_Lambert(material.diffuseColor);
+          reflectedLight.directDiffuse += transferGain * bounceGain * transportedBounce * BRDF_Lambert(material.diffuseColor);
         }
         #ifdef FLOOR_PASSAGE_LIGHTING
           for (int passage = 0; passage < 4; passage++) {
@@ -182,7 +184,7 @@ export class LightTransfer {
             vec4 directAtlas = passageDirectAtlases[passage];
             float joinedDirect = texture2D(directSurfaceLight, directAtlas.xy + vec2(lateral, max(0., depth)) * directAtlas.zw).r;
             vec4 joinedDirection = sampleSurfaceDirection(panelLight, uv) + sampleSurfaceDirection(transferredLight, uv);
-            vec3 diffuse = (joinedDirect * transferColor + directionalBounce(joined.gba, joinedDirection, normal, nonPerturbedNormal)) * BRDF_Lambert(material.diffuseColor);
+            vec3 diffuse = (joinedDirect * transferColor + bounceGain * directionalBounce(joined.gba, joinedDirection, normal, nonPerturbedNormal)) * BRDF_Lambert(material.diffuseColor);
             reflectedLight.directDiffuse = mix(reflectedLight.directDiffuse, diffuse, blend);
           }
         #endif

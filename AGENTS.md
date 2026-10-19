@@ -12,6 +12,6 @@ Examples: `feat: implement the Samewhere prototype`, `fix(portals): preserve ima
 
 # Lighting data
 
-Vite automatically generates the lighting binary for `npm run build` and `npm run dev`. Its cache key follows the bake script's transitive local imports and the dependency lockfile; relevant edits during development regenerate the data and reload the game. Keep new bake dependencies reachable through imports. After changes to geometry, lighting or baking, run `npm run build` to verify that generation succeeds. Do not edit or commit generated lighting files.
+Vite automatically generates the lighting binary for `npm run build` and `npm run dev`. Its cache key follows the bake script's transitive local imports and the dependency lockfile; relevant edits during development regenerate the data and reload the game. Keep new bake dependencies reachable through imports. After changes to geometry, lighting or baking, verify generation with the fast development bake and proportionate checks. Do not edit or commit generated lighting files.
 
-Development uses a fast draft bake; production builds use full precision. Their cache keys and assets are separate. Check subtle lighting artifacts with `npm run build` and `npm run preview`.
+Development uses a fast draft bake; production builds use full precision. Their cache keys and assets are separate. Run `npm run build` or any full production bake only when the user explicitly requests a production build. A request to commit does not authorize a production build. When a production build is requested, check subtle lighting artifacts with `npm run preview`.

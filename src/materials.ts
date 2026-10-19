@@ -168,7 +168,17 @@ export function optimizeLighting(material: THREE.MeshStandardMaterial, enabled: 
   const lighting = THREE.ShaderChunk.lights_fragment_begin.replace(
     /(getSpotLightInfo\( spotLight, geometryPosition, directLight \);)([\s\S]*?RE_Direct\( directLight,[^;]+;)/,
     '$1\n if (dot(nonPerturbedNormal, directLight.direction) > 0. && (!surfaceOptimizations || (directLight.visible && dot(geometryNormal, directLight.direction) > 0.))) { $2\n }',
-  );
+  ).replace(/RE_Direct\( directLight,[^;]+;/g, call => `{
+    vec3 diffuseBefore = reflectedLight.directDiffuse;
+    ${call}
+    #ifdef USE_NORMALMAP
+      float reference = max(0., dot(nonPerturbedNormal, directLight.direction));
+      float response = max(0., dot(geometryNormal, directLight.direction));
+      vec3 gradient = reliefLightGradient(directLight.direction, nonPerturbedNormal, reference);
+      float gain = max(0., dot(geometryNormal, gradient)) / max(response, .000001);
+      reflectedLight.directDiffuse = diffuseBefore + (reflectedLight.directDiffuse - diffuseBefore) * gain;
+    #endif
+  }`);
   material.onBeforeCompile = (shader, renderer) => {
     before(shader, renderer); shader.uniforms.surfaceOptimizations = enabled;
     shader.fragmentShader = 'uniform bool surfaceOptimizations;\n' + shader.fragmentShader;
