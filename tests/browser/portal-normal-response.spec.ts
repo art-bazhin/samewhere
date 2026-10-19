@@ -28,7 +28,7 @@ test('neighbor light retains normal relief both in the doorway blend and inside 
         // Isolate the neighbor contribution, including the real joined passage
         // atlas. Keep actual geometry, carpet normals and the oblique camera.
         shader.fragmentShader = shader.fragmentShader.replace(
-          'reflectedLight.directDiffuse += (roomDirect + bounceGain * roomBounce) * BRDF_Lambert(material.diffuseColor);', '');
+          'reflectedLight.directDiffuse += roomDirect * BRDF_Lambert(material.diffuseColor);', '');
         for (const field of ['directField', 'joinedField', 'localField']) shader.fragmentShader = shader.fragmentShader.replace(
           `directionalDirect(${field}.r * transferColor, vec4(${field}.gba, ${field}.r), normal, nonPerturbedNormal)`,
           `(probeScalar ? ${field}.r * transferColor : directionalDirect(${field}.r * transferColor, vec4(${field}.gba, ${field}.r), normal, nonPerturbedNormal))`);

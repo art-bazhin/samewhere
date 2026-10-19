@@ -7,7 +7,7 @@ const WALL_EDGE_STRENGTH = .025, PEDESTAL_EDGE_STRENGTH = .025;
 // Exponential decay in inverse meters; characteristic length = 1 / CONTACT_FALLOFF.
 const CONTACT_FALLOFF = 50;
 
-/** The same linear-light contact profile on every architectural surface. */
+/** The same indirect-light contact profile on every architectural surface. */
 export function withContactShading(material: THREE.MeshStandardMaterial, distance: string,
   strength = WALL_CONTACT_STRENGTH, uniforms: Record<string, THREE.IUniform> = {}, declarations = '') {
   const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
@@ -22,11 +22,13 @@ export function withContactShading(material: THREE.MeshStandardMaterial, distanc
     shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `#include <aomap_fragment>
       float contactDistance = 100.; ${distance}
       float shade = 1. - ${strength} * exp(-max(contactDistance, 0.) * ${CONTACT_FALLOFF.toFixed(1)});
-      reflectedLight.indirectDiffuse *= shade; reflectedLight.directDiffuse *= shade;
-      reflectedLight.indirectSpecular *= shade; reflectedLight.directSpecular *= shade;
-      totalEmissiveRadiance *= shade;
+      reflectedLight.indirectDiffuse *= shade;
+      reflectedLight.indirectSpecular *= shade;
+      #ifdef USE_CLEARCOAT
+        clearcoatSpecularIndirect *= shade;
+      #endif
       #ifdef USE_SHEEN
-        sheenSpecularIndirect *= shade; sheenSpecularDirect *= shade;
+        sheenSpecularIndirect *= shade;
       #endif`);
   };
   material.customProgramCacheKey = () => `${key}:contacts:${strength}:${CONTACT_FALLOFF}:${distance}`;

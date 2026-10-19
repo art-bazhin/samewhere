@@ -162,11 +162,11 @@ export class LightTransfer {
         vec4 roomLight = sampleSurfaceLightmap(panelLight, vTransferUv);
         #ifdef SOCKET_BALL_SHADOW
           roomLight.r *= socketVisibility.x;
-          roomLight.gba *= socketVisibility.y;
         #endif
         vec3 roomBounce = directionalBounce(roomLight.gba, sampleSurfaceDirection(panelLight, vTransferUv), normal, nonPerturbedNormal);
         vec3 roomDirect = directionalDirect(roomLight.r * transferColor, sampleSurfaceLightmap(panelLight, vTransferUv + vec2(0., 2.)), normal, nonPerturbedNormal);
-        reflectedLight.directDiffuse += (roomDirect + bounceGain * roomBounce) * BRDF_Lambert(material.diffuseColor);
+        reflectedLight.directDiffuse += roomDirect * BRDF_Lambert(material.diffuseColor);
+        vec3 bakedBounce = roomBounce;
         if (transferGain > 0.) {
           vec4 directField = texture2D(directSurfaceLight, vDirectUv);
           vec3 neighborDirect = directionalDirect(directField.r * transferColor, vec4(directField.gba, directField.r), normal, nonPerturbedNormal);
@@ -175,7 +175,7 @@ export class LightTransfer {
         if (transferGain > 0.) {
           vec4 transported = sampleSurfaceLightmap(transferredLight, vTransferUv);
           vec3 transportedBounce = directionalBounce(transported.gba, sampleSurfaceDirection(transferredLight, vTransferUv), normal, nonPerturbedNormal);
-          reflectedLight.directDiffuse += transferGain * bounceGain * transportedBounce * BRDF_Lambert(material.diffuseColor);
+          bakedBounce += transferGain * transportedBounce;
         }
         #ifdef FLOOR_PASSAGE_LIGHTING
           for (int passage = 0; passage < 4; passage++) {
@@ -195,10 +195,14 @@ export class LightTransfer {
             vec3 localDirect = directionalDirect(localField.r * transferColor, vec4(localField.gba, localField.r), normal, nonPerturbedNormal);
             vec3 localBounce = directionalBounce(sampleSurfaceLightmap(panelLight, uv).gba, sampleSurfaceDirection(panelLight, uv), normal, nonPerturbedNormal);
             vec3 neighborBounce = directionalBounce(sampleSurfaceLightmap(transferredLight, uv).gba, sampleSurfaceDirection(transferredLight, uv), normal, nonPerturbedNormal);
-            vec3 diffuse = (joinedDirect + localDirect + bounceGain * (localBounce + neighborBounce)) * BRDF_Lambert(material.diffuseColor);
+            vec3 diffuse = (joinedDirect + localDirect) * BRDF_Lambert(material.diffuseColor);
             reflectedLight.directDiffuse = mix(reflectedLight.directDiffuse, diffuse, blend);
+            bakedBounce = mix(bakedBounce, localBounce + neighborBounce, blend);
           }
         #endif
+        // Keep baked reflections in the indirect channel for AO and contacts.
+        // Socket visibility is applied to this channel once by its material.
+        reflectedLight.indirectDiffuse += bounceGain * bakedBounce * BRDF_Lambert(material.diffuseColor);
         #include <aomap_fragment>`);
     };
     material.customProgramCacheKey = () => `${key}:neighbor-geometric-direct`;
