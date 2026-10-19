@@ -10,11 +10,12 @@ export function materialDetail(meters: number, relief: number, range: [number, n
     map.minFilter = THREE.LinearMipmapLinearFilter; map.magFilter = THREE.LinearFilter; map.generateMipmaps = true;
     map.anisotropy = anisotropy; map.flipY = true; map.needsUpdate = true;
   }
-  return { normal, roughness, update(image: HTMLImageElement | HTMLCanvasElement) {
+  return { normal, roughness, update(image: HTMLImageElement | HTMLCanvasElement, prepareHeight?: (height: Float32Array, size: number) => void) {
     const canvas = document.createElement('canvas'); canvas.width = canvas.height = size;
     const context = canvas.getContext('2d')!; context.drawImage(image, 0, 0, size, size);
     const pixels = context.getImageData(0, 0, size, size).data, height = new Float32Array(size * size);
     for (let i = 0; i < height.length; i++) height[i] = (.2126 * pixels[i * 4] + .7152 * pixels[i * 4 + 1] + .0722 * pixels[i * 4 + 2]) / 255;
+    prepareHeight?.(height, size);
     // Derivatives cross the same periodic boundary as the color texture.
     const at = (x: number, y: number) => height[(y & (size - 1)) * size + (x & (size - 1))];
     const scale = relief * size / meters;

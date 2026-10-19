@@ -8,13 +8,15 @@ import { withPortalSurfacePadding } from './portal-surfaces';
 import { boundaryContactDistance, PEDESTAL_CONTACT_STRENGTH, withWallContacts, withPedestalContacts, withContactShading } from './contact-shading';
 
 export const PEDESTAL_TEXTURE_SIZE = .8;
+const CEILING_RELIEF = .0012;
 
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
 export function createMaterials(renderer: THREE.WebGLRenderer) {
   const optimizations = { value: true };
   const loader = new THREE.TextureLoader(), textures = new Set<THREE.Texture>(), pending: Promise<unknown>[] = [];
   const anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
-  function texture(file: string, metersPerTile: number, relief: number, roughness: [number, number], prepare?: (image: HTMLImageElement) => HTMLCanvasElement) {
+  function texture(file: string, metersPerTile: number, relief: number, roughness: [number, number], prepare?: (image: HTMLImageElement) => HTMLCanvasElement,
+    prepareHeight?: (height: Float32Array, size: number) => void) {
     const detail = materialDetail(metersPerTile, relief, roughness, anisotropy);
     textures.add(detail.normal); textures.add(detail.roughness);
     let result!: THREE.Texture;
@@ -22,7 +24,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
       result = loader.load(`/materials/${file}`, loaded => {
         const image = prepare ? prepare(loaded.image as HTMLImageElement) : loaded.image as HTMLImageElement;
         loaded.image = image; loaded.needsUpdate = true;
-        detail.update(image); resolve(loaded);
+        detail.update(image, prepareHeight); resolve(loaded);
       }, undefined, reject);
     }));
     result.wrapS = result.wrapT = THREE.RepeatWrapping; result.anisotropy = anisotropy;
@@ -36,7 +38,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   const concreteTint = new THREE.Color(0xcdbb86);
   concreteTint.r /= .504106; concreteTint.g /= .443913; concreteTint.b /= .362871;
   concreteTint.lerp(new THREE.Color(0xffffff), .5);
-  const ceiling = texture('office-ceiling-panel-color.jpg', CEILING_TILE_SIZE, .0012, [.94, 1], ceilingTile);
+  const ceiling = texture('office-ceiling-panel-color.jpg', CEILING_TILE_SIZE, CEILING_RELIEF, [.94, 1], ceilingTile, ceilingRelief);
   // surfaceUV projects x/-z in meters. Put each panel center on the shared grid.
   for (const map of [ceiling.color, ceiling.normal, ceiling.roughness]) map.offset.set(.5, .5);
   const diffuser = lampDiffuser(); textures.add(diffuser);
@@ -275,7 +277,7 @@ function lampDiffuser() {
   const map = new THREE.CanvasTexture(canvas); map.colorSpace = THREE.SRGBColorSpace; return map;
 }
 
-/** Mineral-fiber artwork with a 24 mm painted T-grid, without extra geometry. */
+/** Mineral-fiber artwork with a 24 mm T-grid, without extra geometry. */
 function ceilingTile(image: HTMLImageElement) {
   const canvas = document.createElement('canvas'), size = image.naturalWidth;
   canvas.width = canvas.height = size;
@@ -290,6 +292,18 @@ function ceilingTile(image: HTMLImageElement) {
   // A warm greige just below the panel's mean sRGB (#d7cdbb), without a colored edge.
   border(rail, '#c9c0ae');
   return canvas;
+}
+
+/** Flat rails stand 1.8 mm proud of the panels, with soft 3 mm bevels.
+ * Keep the acoustic grain outside the grid and repeat the profile at tile edges. */
+function ceilingRelief(height: Float32Array, size: number) {
+  const level = height.reduce((sum, value) => sum + value, 0) / height.length + .0018 / CEILING_RELIEF;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const distance = Math.min(x + .5, size - x - .5, y + .5, size - y - .5) * CEILING_TILE_SIZE / size;
+    const t = THREE.MathUtils.clamp((CEILING_GRID_WIDTH / 2 - distance) / .003, 0, 1);
+    const blend = t * t * (3 - 2 * t), i = y * size + x;
+    height[i] += blend * (level - height[i]);
+  }
 }
 
 /** Meter-based box projection, so textures keep their scale on walls and prisms. */
