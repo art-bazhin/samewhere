@@ -4,6 +4,7 @@ import { SpaceRenderer } from './scene';
 import { Sound } from './audio';
 import { FrameTiming } from './timing';
 import { MouseLook } from './mouse-look';
+import { SurfaceTextures } from './surface-textures';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('game');
@@ -19,6 +20,7 @@ const MOVE_SPEED = 5;
 const DEBUG_ROOMS = ['G', 'A', 'B', 'C', 'D', 'E', 'F'] as const;
 let debugRoomIndex = 0;
 let space: SpaceRenderer;
+let surfaceTextures: SurfaceTextures;
 let locked = false, started = false, debug = false, disposed = false;
 let fullscreenPending = false;
 let sweep: { yaw: number; pitch: number; start: number } | null = null;
@@ -148,6 +150,7 @@ document.addEventListener('keydown', event => {
   if (event.code === 'KeyZ') undo();
   if (event.code === 'KeyR') reset();
   if (event.code === 'KeyM') { sound.enabled = !sound.enabled; toast(sound.enabled ? 'Звук включён' : 'Звук выключен'); }
+  if (event.code === 'KeyT') toast(surfaceTextures.toggle() ? 'Текстуры включены' : 'Текстуры выключены · проверка теней');
 });
 document.addEventListener('keyup', event => keys.delete(event.code));
 window.addEventListener('blur', () => { keys.clear(); pause(); });
@@ -217,7 +220,9 @@ function frame(time: number) {
   }
 }
 try {
-  space = new SpaceRenderer(canvas, game); updateHUD(); requestAnimationFrame(frame);
+  space = new SpaceRenderer(canvas, game);
+  surfaceTextures = new SurfaceTextures(Object.values(space.rooms).map(room => room.scene), space.assets.textures);
+  updateHUD(); requestAnimationFrame(frame);
   const playButton = $<HTMLButtonElement>('play-button'), playLabel = playButton.querySelector('span')!;
   playButton.disabled = true; playLabel.textContent = 'Подготовка пространства…';
   void space.ready.then(() => { playButton.disabled = false; playLabel.textContent = 'Войти в пространство'; }).catch(error => {
