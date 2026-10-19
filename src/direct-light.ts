@@ -285,6 +285,21 @@ float directIncident(int light, vec3 point, vec3 normal, vec3 geometricNormal) {
   if (aperture <= .000001) return 0.;
   return energy * aperture * directVisibility(light, point, geometricNormal);
 }
+vec4 directIncidentField(int light, vec3 point, vec3 normal) {
+  float energy = directIncident(light, point, normal, normal);
+  vec2 lamp = directRecord(light, 0).xy;
+  vec3 ray = vec3(lamp.x, ${CEILING_LIGHT.height.toFixed(6)}, lamp.y) - point;
+  // Keep the geometric irradiance and its world-space normal gradient together.
+  return vec4(energy, ray * (energy / max(dot(normal, ray), .000001)));
+}
+vec4 directNeighborField(vec3 point, vec3 normal) {
+  vec4 light = vec4(0.);
+  for (int lamp = 0; lamp < 28; lamp++) {
+    if (lamp >= directNeighborCount) break;
+    light += directIncidentField(lamp, point, normal);
+  }
+  return light;
+}
 float directNeighborLight(vec3 point, vec3 normal, vec3 geometricNormal) {
   float light = 0.;
   for (int lamp = 0; lamp < 28; lamp++) {

@@ -165,7 +165,11 @@ export class LightTransfer {
         vec3 roomBounce = directionalBounce(roomLight.gba, sampleSurfaceDirection(panelLight, vTransferUv), normal, nonPerturbedNormal);
         vec3 roomDirect = directionalBounce(roomLight.r * transferColor, sampleSurfaceLightmap(panelLight, vTransferUv + vec2(0., 2.)), normal, nonPerturbedNormal);
         reflectedLight.directDiffuse += (roomDirect + bounceGain * roomBounce) * BRDF_Lambert(material.diffuseColor);
-        if (transferGain > 0.) reflectedLight.directDiffuse += texture2D(directSurfaceLight, vDirectUv).r * transferColor * BRDF_Lambert(material.diffuseColor);
+        if (transferGain > 0.) {
+          vec4 directField = texture2D(directSurfaceLight, vDirectUv);
+          vec3 neighborDirect = directionalBounce(directField.r * transferColor, vec4(directField.gba, directField.r), normal, nonPerturbedNormal);
+          reflectedLight.directDiffuse += neighborDirect * BRDF_Lambert(material.diffuseColor);
+        }
         if (transferGain > 0.) {
           vec4 transported = sampleSurfaceLightmap(transferredLight, vTransferUv);
           vec3 transportedBounce = directionalBounce(transported.gba, sampleSurfaceDirection(transferredLight, vTransferUv), normal, nonPerturbedNormal);
@@ -182,9 +186,10 @@ export class LightTransfer {
             vec2 uv = atlas.xy + vec2(lateral, max(0., depth)) * atlas.zw;
             vec4 joined = sampleSurfaceLightmap(panelLight, uv) + sampleSurfaceLightmap(transferredLight, uv);
             vec4 directAtlas = passageDirectAtlases[passage];
-            float joinedDirect = texture2D(directSurfaceLight, directAtlas.xy + vec2(lateral, max(0., depth)) * directAtlas.zw).r;
+            vec4 joinedField = texture2D(directSurfaceLight, directAtlas.xy + vec2(lateral, max(0., depth)) * directAtlas.zw);
+            vec3 joinedDirect = directionalBounce(joinedField.r * transferColor, vec4(joinedField.gba, joinedField.r), normal, nonPerturbedNormal);
             vec4 joinedDirection = sampleSurfaceDirection(panelLight, uv) + sampleSurfaceDirection(transferredLight, uv);
-            vec3 diffuse = (joinedDirect * transferColor + bounceGain * directionalBounce(joined.gba, joinedDirection, normal, nonPerturbedNormal)) * BRDF_Lambert(material.diffuseColor);
+            vec3 diffuse = (joinedDirect + bounceGain * directionalBounce(joined.gba, joinedDirection, normal, nonPerturbedNormal)) * BRDF_Lambert(material.diffuseColor);
             reflectedLight.directDiffuse = mix(reflectedLight.directDiffuse, diffuse, blend);
           }
         #endif

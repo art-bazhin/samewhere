@@ -27,13 +27,13 @@ export class DirectSurfaceLight {
         void main() {
           if (any(lessThan(gl_FragCoord.xy, bakeBounds.xy)) || any(greaterThanEqual(gl_FragCoord.xy, bakeBounds.zw))) discard;
           vec3 normal = normalize(bakeNormal);
-          float light = directNeighborLight(directWorldPosition, normal, normal);
+          vec4 light = directNeighborField(directWorldPosition, normal);
           if (bakePassage >= 0) for (int lamp = 0; lamp < 7; lamp++) {
             if (lamp >= bakeLocalCount) break;
             int index = bakeLocalStart + lamp;
-            light += directIncident(index, directWorldPosition, normal, normal);
+            light += directIncidentField(index, directWorldPosition, normal);
           }
-          gl_FragColor = vec4(light, 0., 0., 1.);
+          gl_FragColor = light;
         }`,
     });
     this.fields = Object.fromEntries(ROOM_IDS.map(room => {
@@ -89,7 +89,7 @@ export class DirectSurfaceLight {
       }
       const mesh = this.mesh(positions, normals, uvs, bounds); mesh.userData.passage = -1; scene.add(mesh);
       const target = new THREE.WebGLRenderTarget(layout.width, layout.height,
-        { type: THREE.HalfFloatType, format: THREE.RedFormat, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+        { type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
       return [room, { layout: { width: layout.width, height: layout.height }, target, scene, passages, active: [] as number[] }];
     })) as Record<RoomId, DirectSurface>;
     this.uniform.value = this.fields.A.target.texture;
