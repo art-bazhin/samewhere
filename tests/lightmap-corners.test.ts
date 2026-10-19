@@ -53,6 +53,31 @@ test('wall receivers and biased rays stay inside every room footprint', () => {
   }
 });
 
+test('pedestal lightmaps retain the reflected-light rise just above the floor', () => {
+  const layout = bakingLayout('A'), samples = surfaceSamples(layout), pedestal = ROOMS.A.pedestals[0];
+  const [a, b] = pedestalOutline(pedestal.controls), length = Math.hypot(b.x - a.x, b.z - a.z);
+  const normal = new Vector3((b.z - a.z) / length, 0, -(b.x - a.x) / length), u = new Vector3(normal.z, 0, -normal.x);
+  const center = new Vector3(pedestal.x + (a.x + b.x) / 2, 0, pedestal.z + (a.z + b.z) / 2);
+  const chart = layout.charts.find(chart => chart.triangles.some(t => t.mesh.name === 'pedestal-body' &&
+    t.normals[0].dot(normal) > .999 && Math.abs(t.positions[0].clone().sub(center).dot(normal)) < .00001))!;
+  const probes = [.025, .075, .125, .175, .225].map(height => {
+    const point = center.clone().setY(height);
+    const x = chart.x + 1 + (point.dot(u) - chart.min.x) / chart.step.x;
+    const y = chart.y + 1 + (height - chart.min.y) / chart.step.y;
+    return { point, x, y, ix: Math.floor(x), iy: Math.floor(y) };
+  });
+  const texels = new Set(probes.flatMap(({ ix, iy }) => [0, 1].flatMap(dy => [0, 1].map(dx => (iy + dy) * layout.width + ix + dx))));
+  const map = bakePanelLight('A', { ...samples, texels: new Uint32Array(texels) }, layout.width * layout.height, 'draft');
+  const bounce = createBounceSampler('A', undefined, true, 'draft'), rgb = new Float32Array(3);
+  for (const { point, x, y, ix, iy } of probes) {
+    const tx = x - ix, ty = y - iy;
+    const at = (dx: number, dy: number) => DataUtils.fromHalfFloat(map[((iy + dy) * layout.width + ix + dx) * 4 + 1]);
+    const baked = at(0, 0) * (1 - tx) * (1 - ty) + at(1, 0) * tx * (1 - ty) + at(0, 1) * (1 - tx) * ty + at(1, 1) * tx * ty;
+    bounce(point.clone().addScaledVector(normal, SURFACE_SAMPLE_OFFSET), normal, rgb);
+    assert.ok(Math.abs(baked - rgb[0]) < rgb[0] * .1, `At ${point.y} m: baked ${baked}, reference ${rgb[0]}`);
+  }
+});
+
 test('triangle corner padding preserves direct and reflected light after interpolation', () => {
   const layout = bakingLayout('D'), map = bakePanelLight('D', surfaceSamples(layout), layout.width * layout.height);
   const direct = panelLightSampler('D'), bounce = createBounceSampler('D'), rgb = new Float32Array(3);

@@ -103,11 +103,14 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = 
     } else {
       const spacing = chart.passage !== undefined ? (direct ? .0125 : PASSAGE_LIGHT_SPACING)
         : direct ? .025 : chart.triangles[0].mesh.name === 'ceiling' ? LIGHTMAP_SPACING * 2 : LIGHTMAP_SPACING;
+      // Resolve the steep floor-bounce profile on pedestal sides without
+      // increasing horizontal density or the rest of the room's bake cost.
+      const verticalSpacing = !direct && chart.triangles.some(t => t.mesh.name === 'pedestal-body' && Math.abs(t.normals[0].y) < .01) ? .05 : spacing;
       chart.min.x = Math.floor((chart.min.x + .00001) / spacing) * spacing;
-      chart.min.y = Math.floor((chart.min.y + .00001) / spacing) * spacing;
-      chart.step.setScalar(spacing);
+      chart.min.y = Math.floor((chart.min.y + .00001) / verticalSpacing) * verticalSpacing;
+      chart.step.set(spacing, verticalSpacing);
       chart.width = Math.ceil((chart.max.x - chart.min.x - .00001) / spacing) + 1 + PADDING * 2;
-      chart.height = Math.ceil((chart.max.y - chart.min.y - .00001) / spacing) + 1 + PADDING * 2;
+      chart.height = Math.ceil((chart.max.y - chart.min.y - .00001) / verticalSpacing) + 1 + PADDING * 2;
     }
   }
   const width = powerOfTwo(Math.max(32, ...list.map(c => c.width + 2), Math.sqrt(list.reduce((sum, c) => sum + (c.width + 1) * (c.height + 1), 0))));
