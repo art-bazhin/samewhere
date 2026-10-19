@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DataUtils } from 'three';
 import { bounceFormFactor, type BounceArea } from '../src/bounce-area';
-import { bakePanelLight, createBounceSampler, panelLightSampler } from '../src/panel-light-bake';
+import { bakePanelLight, bouncePatches, createBounceSampler, panelLightSampler } from '../src/panel-light-bake';
 import { createBounceTransferSampler } from '../src/bounce-light-transfer';
 import { floorBounceCells } from '../src/bounce-floor';
-import { pedestalOutline, portalPosition, ROOM_IDS, ROOMS, roomOutline, roomWalls, wallNormal, type SocketRef } from '../src/world';
+import { PEDESTAL_APOTHEM, pedestalOutline, portalPosition, ROOM_IDS, ROOMS, roomOutline, roomWalls, wallNormal, type SocketRef } from '../src/world';
 import { insideOutline } from '../src/geometry';
 
 const factor = (area: BounceArea & { area: number }, point: { x: number; y: number; z: number }, normal = { x: 0, y: -1, z: 0 }) => {
@@ -111,14 +111,36 @@ test('baked panel angular response matches a tilted receiver without changing fl
   assert.ok(Math.abs((plus - minus) / (2 * epsilon) - gradient[1]) < .00001);
 });
 
-test('draft and full bakes keep separate precision and reusable reflector data', () => {
+test('draft and full bakes both resolve reflection stripes and reuse reflector data', () => {
   const samples = { positions: new Float32Array([.3, 1.5, -6.998, .4, 1.5, -6.998]),
     normals: new Float32Array([0, 0, 1, 0, 0, 1]), texels: new Uint32Array([0, 1]), passages: new Int8Array([-1, -1]) };
   const draft = bakePanelLight('F', samples, 2, 'draft'), full = bakePanelLight('F', samples, 2, 'full');
   const jump = (values: Uint16Array) => Math.abs(DataUtils.fromHalfFloat(values[1]) - DataUtils.fromHalfFloat(values[5]));
-  assert.ok(jump(draft) > .003, 'Draft keeps the coarse grid');
+  assert.ok(jump(draft) < .001, 'Draft must also resolve the occlusion stripe');
   assert.ok(jump(full) < .001, 'Full precision resolves the occlusion stripe');
   assert.deepEqual(bakePanelLight('F', samples, 2, 'draft'), draft);
+});
+
+test('both bake qualities bound floor reflector size in every room', () => {
+  for (const quality of ['draft', 'full'] as const) for (const room of ROOM_IDS) {
+    const floor = bouncePatches(room, undefined, quality).flatMap(area => area.samples).filter(sample => sample.normal.y > .999);
+    assert.ok(floor.length > 0);
+    assert.ok(floor.every(sample => sample.area <= (quality === 'draft' ? .32 : .16) ** 2), `${room} ${quality}: floor reflector is too large`);
+  }
+});
+
+test('pedestal corner bounce agrees with dense integration in dev and production', () => {
+  const pedestal = ROOMS.A.pedestals[0], normal = { x: 0, y: 0, z: 1 };
+  const actual = new Float32Array(3), expected = new Float32Array(3);
+  for (const quality of ['draft', 'full'] as const) {
+    const sample = createBounceSampler('A', undefined, true, quality), reference = createBounceSampler('A', 32, false, quality);
+    for (const y of [.00001, .025, .1, .25]) for (const gap of [.002, .025, .1]) {
+      const point = { x: pedestal.x - PEDESTAL_APOTHEM + gap, y, z: pedestal.z + PEDESTAL_APOTHEM + .002 };
+      sample(point, normal, actual); reference(point, normal, expected);
+      for (let c = 0; c < 3; c++) assert.ok(Math.abs(actual[c] - expected[c]) < .02,
+        `${quality}: false corner highlight at ${JSON.stringify(point)}: ${actual[c]} vs ${expected[c]}`);
+    }
+  }
 });
 
 test('floor cells cover every outline and retain uniform irradiance along oblique walls', () => {
@@ -153,15 +175,15 @@ test('floor reflectors cover only exposed floor around every pedestal shape', ()
   }
 });
 
-test('draft reflected direction at the H pedestal foot agrees with dense floor integration', () => {
+test('draft reflected color and direction at the H pedestal foot agree with dense floor integration', () => {
   const pedestal = ROOMS.F.pedestals.find(p => p.controls === 'G')!;
-  const draft = createBounceSampler('F', 4, true, 'draft'), dense = createBounceSampler('F', 16, true, 'draft');
-  const rgb = new Float32Array(3), actual = new Float32Array(4), expected = new Float32Array(4);
+  const draft = createBounceSampler('F', undefined, true, 'draft'), dense = createBounceSampler('F', 32, false, 'draft');
+  const rgb = new Float32Array(3), reference = new Float32Array(3), actual = new Float32Array(4), expected = new Float32Array(4);
   for (const y of [.00001, .025, .05, .1, .2, .4]) {
     const point = { x: pedestal.x - .313, y, z: pedestal.z }, normal = { x: -1, y: 0, z: 0 };
-    draft(point, normal, rgb, actual); dense(point, normal, rgb, expected);
-    assert.ok(actual[1] < 0, `At ${y} m, the floor contribution must not flip upward`);
-    for (let i = 0; i < 4; i++) assert.ok(Math.abs(actual[i] - expected[i]) < .06, `${y} m: coarse angular response diverges from the dense reference`);
+    draft(point, normal, rgb, actual); dense(point, normal, reference, expected);
+    for (let i = 0; i < 3; i++) assert.ok(Math.abs(rgb[i] - reference[i]) < .02, `${y} m: reflected color diverges from the dense reference`);
+    for (let i = 0; i < 4; i++) assert.ok(Math.abs(actual[i] - expected[i]) < .02, `${y} m: angular response diverges from the dense reference`);
   }
 });
 
@@ -204,6 +226,23 @@ test('area and aperture bounds preserve reflection through thick doorways and se
       actual.fill(0); expected.fill(0); sample(point, normal, actual, 0); reference(point, normal, expected, 0);
       for (let c = 0; c < 3; c++) assert.ok(Math.abs(actual[c] - expected[c]) < .000001,
         JSON.stringify({ receiver, source, point, actual: [...actual], expected: [...expected] }));
+    }
+  }
+});
+
+test('draft doorway bounce stays close to dense integration across all room shapes', () => {
+  const actual = new Float32Array(3), expected = new Float32Array(3), moment = new Float32Array(4), referenceMoment = new Float32Array(4);
+  for (const room of ROOM_IDS) for (const sourceRoom of ['A', 'G'] as const) {
+    const receiver = { room, side: 0 }, source = { room: sourceRoom, side: room === sourceRoom ? 1 : 0 };
+    const sample = createBounceTransferSampler(receiver, source, undefined, true, 'draft');
+    const reference = createBounceTransferSampler(receiver, source, 32, false, 'draft');
+    const p = portalPosition(room, 0), n = wallNormal(room, 0);
+    for (const depth of [.005, .2, 1]) for (const lateral of [-.89, 0, .89]) for (const y of [.002, .5, 2.5]) {
+      const point = { x: p.x - n.x * depth - n.z * lateral, y, z: p.z - n.z * depth + n.x * lateral };
+      const normal = y < .01 ? { x: 0, y: 1, z: 0 } : { x: -n.z, y: 0, z: n.x };
+      actual.fill(0); expected.fill(0); sample(point, normal, actual, 0, moment); reference(point, normal, expected, 0, referenceMoment);
+      for (let c = 0; c < 3; c++) assert.ok(Math.abs(actual[c] - expected[c]) < .01, JSON.stringify({ receiver, source, point, actual: [...actual], expected: [...expected] }));
+      for (let c = 0; c < 4; c++) assert.ok(Math.abs(moment[c] - referenceMoment[c]) < .03, 'Draft angular response must retain the dense reference');
     }
   }
 });

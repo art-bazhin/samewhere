@@ -202,6 +202,14 @@ export function surfaceSamples(layout: SurfaceLayout): SurfaceSamples {
         point.x = position.x - nearest.normal.x * .003 + dx / length * .003;
         point.z = position.z - nearest.normal.z * .003 + dz / length * .003;
       }
+      // Sample the interior of each vertical prism face. Rounded endpoints can
+      // otherwise fall inside the adjoining arm at a concave corner.
+      if (triangle.mesh.name === 'pedestal-body' && Math.abs(normal.y) < .01) {
+        const tangent = new THREE.Vector3(normal.z, 0, -normal.x).normalize(), along = point.dot(tangent);
+        const ends = triangle.positions.map(p => p.dot(tangent));
+        point.addScaledVector(tangent, THREE.MathUtils.clamp(along,
+          Math.min(...ends) + SURFACE_SAMPLE_OFFSET, Math.max(...ends) - SURFACE_SAMPLE_OFFSET) - along);
+      }
       point.addScaledVector(normal, SURFACE_SAMPLE_OFFSET);
       // Project the ray origin into the inset footprint, then recover the
       // receiver. Both offsets stay inside every adjacent face at sharp corners.

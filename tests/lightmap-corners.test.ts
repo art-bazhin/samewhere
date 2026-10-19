@@ -1,11 +1,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DataUtils, Vector3 } from 'three';
-import { insideOutline } from '../src/geometry';
+import { insideOutline, outlineWalls } from '../src/geometry';
 import { LIGHT_RAY_OFFSET, SURFACE_SAMPLE_OFFSET } from '../src/light-path';
 import { bakingLayout, surfaceSamples } from '../src/lightmap-layout';
 import { bakePanelLight, createBounceSampler, panelLightSampler } from '../src/panel-light-bake';
-import { ROOM_IDS, roomOutline, roomWalls } from '../src/world';
+import { PEDESTAL_HEIGHT, pedestalOutline, ROOM_IDS, ROOMS, roomOutline, roomWalls } from '../src/world';
+
+test('pedestal side receivers and biased rays stay outside their solid footprints', () => {
+  for (const room of ROOM_IDS) {
+    const samples = surfaceSamples(bakingLayout(room));
+    const shapes = ROOMS[room].pedestals.map(p => {
+      const outline = pedestalOutline(p.controls).map(v => ({ x: p.x + v.x, z: p.z + v.z }));
+      return { outline, walls: outlineWalls(outline, []), checked: 0 };
+    });
+    for (const texel of samples.texels) {
+      const i = texel * 3, point = { x: samples.positions[i], z: samples.positions[i + 2] };
+      const normal = { x: samples.normals[i], z: samples.normals[i + 2] };
+      if (samples.positions[i + 1] <= 0 || samples.positions[i + 1] >= PEDESTAL_HEIGHT || Math.abs(samples.normals[i + 1]) > .01) continue;
+      const shape = shapes.find(shape => shape.walls.some(wall => {
+        const x = point.x - wall.a.x, z = point.z - wall.a.z;
+        const along = (x * (wall.b.x - wall.a.x) + z * (wall.b.z - wall.a.z)) / wall.width;
+        return normal.x * wall.normal.x + normal.z * wall.normal.z > .999 && along >= -.00001 && along <= wall.width + .00001 &&
+          Math.abs(x * wall.normal.x + z * wall.normal.z - SURFACE_SAMPLE_OFFSET) < .00001;
+      }));
+      if (!shape) continue;
+      assert.ok(!insideOutline(point, shape.outline), `${room}: receiver inside pedestal ${JSON.stringify(point)}`);
+      const origin = { x: point.x + normal.x * LIGHT_RAY_OFFSET, z: point.z + normal.z * LIGHT_RAY_OFFSET };
+      assert.ok(!insideOutline(origin, shape.outline), `${room}: ray origin inside pedestal ${JSON.stringify(origin)}`);
+      shape.checked++;
+    }
+    for (const shape of shapes) assert.ok(shape.checked > 0, `${room}: every pedestal must be checked`);
+  }
+});
 
 test('wall receivers and biased rays stay inside every room footprint', () => {
   for (const room of ROOM_IDS) {

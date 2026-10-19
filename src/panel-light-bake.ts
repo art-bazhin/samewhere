@@ -13,7 +13,7 @@ export type LightingBakeQuality = 'draft' | 'full';
 
 /** Resolve partial panel visibility around concave corners without changing its energy. */
 export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE, quality: LightingBakeQuality = 'full', relief = false) {
-  const subdivisions = quality === 'full' && ROOMS[room].outline ? 9 : 3;
+  const subdivisions = quality === 'full' ? 9 : 3;
   const sources = ROOM_LIGHTS[room].flatMap(lamp => ceilingPanelSamples(lamp, subdivisions));
   const weight = CEILING_LIGHT.intensity * share / subdivisions ** 2;
   return (point: Point, normal: Point, gradient?: Float64Array) => {
@@ -67,11 +67,11 @@ function spotLightSampler(room: RoomId, relief = false) {
 interface BounceSample extends BounceArea { area: number; color: Color }
 export interface BouncePatch extends BounceArea { samples: BounceSample[] }
 const bounceCache = new Map<string, BouncePatch[]>();
-/** Concave rooms need finer cells to resolve visibility around inner corners.
+/** Concave visibility boundaries retain a fine grid even in development.
  * Groups only accelerate queries; cells retain independent light and occlusion. */
-export function bouncePatches(room: RoomId, subdivisions?: number, quality: LightingBakeQuality = 'full'): BouncePatch[] {
-  subdivisions ??= quality === 'full' && ROOMS[room].outline ? 16 : 4;
-  const key = `${room}:${subdivisions}:${quality}`, cached = bounceCache.get(key);
+export function bouncePatches(room: RoomId, subdivisions?: number, quality: LightingBakeQuality = 'full', refine = true): BouncePatch[] {
+  subdivisions ??= quality === 'draft' && !ROOMS[room].outline ? 8 : 16;
+  const key = `${room}:${subdivisions}:${quality}:${refine}`, cached = bounceCache.get(key);
   if (cached) return cached;
   const direct = panelLightSampler(room, 1, quality), outline = roomOutline(room), patches = new Map<string, BouncePatch>();
   const lamp = new Color(CEILING_LIGHT.color);
@@ -84,7 +84,7 @@ export function bouncePatches(room: RoomId, subdivisions?: number, quality: Ligh
   };
   const carpet = new Color(0xb6a078), wallpaper = new Color(0xbda444), step = 2.5 / subdivisions;
   const holes = ROOMS[room].pedestals.map(p => pedestalOutline(p.controls).map(v => ({ x: p.x + v.x, z: p.z + v.z })));
-  for (const { key, group, cell } of floorBounceCells(outline, subdivisions, holes)) add(key, group, { ...cell, color: carpet });
+  for (const { key, group, cell } of floorBounceCells(outline, subdivisions, holes, refine)) add(key, group, { ...cell, color: carpet });
   for (const [side, wall] of roomWalls(room).entries()) {
     const normal = { x: -wall.normal.x, y: 0, z: -wall.normal.z };
     const rectangles = wall.portal === null ? [[0, wall.width, 0, ROOM_HEIGHT]] : [

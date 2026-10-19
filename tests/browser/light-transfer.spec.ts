@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { createBounceSampler } from '../../src/panel-light-bake';
+import { roomWalls, type RoomId } from '../../src/world';
 
 test('baked diffuse bounce visibly lights the ceiling without extra render passes', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
@@ -29,7 +31,7 @@ test('baked diffuse bounce visibly lights the ceiling without extra render passe
   expect(result.error).toBe(0); expect(errors).toEqual([]);
 });
 
-test('baked wall bounce has no dark band above the floor', async ({ page }) => {
+test('baked wall bounce matches dense integration above the floor', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
   await page.evaluate(() => window.__samewhere.space.ready);
@@ -85,7 +87,17 @@ test('baked wall bounce has no dark band above the floor', async ({ page }) => {
   await page.screenshot({ path: 'test-results/wall-floor-pentagon.png' });
   console.log('Wall bounce near the floor:', [...result.profiles].sort((a, b) => a.base / a.higher - b.base / b.higher).slice(0, 5));
   expect(result.profiles).toHaveLength(82);
-  for (const profile of result.profiles) expect(profile.base, JSON.stringify(profile)).toBeGreaterThan(profile.higher * (profile.room === 'A' ? .85 : .7));
+  const references = new Map<RoomId, ReturnType<typeof createBounceSampler>>(), rgb = new Float32Array(3);
+  for (const profile of result.profiles) {
+    const id = profile.room as RoomId, wall = roomWalls(id)[profile.side];
+    if (!references.has(id)) references.set(id, createBounceSampler(id, 32, false, 'draft'));
+    const normal = { x: -wall.normal.x, y: 0, z: -wall.normal.z };
+    for (const [height, actual] of [[.005, profile.base], [.25, profile.higher]]) {
+      references.get(id)!({ x: wall.a.x + (wall.b.x - wall.a.x) * profile.along + normal.x * .002, y: height,
+        z: wall.a.z + (wall.b.z - wall.a.z) * profile.along + normal.z * .002 }, normal, rgb);
+      expect(Math.abs(actual - rgb[0]), JSON.stringify({ ...profile, height, expected: rgb[0] })).toBeLessThan(.01);
+    }
+  }
   expect(result.error).toBe(0); expect(errors).toEqual([]);
 });
 

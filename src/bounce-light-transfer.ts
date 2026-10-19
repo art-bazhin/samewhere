@@ -34,8 +34,10 @@ function apertureCoverage(point: Point, area: BounceArea, planes: Float64Array) 
 
 /** The same surface-area quadrature used locally crosses each open doorway. */
 export function createBounceTransferSampler(receiver: SocketRef, source: SocketRef, subdivisions?: number, optimized = true, quality: LightingBakeQuality = 'full') {
+  subdivisions ??= quality === 'draft' ? 4 : 16;
   const angle = portalAngle(source, receiver), direction = (p: Point) => ({ ...rotate(p, angle), y: p.y });
-  const emitters = bouncePatches(source.room, subdivisions, quality).map(area => ({ area,
+  // Foot refinement resolves local near-field bounce; doorway emitters are distant.
+  const emitters = bouncePatches(source.room, subdivisions, quality, quality === 'full').map(area => ({ area,
     virtual: { point: { ...transformPoint(area.point, source, receiver), y: area.point.y }, normal: direction(area.normal),
       halfU: direction(area.halfU), halfV: direction(area.halfV) },
     samples: area.samples.map(patch => ({ ...patch,
