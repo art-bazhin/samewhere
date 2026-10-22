@@ -62,7 +62,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
   };
   materials.wall.normalScale.setScalar(-1);
   materials.floor.normalScale.setScalar(.5);
-  materials.ceiling.normalScale.setScalar(1);
+  materials.ceiling.normalScale.setScalar(-1);
   materials.pedestal.normalScale.setScalar(2);
   materials.socket.normalScale.setScalar(1);
   // Front-face depth keeps a solid pedestal's interior occluded at the floor.
