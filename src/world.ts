@@ -16,13 +16,13 @@ export const PEDESTAL_APOTHEM = 0.325;
 export const CEILING_TILE_SIZE = PEDESTAL_APOTHEM * 2;
 export const ROOMS: Record<RoomId, RoomDefinition> = {
   A: { id: 'A', name: 'Квадратная комната', shape: 'square', sides: 4, apothem: 5, pedestals: [{ controls: 'A', x: -1.8, z: 1.8 }, { controls: 'B', x: 1.8, z: -1.8 }] },
-  B: { id: 'B', name: 'Пятиугольная комната', shape: 'pentagon', sides: 5, apothem: 5, pedestals: [{ controls: 'C', x: 1.8, z: -0.6 }] },
-  C: { id: 'C', name: 'Шестиугольная комната', shape: 'hexagon', sides: 6, apothem: 5, pedestals: [{ controls: 'D', x: 1.8, z: -0.6 }] },
+  B: { id: 'B', name: 'Пятиугольная комната', shape: 'pentagon', sides: 5, apothem: 5, pedestals: [{ controls: 'C', x: 0, z: 0 }] },
+  C: { id: 'C', name: 'Шестиугольная комната', shape: 'hexagon', sides: 6, apothem: 5, pedestals: [{ controls: 'D', x: 0, z: 0 }] },
   D: { id: 'D', name: 'Треугольная комната', shape: 'triangle', sides: 3, apothem: 5, pedestals: [{ controls: 'A', x: 1.8, z: -0.6 }, { controls: 'E', x: 1.8, z: 1.8 }] },
   E: { id: 'E', name: 'Y-комната', shape: 'y-room', sides: 3, apothem: 7, outline: yOutline(7, 1.7), portalEdges: [0, 3, 6],
     pedestals: [{ controls: 'B', x: -2.4, z: 1.8 }, { controls: 'F', x: 2.4, z: 1.8 }] },
   F: { id: 'F', name: 'Комната-крест', shape: 'cross-room', sides: 4, apothem: 7, outline: crossOutline(7, 1.7), portalEdges: [0, 3, 6, 9],
-    pedestals: [{ controls: 'G', x: 3, z: 0 }] },
+    pedestals: [{ controls: 'G', x: 0, z: 0 }] },
   G: { id: 'G', name: 'H-комната', shape: 'h-room', sides: 4, apothem: 7, outline: hOutline(7, 3.5, 1.7), portalEdges: [0, 4, 6, 10],
     pedestals: [
       { controls: 'A', x: -3.6, z: -4.2 }, { controls: 'B', x: -3.6, z: 0 }, { controls: 'C', x: -3.6, z: 4.2 },

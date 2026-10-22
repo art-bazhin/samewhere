@@ -41,7 +41,7 @@ async function walkTo(page: Page, x: number, z: number) {
   const waypoints = await page.evaluate(async target => {
     const path = '/src/world.ts', { ROOMS, roomOutline, canStand } = await import(path);
     const player = window.__samewhere.game.player, room = player.room;
-    if (!ROOMS[room].outline) return [target];
+    if (!ROOMS[room].outline && ROOMS[room].pedestals.length !== 1) return [target];
     if (!canStand(room, target)) throw new Error(`Unwalkable target in ${room}: ${JSON.stringify(target)}`);
     const outline = roomOutline(room), step = .3, minX = Math.min(...outline.map((p: any) => p.x)), minZ = Math.min(...outline.map((p: any) => p.z));
     const width = Math.ceil((Math.max(...outline.map((p: any) => p.x)) - minX) / step) + 1;
@@ -491,7 +491,8 @@ test('the complete layout reaches the H hub and all seven pedestals work with na
   // No teleports after reset: operate only the pedestals present in each room.
   async function center() {
     const { z, room } = await page.evaluate(() => window.__samewhere.game.player);
-    if (ROOMS[room as RoomId].outline) { await walkTo(page, 0, room === 'G' ? 1.1 : 0); return; }
+    const single = ROOMS[room as RoomId].pedestals.length === 1;
+    if (ROOMS[room as RoomId].outline || single) { await walkTo(page, 0, room === 'G' || single ? 1.1 : 0); return; }
     await walkTo(page, 0, z); await walkTo(page, 0, 0);
   }
   async function operate(room: RoomId, side: number) {
@@ -515,7 +516,7 @@ test('the complete layout reaches the H hub and all seven pedestals work with na
     const room = await page.evaluate(() => window.__samewhere.game.player.room) as RoomId;
     const n = wallNormal(room, side), frame = doorFrame(room, side);
     // Approach diagonal doorways along the wall to walk around the pedestals.
-    if (!ROOMS[room].outline) await walkTo(page, 0, frame.center.z - n.z * .35);
+    if (!ROOMS[room].outline && ROOMS[room].pedestals.length !== 1) await walkTo(page, 0, frame.center.z - n.z * .35);
     await walkTo(page, frame.center.x - n.x * .35, frame.center.z - n.z * .35); await cross(page, Math.atan2(-n.x, -n.z));
     expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe(expected);
   }
