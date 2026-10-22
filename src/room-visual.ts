@@ -151,6 +151,10 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
   // Preserve the footprint orientation. Mirroring it by rotating the other way
   // leaves triangular gaps above a pentagon's walls; render the back face instead.
   const ceilingGeometry = new THREE.ShapeGeometry(footprintShape(offsetOutline(outline, WALL_THICKNESS / 2))); ceilingGeometry.rotateX(-Math.PI / 2); surfaceUV(ceilingGeometry);
+  if (definition.ceilingOrigin) {
+    const uv = ceilingGeometry.getAttribute('uv'), origin = definition.ceilingOrigin;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) - origin.x / 2, uv.getY(i) + origin.z / 2);
+  }
   const ceiling = new THREE.Mesh(ceilingGeometry, ceilingWithContacts(materials.ceiling, id)); ceiling.name = 'ceiling'; ceiling.position.y = ROOM_HEIGHT; ceiling.receiveShadow = true; scene.add(ceiling);
   const sockets: SocketVisual[] = [], portals: Portal[] = [], blockers: THREE.Object3D[] = [], walls: RoomVisual['walls'] = [];
   const outside = offsetOutline(outline, WALL_THICKNESS);
