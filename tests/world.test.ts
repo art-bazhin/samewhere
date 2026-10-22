@@ -26,7 +26,7 @@ test('seven-room layout starts in A with empty inventory, red balls on B and blu
   assert.deepEqual(destination(world, { room: 'C', side: 0 }), { room: 'C', side: 3 });
   assert.deepEqual(ROOM_IDS, ['A', 'B', 'C', 'D', 'E', 'F', 'G']);
   assert.deepEqual(ROOM_IDS.map(id => ROOMS[id].sides), [4, 5, 6, 3, 3, 4, 4]);
-  assert.deepEqual(ROOM_IDS.map(id => ROOMS[id].pedestals.map(p => p.controls)), [['A', 'B'], ['B', 'C'], ['C', 'D'], ['D', 'A', 'E'], ['B', 'F'], ['D', 'G'], ROOM_IDS]);
+  assert.deepEqual(ROOM_IDS.map(id => ROOMS[id].pedestals.map(p => p.controls)), [['A', 'B'], ['C'], ['D'], ['A', 'E'], ['B', 'F'], ['G'], ROOM_IDS]);
   assert.ok(world.balls.every(ball => ball.socket?.room === (ball.color === 'red' ? 'B' : 'C')));
   for (const room of ['A', 'D', 'E', 'F', 'G'] as const) for (let side = 0; side < ROOMS[room].sides; side++) assert.equal(destination(world, { room, side }), null);
 });

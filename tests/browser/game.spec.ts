@@ -94,7 +94,7 @@ test('initial ball placement, actual mouse pick/place, and both shared pedestal 
   await expect(page.locator('#red-count')).toHaveText('0'); await expect(page.locator('#blue-count')).toHaveText('0');
   expect(await page.evaluate(() => Object.fromEntries(Object.entries(window.__samewhere.space.rooms).map(([id, room]: [string, any]) =>
     [id, room.sockets.filter((socket: any) => socket.ball.visible).map((socket: any) => `${socket.ref.room}${socket.ref.side}`)]))))
-    .toEqual({ A: ['B0', 'B2'], B: ['B0', 'B2', 'C0', 'C3'], C: ['C0', 'C3'], D: [], E: ['B0', 'B2'], F: [], G: ['B0', 'B2', 'C0', 'C3'] });
+    .toEqual({ A: ['B0', 'B2'], B: ['C0', 'C3'], C: [], D: [], E: ['B0', 'B2'], F: [], G: ['B0', 'B2', 'C0', 'C3'] });
   await page.screenshot({ path: 'test-results/01-menu.png' });
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   const b = ROOMS.A.pedestals.find(p => p.controls === 'B')!;
@@ -103,7 +103,7 @@ test('initial ball placement, actual mouse pick/place, and both shared pedestal 
   await expect(page.locator('#red-count')).toHaveText('1');
   const state = await page.evaluate(() => {
     const app = window.__samewhere;
-    return { a: app.space.rooms.A.sockets.find((s: any) => s.ref.room === 'B' && s.ref.side === 0).ball.visible, b: app.space.rooms.B.sockets.find((s: any) => s.ref.room === 'B' && s.ref.side === 0).ball.visible, closedB0: app.space.rooms.B.walls[0].solid.visible, closedB2: app.space.rooms.B.walls[2].solid.visible };
+    return { a: app.space.rooms.A.sockets.find((s: any) => s.ref.room === 'B' && s.ref.side === 0).ball.visible, b: app.space.rooms.E.sockets.find((s: any) => s.ref.room === 'B' && s.ref.side === 0).ball.visible, closedB0: app.space.rooms.B.walls[0].solid.visible, closedB2: app.space.rooms.B.walls[2].solid.visible };
   });
   expect(state).toEqual({ a: false, b: false, closedB0: true, closedB2: true });
   const a = ROOMS.A.pedestals.find(p => p.controls === 'A')!;
@@ -417,7 +417,7 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
     const expected = ROOM_LIGHTS[id].map(({ x, z }) => [x, z]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     expect(fixture.pedestalCount).toBe(ROOMS[fixture.id as RoomId].pedestals.length);
     expect(fixture.sizes).toHaveLength(expected.length);
-    expect(fixture.lightCount).toBe(({ A: 2, B: 2, C: 2, D: 3, E: 2, F: 2, G: 7 })[id]);
+    expect(fixture.lightCount).toBe(({ A: 2, B: 1, C: 1, D: 2, E: 2, F: 1, G: 7 })[id]);
     expect(fixture.distances).toEqual(id === 'G' ? [15, 5, 15, 15, 5, 15, 5] : Array(expected.length).fill(20));
     expect(fixture.lampPositions).toEqual(expected); expect(fixture.lightPositions).toEqual(expected);
     expect(fixture.targetPositions).toEqual(expected);
