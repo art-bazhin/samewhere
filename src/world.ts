@@ -10,7 +10,10 @@ export interface WorldState { balls: BallState[]; selected: BallColor; passagePr
 export interface Snapshot { world: WorldState; player: PlayerState }
 export interface Connection { color: BallColor; ends: [SocketRef, SocketRef] }
 export interface PassageGoal { from: SocketRef; to: RoomId; color: BallColor }
-export const PASSAGE_GOALS: PassageGoal[] = [{ from: { room: 'G', side: 3 }, to: 'B', color: 'red' }];
+export const PASSAGE_GOALS: PassageGoal[] = [
+  { from: { room: 'G', side: 3 }, to: 'B', color: 'red' },
+  { from: { room: 'B', side: 2 }, to: 'F', color: 'red' },
+];
 export interface PedestalDefinition extends Vec2 { controls: RoomId }
 /** sides counts portal/socket positions; outlines may have additional solid edges. */
 export interface RoomDefinition { id: RoomId; name: string; shape: string; sides: number; apothem: number; pedestals: PedestalDefinition[]; outline?: Vec2[]; portalEdges?: number[]; ceilingOrigin?: Vec2 }
