@@ -283,6 +283,7 @@ export class SpaceRenderer {
     const materials = this.assets.materials;
     for (const id of ROOM_IDS) {
       const room = this.rooms[id];
+      for (const marking of room.markings) marking.shown.value = Number(world.passageProgress >= marking.goal);
       for (let side = 0; side < ROOMS[id].sides; side++) {
         const portal = room.portals[side];
         portal.to = destination(world, { room: id, side });

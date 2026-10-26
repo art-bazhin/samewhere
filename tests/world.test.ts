@@ -52,6 +52,42 @@ test('occupied socket always picks up, selects its color and never silently swap
   assert.equal(game.world.selected, 'blue'); assert.equal(ballAt(game.world, { room: 'C', side: 0 }), undefined);
   assert.equal(inventoryCount(game.world, 'red'), 1); assert.equal(inventoryCount(game.world, 'blue'), 1);
 });
+test('unrelated hub connections and self-loops do not advance the first goal', () => {
+  const game = new Game();
+  assert.equal(game.world.passageProgress, 0);
+  game.interact({ room: 'B', side: 2 });
+  assert.equal(game.world.passageProgress, 0);
+  game.interact({ room: 'G', side: 0 });
+  assert.equal(game.player.room, 'A'); assert.equal(game.world.passageProgress, 0);
+  game.interact({ room: 'G', side: 0 });
+  assert.equal(game.world.passageProgress, 0);
+  game.undo(); assert.equal(game.world.passageProgress, 0);
+  game.undo(); assert.equal(game.world.passageProgress, 0);
+  game.reset(); assert.equal(game.world.passageProgress, 0);
+  game.interact({ room: 'B', side: 0 }); game.interact({ room: 'B', side: 2 });
+  game.interact({ room: 'G', side: 0 }); game.interact({ room: 'G', side: 1 });
+  assert.equal(game.world.passageProgress, 0);
+});
+test('the red hub goal accepts every pentagon entrance and either order of ball placement without traversal', () => {
+  for (let side = 0; side < ROOMS.B.sides; side++) for (const reverse of [false, true]) {
+    const game = new Game(); game.world.balls.forEach(ball => { ball.socket = null; });
+    const ends: SocketRef[] = [{ room: 'G', side: 3 }, { room: 'B', side }];
+    for (const end of reverse ? ends.reverse() : ends) game.interact(end);
+    assert.equal(game.world.passageProgress, 1); assert.equal(game.player.room, 'A');
+    game.interact({ room: 'G', side: 3 });
+    assert.equal(game.world.passageProgress, 1);
+    game.undo(); game.undo(); assert.equal(game.world.passageProgress, 0);
+    game.reset(); assert.equal(game.world.passageProgress, 0);
+  }
+});
+test('other hub exits, rooms and colors still open ordinary passages without completing the goal', () => {
+  for (const [color, hubSide, room] of [['blue', 3, 'B'], ['red', 0, 'B'], ['red', 3, 'C']] as const) {
+    const game = new Game(); game.world.balls.forEach(ball => { ball.socket = null; }); game.world.selected = color;
+    game.interact({ room, side: 0 }); game.interact({ room: 'G', side: hubSide });
+    assert.deepEqual(destination(game.world, { room: 'G', side: hubSide }), { room, side: 0 });
+    assert.equal(game.world.passageProgress, 0);
+  }
+});
 test('an unavailable color and invalid socket do not create actions or overwrite history', () => {
   const game = new Game();
   assert.equal(game.interact({ room: 'B', side: 1 }), null); assert.equal(game.history.length, 0);

@@ -4,7 +4,8 @@ import { CEILING_LIGHT, CEILING_PANEL_SIZE, ROOM_FILL_LIGHT, ROOM_LIGHTS, SPOT_L
 import { floorWithContacts, pedestalUV, surfaceUV, type MaterialSet } from './materials';
 import { ceilingWithContacts, pedestalEdgeDistances, wallCornerDistances } from './contact-shading';
 import { offsetOutline } from './geometry';
-import { BALL_RADIUS, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
+import { passageMarking } from './passage-marking';
+import { BALL_RADIUS, DOOR_HEIGHT, DOOR_WIDTH, PASSAGE_GOALS, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
 
 const PALETTE = { background: 0x000000 };
 const plane = new THREE.PlaneGeometry(1, 1);
@@ -50,7 +51,7 @@ function footprintShape(outline: Vec2[]) {
 
 export interface Portal { side: number; mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; to: SocketRef | null; transform: THREE.Matrix4; normal: Vec2; center: Vec2; distance: number; receivingDistance: number }
 export interface SocketVisual { ref: SocketRef; hit: THREE.Mesh; ball: THREE.Mesh; occupied: THREE.Uint8BufferAttribute }
-export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; walls: { solid: THREE.Group; open: THREE.Group }[]; shadowLights: THREE.SpotLight[]; shadows: RoomShadows; contactOpenings: THREE.IUniform<Int32Array> }
+export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; walls: { solid: THREE.Group; open: THREE.Group }[]; markings: { goal: number; shown: THREE.IUniform<number> }[]; shadowLights: THREE.SpotLight[]; shadows: RoomShadows; contactOpenings: THREE.IUniform<Int32Array> }
 
 function portalMaterial() {
   // Keep the aperture rasterizable while the eye is closer than the normal near
@@ -157,6 +158,7 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
   }
   const ceiling = new THREE.Mesh(ceilingGeometry, ceilingWithContacts(materials.ceiling, id)); ceiling.name = 'ceiling'; ceiling.position.y = ROOM_HEIGHT; ceiling.receiveShadow = true; scene.add(ceiling);
   const sockets: SocketVisual[] = [], portals: Portal[] = [], blockers: THREE.Object3D[] = [], walls: RoomVisual['walls'] = [];
+  const markings: RoomVisual['markings'] = [];
   const outside = offsetOutline(outline, WALL_THICKNESS);
   for (const [index, boundary] of roomWalls(id).entries()) {
     if (boundary.portal === null) {
@@ -168,6 +170,10 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
       scene.add(mesh); blockers.push(mesh); continue;
     }
     const side = boundary.portal, n = wallNormal(id, side), wall = new THREE.Group();
+    const goal = PASSAGE_GOALS.findIndex(goal => goal.from.room === id && goal.from.side === side);
+    const marking = goal >= 0 ? passageMarking(materials.wall, PASSAGE_GOALS[goal]) : null;
+    if (marking) markings.push({ goal, shown: marking.shown });
+    const wallMaterial = marking?.material ?? materials.wall;
     const wallWidth = boundary.width;
     wall.position.set(boundary.center.x, 0, boundary.center.z); wall.rotation.y = -wallAngle(id, side); scene.add(wall);
     wall.updateMatrix();
@@ -185,7 +191,7 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
       geometry.computeVertexNormals(); return wallCornerDistances(surfaceUV(geometry), id, index, wall.matrix);
     };
     const solid = new THREE.Group(), open = new THREE.Group(); wall.add(solid, open);
-    const closed = box(solid, materials.wall, [wallWidth, ROOM_HEIGHT, WALL_THICKNESS], [0, ROOM_HEIGHT / 2, -WALL_THICKNESS / 2]);
+    const closed = box(solid, wallMaterial, [wallWidth, ROOM_HEIGHT, WALL_THICKNESS], [0, ROOM_HEIGHT / 2, -WALL_THICKNESS / 2]);
     closed.name = 'room-wall';
     miter(closed.geometry); blockers.push(closed);
     const opening = new THREE.Shape();
@@ -196,7 +202,7 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
     // Each scene owns only its half of an open shared wall. The receiving scene
     // supplies the other half, so reveals never overlap across the portal plane.
     const geometry = new THREE.ExtrudeGeometry(opening, { depth: WALL_THICKNESS / 2, bevelEnabled: false, steps: 1 }); geometry.translate(0, 0, -WALL_THICKNESS / 2);
-    const shell = new THREE.Mesh(miter(geometry), materials.wall); shell.name = 'room-wall'; shell.castShadow = shell.receiveShadow = true; open.add(shell); blockers.push(shell);
+    const shell = new THREE.Mesh(miter(geometry), wallMaterial); shell.name = 'room-wall'; shell.castShadow = shell.receiveShadow = true; open.add(shell); blockers.push(shell);
     const threshold = box(open, floor.material, [DOOR_WIDTH, 0.012, WALL_THICKNESS / 2], [0, -0.006, -WALL_THICKNESS / 4]);
     threshold.name = 'threshold';
     // Continue the room's carpet coordinates across the rotated doorway.
@@ -216,6 +222,6 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
   // Architecture, fixtures and socket positions never move. Visibility and ball
   // color can change without recomputing hundreds of world matrices per view.
   scene.traverse(object => { object.matrixAutoUpdate = false; });
-  return { scene, portals, sockets, blockers, pickables: [], walls, shadowLights, shadows, contactOpenings };
+  return { scene, portals, sockets, blockers, pickables: [], walls, markings, shadowLights, shadows, contactOpenings };
 }
 

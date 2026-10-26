@@ -6,9 +6,11 @@ export type BallColor = 'red' | 'blue';
 export interface SocketRef { room: RoomId; side: number }
 export interface BallState { id: string; color: BallColor; socket: SocketRef | null }
 export interface PlayerState extends Vec2 { room: RoomId; yaw: number; pitch: number }
-export interface WorldState { balls: BallState[]; selected: BallColor }
+export interface WorldState { balls: BallState[]; selected: BallColor; passageProgress: number }
 export interface Snapshot { world: WorldState; player: PlayerState }
 export interface Connection { color: BallColor; ends: [SocketRef, SocketRef] }
+export interface PassageGoal { from: SocketRef; to: RoomId; color: BallColor }
+export const PASSAGE_GOALS: PassageGoal[] = [{ from: { room: 'G', side: 3 }, to: 'B', color: 'red' }];
 export interface PedestalDefinition extends Vec2 { controls: RoomId }
 /** sides counts portal/socket positions; outlines may have additional solid edges. */
 export interface RoomDefinition { id: RoomId; name: string; shape: string; sides: number; apothem: number; pedestals: PedestalDefinition[]; outline?: Vec2[]; portalEdges?: number[]; ceilingOrigin?: Vec2 }
@@ -120,7 +122,7 @@ export function inventoryCount(world: WorldState, color: BallColor) {
 }
 export function initialState(): Snapshot {
   return {
-    world: { selected: 'red', balls: [
+    world: { selected: 'red', passageProgress: 0, balls: [
       { id: 'R1', color: 'red', socket: { room: 'B', side: 0 } },
       { id: 'R2', color: 'red', socket: { room: 'B', side: 2 } },
       { id: 'B1', color: 'blue', socket: { room: 'C', side: 0 } },
@@ -178,7 +180,17 @@ export class Game {
     if (existing) { existing.socket = null; this.world.selected = existing.color; }
     else available!.socket = { ...socket };
     validateWorld(this.world);
+    this.advancePassageGoals();
     return existing ? 'take' : 'place';
+  }
+  private advancePassageGoals() {
+    const links = connections(this.world);
+    // Completed links reveal the next drawing; the hub drawing is visible from the start.
+    while (this.world.passageProgress < PASSAGE_GOALS.length) {
+      const goal = PASSAGE_GOALS[this.world.passageProgress];
+      if (!links.some(link => link.color === goal.color && link.ends.some((end, i) => sameSocket(end, goal.from) && link.ends[1 - i].room === goal.to))) break;
+      this.world.passageProgress++;
+    }
   }
   move(displacement: Vec2) {
     // Small bounded steps preserve collision behavior even after a slow frame.
