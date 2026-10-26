@@ -22,11 +22,17 @@ export function passageMarking(base: THREE.MeshStandardMaterial, goal: PassageGo
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n markingPosition = position;');
     shader.fragmentShader = `uniform float passageMarkingShown; varying vec3 markingPosition;
       float markerStroke(vec2 p, vec2 a, vec2 b) {
-        vec2 edge = b - a; float t = clamp(dot(p - a, edge) / dot(edge, edge), 0., 1.);
+        vec2 edge = b - a; float strokeLength = length(edge);
+        vec2 direction = edge / strokeLength;
+        float along = dot(p - a, direction), t = clamp(along / strokeLength, 0., 1.);
         float wobble = sin(t * 3.141593) * (.0045 + .002 * sin(t * 9. + a.y * 17.));
-        vec2 bend = vec2(-edge.y, edge.x) / length(edge) * wobble;
+        float across = dot(p - a, vec2(-direction.y, direction.x)) - wobble;
         float width = .006 * (1. + .2 * sin(t * 5. + a.x * 19.) + .08 * sin(t * 23. + a.y * 11.));
-        return length(p - mix(a, b, t) - bend) - width;
+        // Keep the chisel tip's flat cuts, with slightly rounded corners.
+        float cut = along - across * .35;
+        float cornerRadius = .0015;
+        vec2 d = vec2(abs(across) - width, max(-cut, cut - strokeLength)) + cornerRadius;
+        return min(max(d.x, d.y), 0.) + length(max(d, vec2(0.))) - cornerRadius;
       }\n` + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
       vec2 p = markingPosition.xy - vec2(${(-DOOR_WIDTH / 2 - .4).toFixed(6)}, 1.65);
