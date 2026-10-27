@@ -12,7 +12,14 @@ export interface Connection { color: BallColor; ends: [SocketRef, SocketRef] }
 export interface PassageGoal { from: SocketRef; to: RoomId; color: BallColor }
 export const PASSAGE_GOALS: PassageGoal[] = [
   { from: { room: 'G', side: 3 }, to: 'B', color: 'red' },
-  { from: { room: 'B', side: 2 }, to: 'F', color: 'red' },
+  { from: { room: 'B', side: 2 }, to: 'D', color: 'blue' },
+  { from: { room: 'D', side: 1 }, to: 'A', color: 'red' },
+];
+export const FINAL_PASSAGE_GOALS: PassageGoal[] = [
+  { from: { room: 'A', side: 0 }, to: 'A', color: 'red' },
+  { from: { room: 'A', side: 1 }, to: 'A', color: 'blue' },
+  { from: { room: 'A', side: 2 }, to: 'A', color: 'red' },
+  { from: { room: 'A', side: 3 }, to: 'A', color: 'blue' },
 ];
 export interface PedestalDefinition extends Vec2 { controls: RoomId }
 /** sides counts portal/socket positions; outlines may have additional solid edges. */
@@ -188,12 +195,12 @@ export class Game {
   }
   private advancePassageGoals() {
     const links = connections(this.world);
+    const matches = (goal: PassageGoal) => links.some(link => link.color === goal.color &&
+      link.ends.some((end, i) => sameSocket(end, goal.from) && link.ends[1 - i].room === goal.to));
     // Completed links reveal the next drawing; the hub drawing is visible from the start.
-    while (this.world.passageProgress < PASSAGE_GOALS.length) {
-      const goal = PASSAGE_GOALS[this.world.passageProgress];
-      if (!links.some(link => link.color === goal.color && link.ends.some((end, i) => sameSocket(end, goal.from) && link.ends[1 - i].room === goal.to))) break;
-      this.world.passageProgress++;
-    }
+    while (this.world.passageProgress < PASSAGE_GOALS.length && matches(PASSAGE_GOALS[this.world.passageProgress])) this.world.passageProgress++;
+    // The final pattern must coexist, with the player inside the square.
+    if (this.world.passageProgress === PASSAGE_GOALS.length && this.player.room === 'A' && FINAL_PASSAGE_GOALS.every(matches)) this.world.passageProgress++;
   }
   move(displacement: Vec2) {
     // Small bounded steps preserve collision behavior even after a slow frame.

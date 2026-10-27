@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { closestOnSegment, insideOutline } from '../src/geometry';
-import { ballAt, canStand, connections, destination, DOOR_WIDTH, Game, inventoryCount, pedestalOutline, PEDESTAL_APOTHEM, PLAYER_RADIUS, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, roomOutline, rotate, socketPosition, transformPoint, validateWorld, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../src/world';
+import { ballAt, canStand, connections, destination, DOOR_WIDTH, FINAL_PASSAGE_GOALS, Game, inventoryCount, PASSAGE_GOALS, pedestalOutline, PEDESTAL_APOTHEM, PLAYER_RADIUS, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, roomOutline, rotate, socketPosition, transformPoint, validateWorld, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../src/world';
 
 const close = (a: number, b: number, epsilon = 1e-7) => assert.ok(Math.abs(a - b) < epsilon, `${a} ≠ ${b}`);
 function atWall(game: Game, room: RoomId, side: number, lateral = 0) {
@@ -68,15 +68,16 @@ test('unrelated hub connections and self-loops do not advance the first goal', (
   game.interact({ room: 'G', side: 0 }); game.interact({ room: 'G', side: 1 });
   assert.equal(game.world.passageProgress, 0);
 });
-test('the red hub goal accepts every pentagon entrance and either order of ball placement without traversal', () => {
-  for (let side = 0; side < ROOMS.B.sides; side++) for (const reverse of [false, true]) {
+test('each passage goal accepts every destination entrance and either order of placement without traversal', () => {
+  for (const [stage, goal] of PASSAGE_GOALS.entries()) for (let side = 0; side < ROOMS[goal.to].sides; side++) for (const reverse of [false, true]) {
     const game = new Game(); game.world.balls.forEach(ball => { ball.socket = null; });
-    const ends: SocketRef[] = [{ room: 'G', side: 3 }, { room: 'B', side }];
+    game.world.passageProgress = stage; game.world.selected = goal.color;
+    const ends: SocketRef[] = [goal.from, { room: goal.to, side }];
     for (const end of reverse ? ends.reverse() : ends) game.interact(end);
-    assert.equal(game.world.passageProgress, 1); assert.equal(game.player.room, 'A');
-    game.interact({ room: 'G', side: 3 });
-    assert.equal(game.world.passageProgress, 1);
-    game.undo(); game.undo(); assert.equal(game.world.passageProgress, 0);
+    assert.equal(game.world.passageProgress, stage + 1); assert.equal(game.player.room, 'A');
+    game.interact(goal.from);
+    assert.equal(game.world.passageProgress, stage + 1);
+    game.undo(); game.undo(); assert.equal(game.world.passageProgress, stage);
     game.reset(); assert.equal(game.world.passageProgress, 0);
   }
 });
@@ -90,9 +91,10 @@ test('other hub exits, rooms and colors still open ordinary passages without com
 });
 test('the pentagon goal waits for the hub goal and rejects other exits, rooms and colors', () => {
   const premature = new Game(); premature.world.balls.forEach(ball => { ball.socket = null; });
-  premature.interact({ room: 'B', side: 2 }); premature.interact({ room: 'F', side: 0 });
+  premature.world.selected = 'blue';
+  premature.interact({ room: 'B', side: 2 }); premature.interact({ room: 'D', side: 0 });
   assert.equal(premature.world.passageProgress, 0);
-  for (const [color, side, room] of [['blue', 2, 'F'], ['red', 1, 'F'], ['red', 2, 'C']] as const) {
+  for (const [color, side, room] of [['red', 2, 'D'], ['blue', 1, 'D'], ['blue', 2, 'F']] as const) {
     const game = new Game();
     game.interact({ room: 'B', side: 2 }); game.interact({ room: 'G', side: 3 });
     assert.equal(game.world.passageProgress, 1);
@@ -103,32 +105,59 @@ test('the pentagon goal waits for the hub goal and rejects other exits, rooms an
     assert.equal(game.world.passageProgress, 1);
   }
 });
-test('both red goals can be solved from the hub, then every cross entrance allows a visit and return', () => {
-  for (let entrance = 0; entrance < ROOMS.F.sides; entrance++) {
-    const game = new Game();
-    const sockets: SocketRef[] = [{ room: 'E', side: 0 }, { room: 'F', side: 0 }, { room: 'E', side: 1 }, { room: 'G', side: 0 }];
-    game.world.balls.forEach((ball, i) => { ball.socket = sockets[i]; }); // State after the tested route into G.
-    Object.assign(game.player, { room: 'G', x: 0, z: 1.1 });
-    const interact = (room: RoomId, side: number) => {
-      assert.ok(ROOMS[game.player.room].pedestals.some(p => p.controls === room));
-      assert.ok(game.interact({ room, side }));
-    };
-    interact('E', 0); interact('F', 0); interact('G', 3); interact('B', 0);
-    assert.equal(game.world.passageProgress, 1);
-    interact('G', 3); interact('B', 0); interact('B', 2); interact('F', entrance);
-    assert.equal(game.world.passageProgress, 2); assert.equal(game.player.room, 'G');
-    assert.equal(destination(game.world, { room: 'G', side: 3 }), null);
-    game.undo(); assert.equal(game.world.passageProgress, 1);
-    interact('F', entrance); assert.equal(game.world.passageProgress, 2);
-    interact('E', 1); interact('B', 0); // A blue route reaches B without disturbing its red passage to F.
-    atWall(game, 'G', 0); walkOut(game, 0); assert.equal(game.player.room, 'B');
-    atWall(game, 'B', 2); walkOut(game, 2); assert.equal(game.player.room, 'F');
-    interact('G', 0); interact('G', 1); // Use the hub pedestal in F to move the return connection.
-    atWall(game, 'F', entrance); walkOut(game, entrance); assert.equal(game.player.room, 'B');
-    atWall(game, 'B', 0); walkOut(game, 0); assert.equal(game.player.room, 'G');
-    assert.equal(game.world.passageProgress, 2);
-    game.reset(); assert.equal(game.world.passageProgress, 0);
+test('the full marked route and final square pattern are reachable using local controls and reversible travel', () => {
+  const game = new Game();
+  const sockets: SocketRef[] = [{ room: 'E', side: 0 }, { room: 'F', side: 0 }, { room: 'E', side: 1 }, { room: 'G', side: 0 }];
+  game.world.balls.forEach((ball, i) => { ball.socket = sockets[i]; }); // State after the tested route into G.
+  Object.assign(game.player, { room: 'G', x: 0, z: 1.1 });
+  const interact = (room: RoomId, side: number) => {
+    assert.ok(ROOMS[game.player.room].pedestals.some(p => p.controls === room), `${room} control missing in ${game.player.room}`);
+    assert.ok(game.interact({ room, side })); validateWorld(game.world);
+  };
+  const clear = () => { for (const ball of game.world.balls) if (ball.socket) interact(ball.socket.room, ball.socket.side); };
+  const place = (color: 'red' | 'blue', room: RoomId, side: number) => { game.world.selected = color; assert.equal(ballAt(game.world, { room, side }), undefined); interact(room, side); };
+  const cross = (room: RoomId, color: 'red' | 'blue') => {
+    const link = connections(game.world).find(link => link.color === color && link.ends.some(end => end.room === game.player.room) && link.ends.some(end => end.room === room));
+    assert.ok(link); const from = link.ends.find(end => end.room === game.player.room)!;
+    atWall(game, from.room, from.side); walkOut(game, from.side); assert.equal(game.player.room, room);
+  };
+  for (const [stage, goal] of PASSAGE_GOALS.entries()) {
+    clear(); place(goal.color, goal.from.room, goal.from.side); place(goal.color, goal.to, 0);
+    assert.equal(game.world.passageProgress, stage + 1); assert.equal(game.player.room, 'G');
+    const ferry = goal.color === 'red' ? 'blue' : 'red';
+    place(ferry, 'G', 0); place(ferry, goal.to, 1);
+    cross(goal.to, ferry); cross('G', ferry);
   }
+  clear();
+  for (const goal of FINAL_PASSAGE_GOALS) place(goal.color, goal.from.room, goal.from.side);
+  assert.equal(game.world.passageProgress, PASSAGE_GOALS.length, 'A pattern assembled remotely does not finish the game');
+  clear(); place('red', 'B', 2); place('red', 'F', 0); place('blue', 'B', 0); place('blue', 'G', 1);
+  // Recover the last hub endpoint from F, then carry all balls back through the existing control chain.
+  const recovery = [
+    ['take', 'red', 'B'], ['place', 'red', 'E'], ['take', 'blue', 'B'], ['place', 'blue', 'E'],
+    ['move', 'blue', 'E'], ['move', 'red', 'F'], ['take', 'blue', 'G'], ['move', 'red', 'E'],
+    ['take', 'red', 'F'], ['place', 'red', 'B'], ['move', 'red', 'B'], ['place', 'blue', 'C'],
+    ['move', 'red', 'E'], ['take', 'red', 'B'], ['move', 'blue', 'C'], ['place', 'red', 'D'],
+    ['move', 'blue', 'E'], ['move', 'red', 'D'], ['take', 'red', 'E'], ['place', 'red', 'A'],
+    ['take', 'blue', 'E'], ['place', 'blue', 'A'], ['move', 'red', 'A'], ['move', 'blue', 'C'],
+    ['take', 'red', 'D'], ['move', 'blue', 'A'], ['place', 'red', 'B'], ['take', 'blue', 'A'],
+    ['move', 'red', 'B'], ['take', 'blue', 'C'], ['move', 'red', 'A'], ['take', 'red', 'A'], ['take', 'red', 'B'],
+  ] as const;
+  for (const [action, color, room] of recovery) {
+    if (action === 'move') cross(room, color);
+    else if (action === 'take') { const socket = game.world.balls.find(ball => ball.color === color && ball.socket?.room === room)?.socket; assert.ok(socket); interact(socket.room, socket.side); }
+    else place(color, room, Array.from({ length: ROOMS[room].sides }, (_, side) => side).find(side => !ballAt(game.world, { room, side }))!);
+  }
+  assert.equal(game.player.room, 'A'); assert.ok(game.world.balls.every(ball => !ball.socket));
+  place('red', 'A', 0); place('red', 'A', 1); place('blue', 'A', 2); place('blue', 'A', 3);
+  assert.equal(game.world.passageProgress, PASSAGE_GOALS.length, 'The wrong color arrangement is not the final pattern');
+  interact('A', 1); interact('A', 2); place('red', 'A', 2); interact('A', 0); place('blue', 'A', 1);
+  assert.equal(game.world.passageProgress, PASSAGE_GOALS.length, 'Both colored pairs must coexist');
+  place('red', 'A', 0); assert.equal(game.world.passageProgress, PASSAGE_GOALS.length + 1);
+  assert.ok(connections(game.world).every(link => link.ends.every(end => end.room === 'A')));
+  interact('A', 0); assert.equal(game.world.passageProgress, PASSAGE_GOALS.length + 1);
+  game.undo(); game.undo(); assert.equal(game.world.passageProgress, PASSAGE_GOALS.length);
+  game.reset(); assert.equal(game.world.passageProgress, 0);
 });
 test('an unavailable color and invalid socket do not create actions or overwrite history', () => {
   const game = new Game();

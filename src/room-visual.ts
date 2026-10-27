@@ -5,7 +5,7 @@ import { floorWithContacts, pedestalUV, surfaceUV, type MaterialSet } from './ma
 import { ceilingWithContacts, pedestalEdgeDistances, wallCornerDistances } from './contact-shading';
 import { offsetOutline } from './geometry';
 import { passageMarking } from './passage-marking';
-import { BALL_RADIUS, DOOR_HEIGHT, DOOR_WIDTH, PASSAGE_GOALS, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
+import { BALL_RADIUS, DOOR_HEIGHT, DOOR_WIDTH, FINAL_PASSAGE_GOALS, PASSAGE_GOALS, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
 
 const PALETTE = { background: 0x000000 };
 const plane = new THREE.PlaneGeometry(1, 1);
@@ -170,9 +170,10 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
       scene.add(mesh); blockers.push(mesh); continue;
     }
     const side = boundary.portal, n = wallNormal(id, side), wall = new THREE.Group();
-    const goal = PASSAGE_GOALS.findIndex(goal => goal.from.room === id && goal.from.side === side);
-    const marking = goal >= 0 ? passageMarking(materials.wall, PASSAGE_GOALS[goal]) : null;
-    if (marking) markings.push({ goal, shown: marking.shown });
+    const stage = PASSAGE_GOALS.findIndex(goal => goal.from.room === id && goal.from.side === side);
+    const goal = stage >= 0 ? PASSAGE_GOALS[stage] : FINAL_PASSAGE_GOALS.find(goal => goal.from.room === id && goal.from.side === side);
+    const marking = goal ? passageMarking(materials.wall, goal) : null;
+    if (marking) markings.push({ goal: stage >= 0 ? stage : PASSAGE_GOALS.length, shown: marking.shown });
     const wallMaterial = marking?.material ?? materials.wall;
     const wallWidth = boundary.width;
     wall.position.set(boundary.center.x, 0, boundary.center.z); wall.rotation.y = -wallAngle(id, side); scene.add(wall);

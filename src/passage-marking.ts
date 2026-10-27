@@ -16,6 +16,9 @@ export function passageMarking(base: THREE.MeshStandardMaterial, goal: PassageGo
     return `inkDistance = min(inkDistance, markerStroke(p, ${vector(start)}, ${vector(end)}));`;
   }).join('\n');
   const color = new THREE.Color(goal.color === 'red' ? 0xc92530 : 0x2466c9);
+  const pigment = `vec3(${color.r.toFixed(6)}, ${color.g.toFixed(6)}, ${color.b.toFixed(6)})`;
+  // Preserve the wallpaper's grain without turning blue pigment green on a yellow substrate.
+  const inkColor = goal.color === 'blue' ? `${pigment} * dot(diffuseColor.rgb, vec3(.2126, .7152, .0722))` : `diffuseColor.rgb * ${pigment}`;
   const compile = base.onBeforeCompile.bind(base), key = base.customProgramCacheKey();
   material.onBeforeCompile = (shader, renderer) => {
     compile(shader, renderer); shader.uniforms.passageMarkingShown = shown;
@@ -40,7 +43,7 @@ export function passageMarking(base: THREE.MeshStandardMaterial, goal: PassageGo
       float inkDistance = 100.; ${strokes}
       float inkAA = max(fwidth(inkDistance), .0001);
       float ink = passageMarkingShown * (1. - smoothstep(-inkAA, inkAA, inkDistance)) * step(-.0001, markingPosition.z);
-      diffuseColor.rgb *= mix(vec3(1.), vec3(${color.r.toFixed(6)}, ${color.g.toFixed(6)}, ${color.b.toFixed(6)}), ink);`);
+      diffuseColor.rgb = mix(diffuseColor.rgb, ${inkColor}, ink);`);
   };
   material.customProgramCacheKey = () => `${key}:passage-marking:${goal.to}:${goal.color}`;
   return { material, shown };
