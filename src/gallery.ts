@@ -1,6 +1,6 @@
 export interface GalleryCell { x: number; z: number }
 export interface GallerySign extends GalleryCell { side: number }
-export interface GalleryState { cell: GalleryCell; signs: GallerySign[] }
+export interface GalleryState { cell: GalleryCell; signs: GallerySign[]; inTunnel: boolean }
 
 const STEPS = [{ x: 0, z: -1 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: -1, z: 0 }];
 // The S→E sketch, rotated clockwise so its long diagonal faces north-east:
@@ -30,4 +30,9 @@ export function galleryRoute(): GallerySign[] {
 
 export function galleryExitAt(gallery: GalleryState, cell: GalleryCell): number | null {
   return gallery.signs.find(sign => sign.x === cell.x && sign.z === cell.z)?.side ?? null;
+}
+
+export function isTunnelEntrance(gallery: GalleryState, cell: GalleryCell, side: number): boolean {
+  const last = gallery.signs.at(-1);
+  return !!last && last.x === cell.x && last.z === cell.z && last.side === side;
 }

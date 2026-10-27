@@ -42,7 +42,7 @@ test('EXIT signs follow a fixed route regardless of the camera and stay continuo
   await page.evaluate(() => window.__samewhere.space.ready);
   const result = await page.evaluate(async () => {
     const worldPath = '/src/world.ts', galleryPath = '/src/gallery.ts';
-    const { PASSAGE_GOALS, portalPosition, wallNormal, portalDistance } = await import(worldPath);
+    const { PASSAGE_GOALS, portalPosition, wallNormal, portalDistance, fromExitTunnel } = await import(worldPath);
     const { galleryExitAt, galleryNeighbor, galleryRoute } = await import(galleryPath);
     const app = window.__samewhere, { game, space } = app;
     function check(condition: boolean, message: string) { if (!condition) throw new Error(message); }
@@ -81,8 +81,10 @@ test('EXIT signs follow a fixed route regardless of the camera and stay continuo
     space.renderer.render = (scene: any, camera: any) => {
       if (scene === space.rooms.A.scene && game.world.gallery) {
         const current = game.world.gallery;
-        const cell = { x: current.cell.x + Math.round((game.player.x - camera.position.x) / period),
-          z: current.cell.z + Math.round((game.player.z - camera.position.z) / period) };
+        const last = current.signs.at(-1), base = current.inTunnel ? last : current.cell;
+        const eye = current.inTunnel ? fromExitTunnel(game.player, { room: 'A', side: last.side }) : game.player;
+        const cell = { x: base.x + Math.round((eye.x - camera.position.x) / period),
+          z: base.z + Math.round((eye.z - camera.position.z) / period) };
         const expected = galleryExitAt(current, cell);
         const shown = space.exitSigns.signs.flatMap((sign: any, side: number) => sign.visible ? [side] : []);
         check(JSON.stringify(shown) === JSON.stringify(expected === null ? [] : [expected]), `Wrong sign in gallery room ${cell.x},${cell.z}`);
@@ -108,10 +110,10 @@ test('EXIT signs follow a fixed route regardless of the camera and stay continuo
         const expected = galleryNeighbor(sign, sign.side);
         check(game.world.gallery.cell.x === expected.x && game.world.gallery.cell.z === expected.z, 'Crossing lost the gallery coordinates');
       }
-      check(galleryExitAt(game.world.gallery, game.world.gallery.cell) === null, 'An actual exit was added before it was designed');
+      check(game.world.gallery.inTunnel && galleryExitAt(game.world.gallery, game.world.gallery.cell) === null, 'The last EXIT did not lead into the tunnel');
       check(JSON.stringify(game.world.gallery.signs) === routeJSON, 'Crossing portals moved old EXIT signs');
-      const side = (route.at(-1)!.side + 2) % 4, n = wallNormal('A', side);
-      pose(side, .45); game.move({ x: n.x * .6, z: n.z * .6 }); app.sync(); space.render();
+      Object.assign(game.player, { x: 0, z: .45, yaw: 0, pitch: 0 });
+      game.move({ x: 0, z: -.6 }); app.sync(); space.render();
       check(galleryExitAt(game.world.gallery, game.world.gallery.cell) === route.at(-1)!.side, 'Returning backwards lost the old EXIT');
       game.undo(); app.sync(); space.render();
       check(galleryExitAt(game.world.gallery, game.world.gallery.cell) === null, 'Undo did not restore the gallery position');

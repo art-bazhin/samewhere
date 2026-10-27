@@ -53,7 +53,7 @@ export interface Portal { side: number; mesh: THREE.Mesh<THREE.PlaneGeometry, TH
 export interface SocketVisual { ref: SocketRef; hit: THREE.Mesh; ball: THREE.Mesh; occupied: THREE.Uint8BufferAttribute }
 export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; walls: { solid: THREE.Group; open: THREE.Group }[]; markings: { goal: number; shown: THREE.IUniform<number> }[]; shadowLights: THREE.SpotLight[]; shadows: RoomShadows; contactOpenings: THREE.IUniform<Int32Array> }
 
-function portalMaterial() {
+export function portalMaterial() {
   // Keep the aperture rasterizable while the eye is closer than the normal near
   // plane. Restore its actual depth per fragment so foreground objects still occlude it.
   return new THREE.ShaderMaterial({

@@ -38,7 +38,7 @@ function applyLook(delta: { x: number; y: number }) {
 }
 function updateHUD() {
   const world = game.world;
-  const room = ROOMS[game.player.room];
+  const room = world.gallery?.inTunnel ? { name: 'Тоннель', shape: 'tunnel' } : ROOMS[game.player.room];
   $('room-name').textContent = room.name;
   $('room-shape').className = `shape ${room.shape}`;
   $('red-count').textContent = String(inventoryCount(world, 'red')); $('blue-count').textContent = String(inventoryCount(world, 'blue'));
@@ -64,6 +64,7 @@ function nextDebugRoom() {
   stopSweep(); keys.clear(); mouseLook.reset();
   const room = DEBUG_ROOMS[debugRoomIndex];
   debugRoomIndex = (debugRoomIndex + 1) % DEBUG_ROOMS.length;
+  if (game.world.gallery) game.world.gallery.inTunnel = false;
   // The hub's central pedestal occupies the origin; this spot is clear in every room.
   Object.assign(game.player, { room, x: 0, z: 1, yaw: 0, pitch: 0 });
   sync(); toast(`Отладка: ${ROOMS[room].name}`);
@@ -229,7 +230,7 @@ function frame(time: number) {
 }
 try {
   space = new SpaceRenderer(canvas, game);
-  surfaceTextures = new SurfaceTextures(Object.values(space.rooms).map(room => room.scene), space.assets.textures);
+  surfaceTextures = new SurfaceTextures([...Object.values(space.rooms).map(room => room.scene), space.exitTunnel.scene], space.assets.textures);
   updateHUD(); requestAnimationFrame(frame);
   const playButton = $<HTMLButtonElement>('play-button'), playLabel = playButton.querySelector('span')!;
   playButton.disabled = true; playLabel.textContent = 'Подготовка пространства…';

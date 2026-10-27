@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { closestOnSegment, insideOutline } from '../src/geometry';
 import { galleryRoute } from '../src/gallery';
-import { ballAt, canStand, connections, destination, DOOR_WIDTH, FINAL_PASSAGE_GOALS, Game, inventoryCount, PASSAGE_GOALS, pedestalOutline, PEDESTAL_APOTHEM, PLAYER_RADIUS, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, roomOutline, rotate, socketPosition, transformPoint, validateWorld, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../src/world';
+import { ballAt, canStand, connections, destination, DOOR_WIDTH, EXIT_TUNNEL_LENGTH, EXIT_TUNNEL_WIDTH, FINAL_PASSAGE_GOALS, Game, inventoryCount, PASSAGE_GOALS, pedestalOutline, PEDESTAL_APOTHEM, PLAYER_RADIUS, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, roomOutline, rotate, socketPosition, transformPoint, validateWorld, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../src/world';
 
 const close = (a: number, b: number, epsilon = 1e-7) => assert.ok(Math.abs(a - b) < epsilon, `${a} ≠ ${b}`);
 function atWall(game: Game, room: RoomId, side: number, lateral = 0) {
@@ -166,15 +166,15 @@ test('the square gallery starts with the complete pattern and preserves its room
   assert.equal(game.snapshot().world.gallery, null);
   game.world.selected = 'blue'; game.interact({ room: 'A', side: 3 });
   const route = galleryRoute();
-  assert.deepEqual(game.snapshot().world.gallery, { cell: { x: 0, z: 0 }, signs: route });
+  assert.deepEqual(game.snapshot().world.gallery, { cell: { x: 0, z: 0 }, signs: route, inTunnel: false });
   for (const side of [0, 1, 2, 3]) {
     atWall(game, 'A', side); walkOut(game, side);
     assert.equal(game.player.room, 'A');
   }
-  assert.deepEqual(game.world.gallery, { cell: { x: 0, z: 0 }, signs: route });
+  assert.deepEqual(game.world.gallery, { cell: { x: 0, z: 0 }, signs: route, inTunnel: false });
   game.undo(); assert.deepEqual(game.world.gallery!.cell, { x: 1, z: 0 });
   game.interact({ room: 'A', side: 0 }); assert.equal(game.snapshot().world.gallery, null);
-  game.undo(); assert.deepEqual(game.world.gallery, { cell: { x: 1, z: 0 }, signs: route });
+  game.undo(); assert.deepEqual(game.world.gallery, { cell: { x: 1, z: 0 }, signs: route, inTunnel: false });
   game.reset(); assert.equal(game.world.gallery, null);
 });
 test('the long diagonal EXIT section crosses eight red-left/blue-right doors without changing direction', () => {
@@ -202,6 +202,29 @@ test('the long diagonal EXIT section crosses eight red-left/blue-right doors wit
   assert.equal(crossed, 8, 'A wall or pedestal blocked the continuous diagonal walk');
   close(Math.sin(game.player.yaw), Math.sin(-Math.PI / 4));
   close(Math.cos(game.player.yaw), Math.cos(-Math.PI / 4));
+});
+test('the last EXIT enters a 100 m tunnel with colliding walls, an open white end, and a reversible return', () => {
+  assert.equal(EXIT_TUNNEL_LENGTH, ROOMS.A.apothem * 20);
+  const game = loopGame(); game.world.passageProgress = PASSAGE_GOALS.length;
+  game.interact({ room: 'A', side: 3 }); game.interact({ room: 'A', side: 3 });
+  const gallery = game.world.gallery!, last = gallery.signs.at(-1)!;
+  gallery.cell = { x: last.x, z: last.z };
+  atWall(game, 'A', last.side); walkOut(game, last.side);
+  assert.equal(gallery.inTunnel, true); assert.ok(game.player.z >= 0 && game.player.z < 1);
+  assert.equal(game.interact({ room: 'A', side: 0 }), null, 'There are no pedestal interactions inside the tunnel');
+  game.undo(); assert.equal(game.world.gallery!.inTunnel, false);
+  atWall(game, 'A', last.side); walkOut(game, last.side);
+  game.move({ x: 20, z: 10 });
+  assert.ok(game.player.x <= EXIT_TUNNEL_WIDTH / 2 - PLAYER_RADIUS + .00001);
+  game.move({ x: -game.player.x, z: 0 });
+  game.move({ x: 0, z: EXIT_TUNNEL_LENGTH + 1 - game.player.z });
+  assert.ok(game.player.z > EXIT_TUNNEL_LENGTH, 'The far opening must lead into white space');
+  game.move({ x: 10, z: 0 }); assert.ok(game.player.x > EXIT_TUNNEL_WIDTH, 'White space must not have invisible side walls');
+  game.move({ x: -game.player.x, z: 0 }); game.move({ x: 0, z: 1 - game.player.z });
+  game.move({ x: 0, z: -2 });
+  assert.equal(game.world.gallery!.inTunnel, false);
+  assert.deepEqual(game.world.gallery!.cell, { x: last.x, z: last.z });
+  game.undo(); assert.equal(game.world.gallery!.inTunnel, true);
 });
 test('an unavailable color and invalid socket do not create actions or overwrite history', () => {
   const game = new Game();
