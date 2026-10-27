@@ -11,7 +11,7 @@ export class SurfaceTextures {
     });
     const flatMaps = new Map<Texture, Texture>();
     for (const material of materials) {
-      if (material instanceof ShaderMaterial) continue;
+      if (material instanceof ShaderMaterial || material.userData.keepTexture) continue;
       const maps = Object.entries(material).filter((entry): entry is [string, Texture] =>
         entry[1] instanceof Texture && entry[0] !== 'envMap' && entry[0] !== 'lightMap');
       if (!maps.length) continue;

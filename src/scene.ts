@@ -7,6 +7,8 @@ import { ballAt, destination, DOOR_WIDTH, EYE_HEIGHT, Game, portalAngle, portalD
 import { createRoom, type RoomVisual, type Portal, type SocketVisual } from './room-visual';
 import { preparePortalSurfaces } from './portal-surfaces';
 import { withReceiverPlaneShadows } from './shadow-receiver';
+import { galleryExitAt, galleryNeighbor, type GalleryCell } from './gallery';
+import { createExitSigns } from './exit-sign';
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number };
 const FULL: Rect = { minX: -1, minY: -1, maxX: 1, maxY: 1 };
@@ -44,6 +46,7 @@ export class SpaceRenderer {
   readonly assets: ReturnType<typeof createMaterials>;
   readonly ready: Promise<void>;
   readonly lightTransfer: LightTransfer;
+  readonly exitSigns: ReturnType<typeof createExitSigns>;
   targets: THREE.WebGLRenderTarget[] = [];
   cameras = Array.from({ length: MAX_DEPTH + 2 }, () => new THREE.PerspectiveCamera());
   passes = 0;
@@ -91,6 +94,7 @@ export class SpaceRenderer {
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.assets = createMaterials(this.renderer);
     this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations, this.assets.environment.texture)])) as Record<RoomId, RoomVisual>;
+    this.exitSigns = createExitSigns(this.rooms.A);
     this.lightTransfer = new LightTransfer(this.rooms, this.renderer);
     for (const room of Object.values(this.rooms)) preparePortalSurfaces(room);
     const litMaterials = new Set<THREE.Material>(Object.values(this.assets.materials));
@@ -387,7 +391,7 @@ export class SpaceRenderer {
     }
     return false;
   }
-  private renderRoom(id: RoomId, camera: THREE.PerspectiveCamera, depth: number, clip: Rect, target: THREE.WebGLRenderTarget | null, incoming?: number, hops = 0) {
+  private renderRoom(id: RoomId, camera: THREE.PerspectiveCamera, depth: number, clip: Rect, target: THREE.WebGLRenderTarget | null, incoming?: number, hops = 0, cell: GalleryCell | null = null) {
     const room = this.rooms[id];
     const views = this.views[depth]; let count = 0;
     for (const portal of room.portals) {
@@ -412,7 +416,8 @@ export class SpaceRenderer {
       // on it, or the distant recursion limit visibly jumps at the crossing.
       const distance = view.portal.distance - view.portal.normal.x * camera.position.x - view.portal.normal.z * camera.position.z;
       const atEye = depth === 0 && distance >= -1e-8 && distance < this.camera.near;
-      this.renderRoom(to.room, child, depth + 1, view.rect, image, to.side, hops + (atEye ? 0 : 1));
+      const nextCell = cell && id === 'A' && to.room === 'A' ? galleryNeighbor(cell, view.portal.side) : null;
+      this.renderRoom(to.room, child, depth + 1, view.rect, image, to.side, hops + (atEye ? 0 : 1), nextCell);
       view.image = image;
     }
     // Shared scenes are rebound AFTER their children finish; each branch has its own target.
@@ -439,6 +444,7 @@ export class SpaceRenderer {
     }
     this.renderer.setRenderTarget(target);
     this.lightTransfer.bind(id);
+    this.exitSigns.show(id === 'A' && cell && this.game.world.gallery ? galleryExitAt(this.game.world.gallery, cell) : null);
     this.renderer.render(room.scene, camera);
   }
   private preparePendingShadow() {
@@ -464,13 +470,15 @@ export class SpaceRenderer {
   }
   private renderFrame() {
     this.updateCamera(); this.passes = 0; this.portalPixels = 0; this.shadowPixels = 0; this.occludedPortals = 0; this.renderer.info.reset();
+    const gallery = this.game.world.gallery;
     this.gpuTiming.begin();
     this.lightTransfer.direct.update();
-    try { this.renderRoom(this.game.player.room, this.camera, 0, FULL, null); this.preparePendingShadow(); }
+    try { this.renderRoom(this.game.player.room, this.camera, 0, FULL, null, undefined, 0, gallery?.cell ?? null); this.preparePendingShadow(); }
     finally { this.gpuTiming.end(); }
     this.drawCalls = this.renderer.info.render.calls; this.passes++;
   }
   dispose() {
+    this.exitSigns.dispose();
     this.gpuTiming.dispose();
     this.lightTransfer.dispose();
     for (const target of this.targets) target.dispose();

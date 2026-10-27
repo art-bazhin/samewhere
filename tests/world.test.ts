@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { closestOnSegment, insideOutline } from '../src/geometry';
+import { galleryRoute } from '../src/gallery';
 import { ballAt, canStand, connections, destination, DOOR_WIDTH, FINAL_PASSAGE_GOALS, Game, inventoryCount, PASSAGE_GOALS, pedestalOutline, PEDESTAL_APOTHEM, PLAYER_RADIUS, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, roomOutline, rotate, socketPosition, transformPoint, validateWorld, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../src/world';
 
 const close = (a: number, b: number, epsilon = 1e-7) => assert.ok(Math.abs(a - b) < epsilon, `${a} ≠ ${b}`);
@@ -158,6 +159,49 @@ test('the full marked route and final square pattern are reachable using local c
   interact('A', 0); assert.equal(game.world.passageProgress, PASSAGE_GOALS.length + 1);
   game.undo(); game.undo(); assert.equal(game.world.passageProgress, PASSAGE_GOALS.length);
   game.reset(); assert.equal(game.world.passageProgress, 0);
+});
+test('the square gallery starts with the complete pattern and preserves its rooms and signs through undo', () => {
+  const game = new Game(); game.world.passageProgress = PASSAGE_GOALS.length;
+  game.world.balls.forEach((ball, index) => { ball.socket = index === 3 ? null : { room: 'A', side: [0, 2, 1][index] }; });
+  assert.equal(game.snapshot().world.gallery, null);
+  game.world.selected = 'blue'; game.interact({ room: 'A', side: 3 });
+  const route = galleryRoute();
+  assert.deepEqual(game.snapshot().world.gallery, { cell: { x: 0, z: 0 }, signs: route });
+  for (const side of [0, 1, 2, 3]) {
+    atWall(game, 'A', side); walkOut(game, side);
+    assert.equal(game.player.room, 'A');
+  }
+  assert.deepEqual(game.world.gallery, { cell: { x: 0, z: 0 }, signs: route });
+  game.undo(); assert.deepEqual(game.world.gallery!.cell, { x: 1, z: 0 });
+  game.interact({ room: 'A', side: 0 }); assert.equal(game.snapshot().world.gallery, null);
+  game.undo(); assert.deepEqual(game.world.gallery, { cell: { x: 1, z: 0 }, signs: route });
+  game.reset(); assert.equal(game.world.gallery, null);
+});
+test('the long diagonal EXIT section crosses eight red-left/blue-right doors without changing direction', () => {
+  const route = galleryRoute();
+  const start = route.findIndex((sign, index) => index > 0 && route[index - 1].side === 1 &&
+    Array.from({ length: 8 }, (_, step) => route[index + step]?.side === step % 2).every(Boolean));
+  assert.ok(start >= 0, 'Missing diagonal section entered from the west');
+  const game = loopGame(); game.world.passageProgress = PASSAGE_GOALS.length;
+  game.interact({ room: 'A', side: 3 }); game.interact({ room: 'A', side: 3 });
+  const gallery = game.world.gallery!;
+  gallery.cell = { x: route[start].x, z: route[start].z };
+  Object.assign(game.player, { x: -portalDistance('A') + .4, z: -.4, yaw: -Math.PI / 4, pitch: 0 });
+  let crossed = 0;
+  for (let step = 0; step < 2000 && crossed < 8; step++) {
+    const before = game.transitions;
+    game.move({ x: .04, z: -.04 });
+    if (game.transitions === before) continue;
+    assert.equal(game.transitions, before + 1);
+    const sign = route[start + crossed];
+    assert.equal(game.world.balls.find(ball => ball.socket?.room === 'A' && ball.socket.side === sign.side)?.color,
+      crossed % 2 ? 'blue' : 'red');
+    assert.deepEqual(gallery.cell, { x: route[start + crossed + 1].x, z: route[start + crossed + 1].z });
+    crossed++;
+  }
+  assert.equal(crossed, 8, 'A wall or pedestal blocked the continuous diagonal walk');
+  close(Math.sin(game.player.yaw), Math.sin(-Math.PI / 4));
+  close(Math.cos(game.player.yaw), Math.cos(-Math.PI / 4));
 });
 test('an unavailable color and invalid socket do not create actions or overwrite history', () => {
   const game = new Game();

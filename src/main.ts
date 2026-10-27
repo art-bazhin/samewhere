@@ -1,5 +1,5 @@
 import './style.css';
-import { ballAt, connections, Game, inventoryCount, ROOMS } from './world';
+import { ballAt, connections, Game, inventoryCount, PASSAGE_GOALS, ROOMS } from './world';
 import { SpaceRenderer } from './scene';
 import { Sound } from './audio';
 import { FrameTiming } from './timing';
@@ -67,6 +67,13 @@ function nextDebugRoom() {
   // The hub's central pedestal occupies the origin; this spot is clear in every room.
   Object.assign(game.player, { room, x: 0, z: 1, yaw: 0, pitch: 0 });
   sync(); toast(`Отладка: ${ROOMS[room].name}`);
+}
+function prepareGalleryTest() {
+  stopSweep(); keys.clear(); mouseLook.reset(); game.remember();
+  game.world.balls.forEach(ball => { ball.socket = null; });
+  game.world.selected = 'red'; game.world.passageProgress = PASSAGE_GOALS.length; game.world.gallery = null;
+  game.player = { room: 'A', x: -3, z: 3, yaw: -Math.PI / 4, pitch: -.3 };
+  sync(); toast('Проверка галереи · четыре шара в руках');
 }
 function undo() {
   stopSweep(); mouseLook.reset();
@@ -143,6 +150,7 @@ document.addEventListener('keydown', event => {
   if (event.code === 'F4') { event.preventDefault(); if (locked && !event.repeat) toggleSweep(); return; }
   if (!locked) return;
   if (event.code === 'Tab') { event.preventDefault(); if (!event.repeat) nextDebugRoom(); return; }
+  if (event.code === 'Digit0' || event.code === 'Numpad0') { event.preventDefault(); if (!event.repeat) prepareGalleryTest(); return; }
   if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(event.code)) event.preventDefault();
   keys.add(event.code);
   if (event.repeat) return;

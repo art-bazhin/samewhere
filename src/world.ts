@@ -1,12 +1,13 @@
 /** Pure game rules and collision/portal math. No dependency on WebGL or the DOM. */
 import { closestOnSegment, crossOutline, hOutline, insideOutline, outlineWalls, regularOutline, yOutline, type Vec2 } from './geometry';
+import { galleryNeighbor, galleryRoute, type GalleryState } from './gallery';
 export type { Vec2 } from './geometry';
 export type RoomId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
 export type BallColor = 'red' | 'blue';
 export interface SocketRef { room: RoomId; side: number }
 export interface BallState { id: string; color: BallColor; socket: SocketRef | null }
 export interface PlayerState extends Vec2 { room: RoomId; yaw: number; pitch: number }
-export interface WorldState { balls: BallState[]; selected: BallColor; passageProgress: number }
+export interface WorldState { balls: BallState[]; selected: BallColor; passageProgress: number; gallery: GalleryState | null }
 export interface Snapshot { world: WorldState; player: PlayerState }
 export interface Connection { color: BallColor; ends: [SocketRef, SocketRef] }
 export interface PassageGoal { from: SocketRef; to: RoomId; color: BallColor }
@@ -132,7 +133,7 @@ export function inventoryCount(world: WorldState, color: BallColor) {
 }
 export function initialState(): Snapshot {
   return {
-    world: { selected: 'red', passageProgress: 0, balls: [
+    world: { selected: 'red', passageProgress: 0, gallery: null, balls: [
       { id: 'R1', color: 'red', socket: { room: 'B', side: 0 } },
       { id: 'R2', color: 'red', socket: { room: 'B', side: 2 } },
       { id: 'B1', color: 'blue', socket: { room: 'C', side: 0 } },
@@ -200,7 +201,12 @@ export class Game {
     // Completed links reveal the next drawing; the hub drawing is visible from the start.
     while (this.world.passageProgress < PASSAGE_GOALS.length && matches(PASSAGE_GOALS[this.world.passageProgress])) this.world.passageProgress++;
     // The final pattern must coexist, with the player inside the square.
-    if (this.world.passageProgress === PASSAGE_GOALS.length && this.player.room === 'A' && FINAL_PASSAGE_GOALS.every(matches)) this.world.passageProgress++;
+    const squareLoops = FINAL_PASSAGE_GOALS.every(matches);
+    if (this.world.passageProgress === PASSAGE_GOALS.length && this.player.room === 'A' && squareLoops) this.world.passageProgress++;
+    if (!squareLoops) this.world.gallery = null;
+    else if (!this.world.gallery && this.world.passageProgress > PASSAGE_GOALS.length && this.player.room === 'A') {
+      this.world.gallery = { cell: { x: 0, z: 0 }, signs: galleryRoute() };
+    }
   }
   move(displacement: Vec2) {
     // Small bounded steps preserve collision behavior even after a slow frame.
@@ -247,6 +253,9 @@ export class Game {
           step = rotate(step, delta);
           this.player.yaw -= delta;
           this.player.room = to.room;
+          if (this.world.gallery && from.room === 'A' && to.room === 'A') {
+            this.world.gallery.cell = galleryNeighbor(this.world.gallery.cell, side);
+          }
           this.transitions++;
           crossed = true; break;
         }
