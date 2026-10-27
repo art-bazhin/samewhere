@@ -19,7 +19,7 @@ const powerOfTwo = (value: number) => 2 ** Math.ceil(Math.log2(value));
 const rounded = (value: number) => Math.round(value * 10000) / 10000;
 
 /** One atlas per room. Coplanar floor/threshold and both wall variants share UVs. */
-export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = false): SurfaceLayout {
+export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = false, attributeName = direct ? 'directUv' : 'transferUv', passageSpacing = direct ? .0125 : PASSAGE_LIGHT_SPACING): SurfaceLayout {
   const charts = new Map<string, SurfaceChart>(), meshes: THREE.Mesh[] = [];
   scene.updateMatrixWorld(true);
   scene.traverse(object => {
@@ -101,7 +101,7 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = 
       chart.width = 10; chart.height = 8;
       chart.step.set((chart.max.x - chart.min.x) / (chart.width - PADDING * 2 - 1), (chart.max.y - chart.min.y) / (chart.height - PADDING * 2 - 1));
     } else {
-      const spacing = chart.passage !== undefined ? (direct ? .0125 : PASSAGE_LIGHT_SPACING)
+      const spacing = chart.passage !== undefined ? passageSpacing
         : direct ? .025 : chart.triangles[0].mesh.name === 'ceiling' ? LIGHTMAP_SPACING * 2 : LIGHTMAP_SPACING;
       // Resolve the steep floor-bounce profile on pedestal sides without
       // increasing horizontal density or the rest of the room's bake cost.
@@ -125,17 +125,17 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = 
   for (const mesh of meshes) {
     const count = mesh.geometry.getAttribute('position').count, attribute = new THREE.Float32BufferAttribute(count * 2, 2);
     for (let i = 0; i < count; i++) attribute.setXY(i, .5 / width, .5 / height); // Reserved black texel.
-    mesh.geometry.setAttribute(direct ? 'directUv' : 'transferUv', attribute);
+    mesh.geometry.setAttribute(attributeName, attribute);
   }
   const assign = (chart: SurfaceChart, attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, vertex: number, p: THREE.Vector2) => attribute.setXY(vertex,
       (chart.x + PADDING + (p.x - chart.min.x) / chart.step.x + .5) / width,
       (chart.y + PADDING + (p.y - chart.min.y) / chart.step.y + .5) / height);
   for (const chart of list) {
     if (chart.curvedMesh) {
-      const geometry = chart.curvedMesh.geometry, uv = geometry.getAttribute('uv'), attribute = geometry.getAttribute(direct ? 'directUv' : 'transferUv');
-      for (let i = 0; i < uv.count; i++) assign(chart, attribute, i, new THREE.Vector2(uv.getX(i), uv.getY(i)));
+      const geometry = chart.curvedMesh.geometry, uv = geometry.getAttribute('uv'), output = geometry.getAttribute(attributeName);
+      for (let i = 0; i < uv.count; i++) assign(chart, output, i, new THREE.Vector2(uv.getX(i), uv.getY(i)));
     }
-    for (const triangle of chart.triangles) triangle.uv.forEach((p, i) => assign(chart, triangle.mesh.geometry.getAttribute(direct ? 'directUv' : 'transferUv'), triangle.vertices[i], p));
+    for (const triangle of chart.triangles) triangle.uv.forEach((p, i) => assign(chart, triangle.mesh.geometry.getAttribute(attributeName), triangle.vertices[i], p));
   }
   return { room, width, height, charts: list };
 }
@@ -253,10 +253,10 @@ export function* chartTriangles(chart: SurfaceChart): Generator<Triangle> {
 }
 
 /** Reuse the exact room geometry for startup baking, without DOM or textures. */
-export function bakingLayout(room: RoomId) {
+export function bakingLayout(room: RoomId, joined = false) {
   const standard = new THREE.MeshStandardMaterial(), physical = new THREE.MeshPhysicalMaterial(), basic = new THREE.MeshBasicMaterial();
   const ceiling = new THREE.MeshStandardMaterial({ side: THREE.BackSide });
   const materials = { wall: standard, floor: physical, ceiling, pedestal: standard, socket: standard,
     red: physical, blue: physical, hit: basic, lamp: basic };
-  return prepareSurfaceLayout(createRoom(room, materials, { value: true }).scene, room);
+  return prepareSurfaceLayout(createRoom(room, materials, { value: true }).scene, room, false, joined ? 'joinedUv' : 'transferUv', joined ? .025 : PASSAGE_LIGHT_SPACING);
 }

@@ -1,56 +1,64 @@
 import * as THREE from 'three';
-import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
-import { surfaceUV, type MaterialSet } from './materials';
-import { portalMaterial, type Portal } from './room-visual';
-import { CEILING_LIGHT, CEILING_PANEL_SIZE } from './lighting';
-import { DOOR_HEIGHT, DOOR_WIDTH, EXIT_TUNNEL_LENGTH, EXIT_TUNNEL_WALLS, EXIT_TUNNEL_WIDTH, portalAngle, portalPosition, ROOM_HEIGHT } from './world';
+import { createRoom } from './room-visual';
+import { type MaterialSet } from './materials';
+import { withDistanceFade, visibilityRange } from './visibility';
+import { DOOR_HEIGHT, EXIT_TUNNEL_LENGTH, portalAngle, portalPosition } from './world';
 
-/** A fixed finale scene, outside the ball-controlled room network. */
-export function createExitTunnel(source: MaterialSet) {
-  RectAreaLightUniformsLib.init();
-  const scene = new THREE.Scene(); scene.background = new THREE.Color(0xffffff);
-  const fog = new THREE.Fog(0xffffff, EXIT_TUNNEL_LENGTH * .75, EXIT_TUNNEL_LENGTH + 2); scene.fog = fog;
-  const surface = (base: THREE.MeshStandardMaterial) => new THREE.MeshStandardMaterial({
-    color: base.color, map: base.map, normalMap: base.normalMap, normalScale: base.normalScale.clone(),
-    roughness: base.roughness, roughnessMap: base.roughnessMap,
-  });
-  const wall = surface(source.wall), floor = surface(source.floor), ceiling = surface(source.ceiling);
-  for (const box of EXIT_TUNNEL_WALLS) {
-    const geometry = new THREE.BoxGeometry(...box.size); geometry.translate(...box.position);
-    const mesh = new THREE.Mesh(surfaceUV(geometry), wall); mesh.name = 'tunnel-wall'; scene.add(mesh);
+/** Ordinary room architecture/materials; only the white exterior is special. */
+export function createExitTunnel(source: MaterialSet, environment: THREE.Texture, optimizations: THREE.IUniform<boolean>) {
+  const materials = Object.fromEntries(Object.entries(source).map(([key, original]) => {
+    const material = original.clone();
+    material.onBeforeCompile = original.onBeforeCompile.bind(original);
+    const cache = original.customProgramCacheKey(); material.customProgramCacheKey = () => cache;
+    return [key, material];
+  })) as MaterialSet;
+  const room = createRoom('T', materials, optimizations, environment), scene = room.scene;
+  scene.background = new THREE.Color(0);
+  room.walls.forEach(wall => { wall.solid.visible = false; wall.open.visible = true; });
+  room.contactOpenings.value.fill(1);
+  room.portals[1].mesh.visible = false;
+  // The fixed bake includes the complete local fixture, including its spot share.
+  room.shadowLights.forEach(light => { light.intensity = 0; light.castShadow = false; });
+  scene.traverse(object => { if (object.name === 'ceiling-lamp') object.name = 'tunnel-ceiling-lamp'; });
+  const surfaces = new Set<THREE.MeshStandardMaterial>();
+  scene.traverse(object => { if (object instanceof THREE.Mesh && object.material instanceof THREE.MeshStandardMaterial) surfaces.add(object.material); });
+  for (const material of surfaces) {
+    const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
+    material.onBeforeCompile = (shader, renderer) => {
+      before(shader, renderer);
+      shader.vertexShader = 'varying float tunnelZ;\n' + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+        tunnelZ = (modelMatrix * vec4(transformed, 1.)).z;`);
+      shader.fragmentShader = 'varying float tunnelZ;\n' + shader.fragmentShader;
+      // Ambient room fill and ceiling emission fade with the only nearby lamp.
+      // Actual local and transported illumination comes from the shared bake.
+      shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `
+        float fill = max(1. - smoothstep(6., 24., tunnelZ), smoothstep(72., 96., tunnelZ));
+        reflectedLight.indirectDiffuse *= fill; reflectedLight.indirectSpecular *= fill;
+        totalEmissiveRadiance *= fill;
+        #include <aomap_fragment>`);
+    };
+    material.customProgramCacheKey = () => `${key}:tunnel-fill`;
   }
-  const floorGeometry = new THREE.PlaneGeometry(EXIT_TUNNEL_WIDTH, EXIT_TUNNEL_LENGTH);
-  floorGeometry.rotateX(-Math.PI / 2); floorGeometry.translate(0, 0, EXIT_TUNNEL_LENGTH / 2);
-  const carpet = new THREE.Mesh(surfaceUV(floorGeometry), floor); carpet.name = 'tunnel-floor'; scene.add(carpet);
-  const ceilingGeometry = new THREE.PlaneGeometry(EXIT_TUNNEL_WIDTH, EXIT_TUNNEL_LENGTH);
-  ceilingGeometry.rotateX(Math.PI / 2); ceilingGeometry.translate(0, ROOM_HEIGHT, EXIT_TUNNEL_LENGTH / 2);
-  const tiles = new THREE.Mesh(surfaceUV(ceilingGeometry), ceiling); tiles.name = 'tunnel-ceiling'; scene.add(tiles);
-
-  const lamp = new THREE.Mesh(new THREE.PlaneGeometry(CEILING_PANEL_SIZE, CEILING_PANEL_SIZE),
-    new THREE.MeshBasicMaterial({ color: source.lamp.color, map: source.lamp.map }));
-  lamp.name = 'tunnel-ceiling-lamp'; lamp.rotation.x = Math.PI / 2; lamp.position.set(0, ROOM_HEIGHT - .004, 1.3); scene.add(lamp);
-  const entryLight = new THREE.SpotLight(CEILING_LIGHT.color, 1.5, 12, CEILING_LIGHT.angle, CEILING_LIGHT.penumbra, 2);
-  entryLight.position.set(0, CEILING_LIGHT.height, 1.3); entryLight.target.position.set(0, 0, 1.3);
-  scene.add(entryLight, entryLight.target, new THREE.AmbientLight(0xffffff, .018));
-  // The luminous exit opening illuminates the empty corridor analytically.
-  // Its growing solid angle makes the approaching walls and carpet brighter.
-  const exitLight = new THREE.RectAreaLight(0xffffff, 5000, DOOR_WIDTH, DOOR_HEIGHT);
-  exitLight.position.set(0, DOOR_HEIGHT / 2, EXIT_TUNNEL_LENGTH + .16); scene.add(exitLight);
-  const whiteFloor = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  whiteFloor.rotation.x = -Math.PI / 2; whiteFloor.position.z = EXIT_TUNNEL_LENGTH + 1000;
-  whiteFloor.name = 'white-space-floor'; scene.add(whiteFloor);
-
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), portalMaterial());
-  mesh.scale.set(DOOR_WIDTH, DOOR_HEIGHT, 1); mesh.position.y = DOOR_HEIGHT / 2; mesh.renderOrder = -1; scene.add(mesh);
-  const portal: Portal = { side: 0, mesh, to: null, transform: new THREE.Matrix4(), normal: { x: 0, z: -1 },
-    center: { x: 0, z: 0 }, distance: 0, receivingDistance: 0 };
+  const exitLight = new THREE.SpotLight(0xffffff, 1800, 32, 1.2, .8, 2);
+  exitLight.position.set(0, DOOR_HEIGHT / 2, EXIT_TUNNEL_LENGTH + 4);
+  exitLight.target.position.set(0, DOOR_HEIGHT / 2, EXIT_TUNNEL_LENGTH - 1);
+  exitLight.castShadow = true; exitLight.shadow.mapSize.set(2048, 2048);
+  exitLight.shadow.camera.near = .1; exitLight.shadow.camera.far = exitLight.distance;
+  exitLight.shadow.bias = -.00002; exitLight.shadow.normalBias = .0015;
+  exitLight.shadow.autoUpdate = false; exitLight.shadow.needsUpdate = true;
+  scene.add(exitLight, exitLight.target);
+  const white = withDistanceFade(new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), white);
+  backdrop.rotation.y = Math.PI; backdrop.position.z = EXIT_TUNNEL_LENGTH + .2; scene.add(backdrop);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), white);
+  floor.rotation.x = -Math.PI / 2; floor.position.z = EXIT_TUNNEL_LENGTH + 1000; scene.add(floor);
   const transforms = Array.from({ length: 4 }, (_, side) => {
     const from = portalPosition('A', side);
     return new THREE.Matrix4().makeRotationY(-portalAngle({ room: 'A', side }, { room: 'A', side: 0 }))
       .multiply(new THREE.Matrix4().makeTranslation(-from.x, 0, -from.z));
   });
-  const returnTransforms = transforms.map(transform => transform.clone().invert());
-  // Match the portal's linear buffer before converting the main view to sRGB.
+  scene.updateMatrixWorld(true); scene.traverse(object => { object.matrixAutoUpdate = false; });
   const screenScene = new THREE.Scene(), screenCamera = new THREE.Camera();
   const screenMaterial = new THREE.ShaderMaterial({
     uniforms: { image: { value: null } }, depthTest: false, depthWrite: false, toneMapped: false,
@@ -62,6 +70,6 @@ export function createExitTunnel(source: MaterialSet) {
       }`,
   });
   screenScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), screenMaterial));
-  scene.updateMatrixWorld(true); scene.traverse(object => { object.matrixAutoUpdate = false; });
-  return { scene, fog, portal, transforms, returnTransforms, exitLight, screenScene, screenCamera, screenMaterial };
+  return { room, scene, visibility: visibilityRange, portal: room.portals[0], transforms,
+    returnTransforms: transforms.map(transform => transform.clone().invert()), exitLight, screenScene, screenCamera, screenMaterial };
 }

@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { GpuTiming } from './gpu-timing';
 import { LightTransfer } from './light-transfer';
 import { createMaterials, optimizeLighting } from './materials';
-import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBILITY_END } from './visibility';
+import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBILITY_END, VISIBILITY_START, visibilityRange } from './visibility';
+import { CEILING_LIGHT, SPOT_LIGHT_SHARE } from './lighting';
 import { ballAt, destination, DOOR_WIDTH, EYE_HEIGHT, EXIT_TUNNEL_LENGTH, Game, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, roomWalls, type RoomId, type SocketRef, type Vec2 } from './world';
 import { createRoom, type RoomVisual, type Portal, type SocketVisual } from './room-visual';
 import { preparePortalSurfaces } from './portal-surfaces';
@@ -97,15 +98,20 @@ export class SpaceRenderer {
     this.assets = createMaterials(this.renderer);
     this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations, this.assets.environment.texture)])) as Record<RoomId, RoomVisual>;
     this.exitSigns = createExitSigns(this.rooms.A);
-    this.exitTunnel = createExitTunnel(this.assets.materials);
-    this.lightTransfer = new LightTransfer(this.rooms, this.renderer);
+    this.exitTunnel = createExitTunnel(this.assets.materials, this.assets.environment.texture, this.assets.optimizations);
+    this.lightTransfer = new LightTransfer(this.rooms, this.renderer, this.exitTunnel.scene);
     for (const room of Object.values(this.rooms)) preparePortalSurfaces(room);
+    preparePortalSurfaces(this.exitTunnel.room);
     const litMaterials = new Set<THREE.Material>(Object.values(this.assets.materials));
     for (const room of Object.values(this.rooms)) room.scene.traverse(object => {
       if (object instanceof THREE.Mesh) for (const material of Array.isArray(object.material) ? object.material : [object.material]) litMaterials.add(material);
     });
+    this.exitTunnel.scene.traverse(object => {
+      if (object instanceof THREE.Mesh && object.material instanceof THREE.MeshStandardMaterial) litMaterials.add(object.material);
+    });
     for (const material of litMaterials) if (material instanceof THREE.MeshStandardMaterial) {
-      optimizeLighting(material, this.assets.optimizations); this.lightTransfer.install(material);
+      const tunnel = this.exitTunnel.scene.getObjectByProperty('material', material) !== undefined;
+      optimizeLighting(material, this.assets.optimizations, !tunnel); this.lightTransfer.install(material);
     }
     withReceiverPlaneShadows(this.assets.materials.pedestal);
     const shadowScenes = new Map(Object.values(this.rooms).map(room => [room.scene, room.shadows]));
@@ -123,6 +129,7 @@ export class SpaceRenderer {
     this.preparationScene.add(this.preparationLight, this.preparationLight.target);
     this.resize(); this.sync();
     this.ready = Promise.all([this.assets.ready, this.lightTransfer.ready]).then(async () => {
+      for (const field of Object.values(this.lightTransfer.joined)) this.renderer.initTexture(field.texture);
       // Initialize clipping/shadows, then compile each room's light count while
       // the menu is loading. Shared materials must not be rebound by rendering
       // another scene while compileAsync waits for its programs to finish.
@@ -233,6 +240,7 @@ export class SpaceRenderer {
       }
       camera.far = EXIT_TUNNEL_LENGTH * 2; camera.position.set(0, EYE_HEIGHT, 1); camera.rotation.set(0, Math.PI, 0);
       camera.updateProjectionMatrix(); camera.updateMatrixWorld(true); this.clipPlane.setComponents(0, 1, 0, 1);
+      this.lightTransfer.bindJoined('T');
       this.renderer.setRenderTarget(target); this.renderer.render(this.exitTunnel.scene, camera);
       this.exitTunnel.screenMaterial.uniforms.image.value = target.texture;
       this.renderer.setRenderTarget(null); this.renderer.setViewport(0, 0, 64, 64);
@@ -464,15 +472,17 @@ export class SpaceRenderer {
       this.clipPlane.setComponents(-normal.x, 0, -normal.z, room.portals[incoming].distance - 0.00001);
     }
     this.renderer.setRenderTarget(target);
-    this.lightTransfer.bind(id);
+    visibilityRange.value.set(VISIBILITY_START, VISIBILITY_END);
+    const gallery = this.game.world.gallery, last = gallery?.signs.at(-1);
+    const joined = id === 'A' && cell && gallery && last && isTunnelEntrance(gallery, cell, last.side);
+    if (joined) this.lightTransfer.bindJoined('A'); else this.lightTransfer.bind(id);
     this.exitSigns.show(id === 'A' && cell && this.game.world.gallery ? galleryExitAt(this.game.world.gallery, cell) : null);
-    this.renderer.render(room.scene, camera);
+    if (joined) room.shadowLights.forEach(light => { light.intensity = 0; });
+    try { this.renderer.render(room.scene, camera); }
+    finally { if (joined) room.shadowLights.forEach(light => { light.intensity = CEILING_LIGHT.intensity * SPOT_LIGHT_SHARE; }); }
   }
   private renderTunnel(camera: THREE.PerspectiveCamera, depth: number, clip: Rect, target: THREE.WebGLRenderTarget | null, incoming = false, hops = 0) {
     const tunnel = this.exitTunnel, portal = tunnel.portal, bounds = { ...FULL };
-    // Let the white exterior gradually wash out the whole view as we approach it.
-    tunnel.fog.near = EXIT_TUNNEL_LENGTH * .75 - camera.position.z;
-    tunnel.fog.far = EXIT_TUNNEL_LENGTH + 2 - camera.position.z;
     let image: THREE.WebGLRenderTarget | null = null;
     const last = this.game.world.gallery!.signs.at(-1)!;
     if (!incoming && hops < MAX_DEPTH && this.passes < MAX_PASSES - 1 && this.portalRect(portal, camera, clip, bounds)) {
@@ -489,6 +499,11 @@ export class SpaceRenderer {
     if (image) uniforms.imageRect.value.set(-image.viewport.x, -image.viewport.y, image.width, image.height);
     if (target) this.portalPixels += target.scissor.z * target.scissor.w;
     if (incoming) this.clipPlane.setComponents(0, 0, 1, -.00001); else this.clipPlane.setComponents(0, 1, 0, 1);
+    const reveal = THREE.MathUtils.smoothstep(camera.position.z, EXIT_TUNNEL_LENGTH * .5, EXIT_TUNNEL_LENGTH * .85);
+    const outside = camera.position.z > EXIT_TUNNEL_LENGTH + .15;
+    visibilityRange.value.set(outside ? 10000 : VISIBILITY_START + reveal * 72, outside ? 10001 : VISIBILITY_END + reveal * 92);
+    (tunnel.scene.background as THREE.Color).set(outside ? 0xffffff : 0);
+    this.lightTransfer.bindJoined('T');
     this.renderer.setRenderTarget(target); this.renderer.render(tunnel.scene, camera);
   }
   private preparePendingShadow() {
@@ -534,6 +549,9 @@ export class SpaceRenderer {
     this.exitSigns.dispose();
     this.gpuTiming.dispose();
     this.lightTransfer.dispose();
+    this.exitTunnel.exitLight.shadow.dispose();
+    this.exitTunnel.room.shadows.dispose();
+    for (const light of this.exitTunnel.room.shadowLights) light.shadow.dispose();
     for (const target of this.targets) target.dispose();
     this.preparationTarget.dispose();
     for (const room of Object.values(this.rooms)) for (const light of room.shadowLights) light.shadow.dispose();

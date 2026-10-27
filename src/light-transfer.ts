@@ -20,6 +20,7 @@ export class LightTransfer {
   enabled = true;
   readonly ready: Promise<void>;
   readonly fields: Record<RoomId, RoomField>;
+  readonly joined: Record<'A' | 'T', { texture: THREE.DataTexture; size: THREE.Vector2; passages: RoomField['passages'] }>;
   readonly direct: DirectLight;
   readonly uniforms = {
     transferredLight: { value: null as THREE.DataTexture | null },
@@ -29,6 +30,7 @@ export class LightTransfer {
     panelLight: { value: null as THREE.DataTexture | null },
     lightmapSize: { value: new THREE.Vector2() },
     passageCount: { value: 0 },
+    joinedLighting: { value: false },
     passageFrames: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
     passageAtlases: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
     passageDirectAtlases: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
@@ -45,7 +47,7 @@ export class LightTransfer {
   private state = '';
   private initialized = false;
 
-  constructor(rooms: Record<RoomId, { scene: THREE.Scene }>, renderer: THREE.WebGLRenderer) {
+  constructor(rooms: Record<RoomId, { scene: THREE.Scene }>, renderer: THREE.WebGLRenderer, tunnel: THREE.Scene) {
     this.direct = new DirectLight(renderer, rooms);
     this.fields = Object.fromEntries(ROOM_IDS.map(room => {
       const layout = prepareSurfaceLayout(rooms[room].scene, room), { width, height } = layout;
@@ -71,12 +73,34 @@ export class LightTransfer {
     this.uniforms.transferredLight.value = this.fields.A.texture;
     this.uniforms.panelLight.value = this.fields.A.panel;
     this.uniforms.lightmapSize.value.set(this.fields.A.texture.image.width, this.fields.A.texture.image.height / 2);
+    this.joined = Object.fromEntries((['A', 'T'] as const).map(room => {
+      const scene = room === 'T' ? tunnel : rooms.A.scene;
+      const layout = prepareSurfaceLayout(scene, room, false, 'joinedUv', .025), passages: RoomField['passages'] = [];
+      if (room === 'T') scene.traverse(object => {
+        if (object instanceof THREE.Mesh && object.geometry.hasAttribute('joinedUv')) object.geometry.setAttribute('transferUv', object.geometry.getAttribute('joinedUv'));
+      });
+      for (const chart of layout.charts) if (chart.passage !== undefined) {
+        const p = portalPosition(room, chart.passage), n = wallNormal(room, chart.passage);
+        passages[chart.passage] = { frame: new THREE.Vector4(n.x, n.z, p.x * n.x + p.z * n.z, -n.z * p.x + n.x * p.z),
+          atlas: new THREE.Vector4((chart.x + 1.5 - chart.min.x / chart.step.x) / layout.width, (chart.y + 1.5 - chart.min.y / chart.step.y) / layout.height,
+            1 / (chart.step.x * layout.width), 1 / (chart.step.y * layout.height)) };
+      }
+      const texture = new THREE.DataTexture(new Uint16Array(layout.width * layout.height * PANEL_LIGHTMAP_CHANNELS), layout.width, layout.height * 3, THREE.RGBAFormat, THREE.HalfFloatType);
+      texture.minFilter = texture.magFilter = THREE.LinearFilter; texture.needsUpdate = true;
+      return [room, { texture, size: new THREE.Vector2(layout.width, layout.height), passages }];
+    })) as typeof this.joined;
     this.ready = this.load();
   }
   private async load() {
     const start = performance.now(), response = await fetch(lightingUrl, { signal: this.download.signal });
     if (!response.ok) throw new Error(`Lighting download failed: ${response.status}`);
     const data = decodeLighting(await response.arrayBuffer(), lightingRevision);
+    if (!data.joined) throw new Error('Missing fixed tunnel lighting');
+    for (const room of ['A', 'T'] as const) {
+      const field = this.joined[room], baked = data.joined[room];
+      if (field.size.x !== baked.size[0] || field.size.y !== baked.size[1]) throw new Error(`Joined lighting layout mismatch in ${room}`);
+      field.texture.image.data = baked.panel; field.texture.needsUpdate = true;
+    }
     for (const room of ROOM_IDS) {
       const image = this.fields[room].texture.image;
       if (image.width !== data.atlases[room][0] || image.height !== data.atlases[room][1] * 2) throw new Error(`Lighting layout mismatch in room ${room}`);
@@ -123,6 +147,7 @@ export class LightTransfer {
   }
   whenSettled() { return this.ready; }
   bind(room: RoomId, preparing = false) {
+    this.uniforms.joinedLighting.value = false;
     const field = this.fields[room];
     this.direct.bind(room, this.enabled);
     this.uniforms.transferredLight.value = field.texture;
@@ -137,16 +162,29 @@ export class LightTransfer {
       this.uniforms.passageLocalAtlases.value[index].copy(this.direct.surfaces.fields[room].localPassages[side]);
     });
   }
+  bindJoined(room: 'A' | 'T') {
+    const field = this.joined[room];
+    this.uniforms.joinedLighting.value = true;
+    this.uniforms.panelLight.value = field.texture;
+    this.uniforms.lightmapSize.value.copy(field.size);
+    this.uniforms.transferGain.value = 0;
+    const sides = room === 'T' ? [0] : [0, 1, 2, 3];
+    this.uniforms.passageCount.value = sides.length;
+    sides.forEach((side, i) => {
+      this.uniforms.passageFrames.value[i].copy(field.passages[side].frame);
+      this.uniforms.passageAtlases.value[i].copy(field.passages[side].atlas);
+    });
+  }
   install(material: THREE.MeshStandardMaterial) {
     const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
     material.onBeforeCompile = (shader, renderer) => {
       before(shader, renderer); Object.assign(shader.uniforms, this.uniforms, { directSurfaceLight: this.direct.surfaces.uniform });
-      shader.vertexShader = 'attribute vec2 transferUv; varying vec2 vTransferUv; attribute vec2 directUv; varying vec2 vDirectUv;\n' + shader.vertexShader;
+      shader.vertexShader = 'uniform bool joinedLighting; attribute vec2 joinedUv; attribute vec2 portalJoinedUvOffset; attribute vec2 transferUv; varying vec2 vTransferUv; attribute vec2 directUv; varying vec2 vDirectUv;\n' + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
         vDirectUv = directUv;
-        vTransferUv = transferUv;
+        vTransferUv = joinedLighting ? joinedUv : transferUv;
         #ifdef PORTAL_SURFACE_PADDING
-          vTransferUv += portalLightUvOffset;
+          vTransferUv += joinedLighting ? portalJoinedUvOffset : portalLightUvOffset;
         #endif`);
       shader.fragmentShader = `${SURFACE_LIGHTMAP_FILTER.replaceAll('sampleSurfaceLightmap', 'sampleLightmapPlane')}
         uniform vec2 lightmapSize;
@@ -157,6 +195,7 @@ export class LightTransfer {
         varying vec2 vDirectUv; uniform sampler2D directSurfaceLight;
         uniform sampler2D transferredLight; uniform vec3 transferColor; uniform float transferGain; uniform float bounceGain;
         uniform sampler2D panelLight;
+        uniform bool joinedLighting;
         uniform int passageCount; uniform vec4 passageFrames[4]; uniform vec4 passageAtlases[4]; uniform vec4 passageDirectAtlases[4]; uniform vec4 passageLocalAtlases[4];\n` + shader.fragmentShader;
       shader.fragmentShader = shader.fragmentShader.replace('#include <aomap_fragment>', `
         vec4 roomLight = sampleSurfaceLightmap(panelLight, vTransferUv);
@@ -186,6 +225,13 @@ export class LightTransfer {
             if (depth < -.0001 || depth >= ${PASSAGE_LIGHT_DEPTH.toFixed(4)} || abs(lateral) >= ${PASSAGE_LIGHT_WIDTH.toFixed(4)}) continue;
             float blend = (1. - smoothstep(.15, ${PASSAGE_LIGHT_DEPTH.toFixed(4)}, depth)) * (1. - smoothstep(.9, ${PASSAGE_LIGHT_WIDTH.toFixed(4)}, abs(lateral)));
             vec2 uv = atlas.xy + vec2(lateral, max(0., depth)) * atlas.zw;
+            if (joinedLighting) {
+              vec4 joined = sampleSurfaceLightmap(panelLight, uv);
+              vec3 direct = directionalDirect(joined.r * transferColor, sampleSurfaceLightmap(panelLight, uv + vec2(0., 2.)), normal, nonPerturbedNormal);
+              reflectedLight.directDiffuse = mix(reflectedLight.directDiffuse, direct * BRDF_Lambert(material.diffuseColor), blend);
+              bakedBounce = mix(bakedBounce, directionalBounce(joined.gba, sampleSurfaceDirection(panelLight, uv), normal, nonPerturbedNormal), blend);
+              continue;
+            }
             vec4 directAtlas = passageDirectAtlases[passage];
             vec4 joinedField = texture2D(directSurfaceLight, directAtlas.xy + vec2(lateral, max(0., depth)) * directAtlas.zw);
             vec3 joinedDirect = directionalDirect(joinedField.r * transferColor, vec4(joinedField.gba, joinedField.r), normal, nonPerturbedNormal);
@@ -210,6 +256,7 @@ export class LightTransfer {
   dispose() {
     this.download.abort(); this.prepared.clear();
     this.direct.dispose();
+    for (const field of Object.values(this.joined)) field.texture.dispose();
     for (const field of Object.values(this.fields)) {
       field.panel.dispose();
       for (const buffer of field.buffers) buffer.texture.dispose();

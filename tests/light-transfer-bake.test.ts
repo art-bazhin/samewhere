@@ -27,6 +27,11 @@ test('lighting binary preserves every sample and rejects stale or incomplete dat
   assert.deepEqual(decoded, { ...result, fields: [...result.fields].sort((a, b) => a.key.localeCompare(b.key)) });
   assert.equal(decoded.panels.A.buffer, buffer);
   assert.equal(decoded.fields[0].values.buffer, buffer);
+  for (const room of ['A', 'T'] as const) {
+    assert.ok(decoded.joined?.[room]);
+    assert.equal(decoded.joined[room].panel.buffer, buffer);
+    assert.deepEqual(decoded.joined[room], result.joined![room]);
+  }
   assert.throws(() => decodeLighting(buffer, 'other-revision'), /revision mismatch/);
   assert.throws(() => decodeLighting(buffer.slice(0, 8), 'test-revision'), /Invalid lighting file/);
   assert.throws(() => decodeLighting(buffer.slice(0, 16), 'test-revision'), /Invalid lighting header/);

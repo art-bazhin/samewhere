@@ -1,19 +1,21 @@
 import { CEILING_LIGHT, ceilingPanelSamples, ROOM_LIGHTS, SPOT_LIGHT_SHARE } from './lighting';
 import { APERTURE_EPSILON, transferPathBlocked } from './light-path';
+import { addDirectLightGradient } from './directional-lightmap';
 export { transferPathBlocked } from './light-path';
 import { DOOR_HEIGHT, DOOR_WIDTH, portalDistance, portalPosition, transformPoint, WALL_THICKNESS, wallNormal, type SocketRef, type Vec2 } from './world';
 
 interface Point extends Vec2 { y: number }
 
 /** Direct diffuse transport from the source's lamps through exactly one passage. */
-export function createTransferSampler(receiver: SocketRef, source: SocketRef, detailed = false) {
+export function createTransferSampler(receiver: SocketRef, source: SocketRef, detailed = false, subdivisions = 3) {
   const n = wallNormal(receiver.room, receiver.side), distance = portalDistance(receiver.room, receiver.side), center = portalPosition(receiver.room, receiver.side);
   const cone = Math.cos(CEILING_LIGHT.angle), penumbra = Math.cos(CEILING_LIGHT.angle * (1 - CEILING_LIGHT.penumbra));
   const lamps = ROOM_LIGHTS[source.room].map(lamp => ({ ...lamp, virtual: transformPoint(lamp, source, receiver), spot: SPOT_LIGHT_SHARE, area: detailed ? 0 : 1 - SPOT_LIGHT_SHARE }));
-  if (detailed) lamps.push(...ROOM_LIGHTS[source.room].flatMap(lamp => ceilingPanelSamples(lamp).map(p =>
-    ({ ...p, virtual: transformPoint(p, source, receiver), spot: 0, area: (1 - SPOT_LIGHT_SHARE) / 9 }))));
-  return (point: Point, result: Float32Array, normal?: Point) => {
+  if (detailed) lamps.push(...ROOM_LIGHTS[source.room].flatMap(lamp => ceilingPanelSamples(lamp, subdivisions).map(p =>
+    ({ ...p, virtual: transformPoint(p, source, receiver), spot: 0, area: (1 - SPOT_LIGHT_SHARE) / subdivisions ** 2 }))));
+  return (point: Point, result: Float32Array, normal?: Point, gradient?: Float64Array) => {
     result.fill(0);
+    gradient?.fill(0);
     for (const lamp of lamps) {
       const dx = lamp.virtual.x - point.x, dy = CEILING_LIGHT.height - point.y, dz = lamp.virtual.z - point.z;
       const length = Math.hypot(dx, dy, dz);
@@ -44,7 +46,11 @@ export function createTransferSampler(receiver: SocketRef, source: SocketRef, de
       const cutoff = Math.max(0, 1 - (length / lamp.distance) ** 4);
       const emission = lamp.spot * spot * spot * (3 - 2 * spot) + lamp.area * dy / length;
       const energy = CEILING_LIGHT.intensity * emission * cutoff * cutoff / Math.max(length * length, .01);
-      if (normal) { result[0] += energy * receive; continue; }
+      if (normal) {
+        result[0] += energy * receive;
+        if (gradient) addDirectLightGradient(gradient, dx, dy, dz, normal, energy / length, length * length);
+        continue;
+      }
       result[dx < 0 ? 1 : 0] += energy * Math.abs(dx) / length;
       result[dy < 0 ? 3 : 2] += energy * Math.abs(dy) / length;
       result[dz < 0 ? 5 : 4] += energy * Math.abs(dz) / length;

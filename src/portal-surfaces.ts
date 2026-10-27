@@ -14,6 +14,8 @@ export function preparePortalSurfaces(room: RoomVisual) {
     const offset = new THREE.Float32BufferAttribute(position.count * 3, 3);
     const uvOffset = new THREE.Float32BufferAttribute(position.count * 2, 2), lightOffset = new THREE.Float32BufferAttribute(position.count * 2, 2);
     geometry.setAttribute('portalOffset', offset); geometry.setAttribute('portalUvOffset', uvOffset); geometry.setAttribute('portalLightUvOffset', lightOffset);
+    const joinedUv = geometry.getAttribute('joinedUv'), joinedOffset = new THREE.Float32BufferAttribute(position.count * 2, 2);
+    geometry.setAttribute('portalJoinedUvOffset', joinedOffset);
     if (!shells.has(object)) return;
     const index = geometry.index, count = index?.count ?? position.count;
     for (let i = 0; i < count; i += 3) {
@@ -26,7 +28,9 @@ export function preparePortalSurfaces(room: RoomVisual) {
         // Extrapolate both UV sets, so the padding does not stretch the visible
         // wallpaper or change the illumination of the original 15 cm reveal.
         triangle.getBarycoord(points[k].clone().add(new THREE.Vector3(0, 0, -PADDING)), weights);
-        for (const [attribute, result] of [[uv, uvOffset], [lightUv, lightOffset]]) {
+        const attributes = [[uv, uvOffset], [lightUv, lightOffset]];
+        if (joinedUv) attributes.push([joinedUv, joinedOffset]);
+        for (const [attribute, result] of attributes) {
           const value = new THREE.Vector2();
           vertices.forEach((v, j) => value.addScaledVector(new THREE.Vector2().fromBufferAttribute(attribute, v), weights.getComponent(j)));
           result.setXY(vertex, value.x - attribute.getX(vertex), value.y - attribute.getY(vertex));

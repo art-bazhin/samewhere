@@ -2,7 +2,12 @@
 import { closestOnSegment, crossOutline, hOutline, insideOutline, outlineWalls, regularOutline, yOutline, type Vec2 } from './geometry';
 import { galleryNeighbor, galleryRoute, isTunnelEntrance, type GalleryState } from './gallery';
 export type { Vec2 } from './geometry';
-export type RoomId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
+export type RoomId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'T';
+export const WALL_THICKNESS = .3;
+const SQUARE_APOTHEM = 5;
+export const EXIT_TUNNEL_LENGTH = SQUARE_APOTHEM * 20;
+export const EXIT_TUNNEL_WIDTH = 3.4;
+export const EXIT_TUNNEL_FROM: SocketRef = { room: 'A', side: galleryRoute().at(-1)!.side };
 export type BallColor = 'red' | 'blue';
 export interface SocketRef { room: RoomId; side: number }
 export interface BallState { id: string; color: BallColor; socket: SocketRef | null }
@@ -29,7 +34,7 @@ export const PEDESTAL_APOTHEM = 0.325;
 export const CEILING_TILE_SIZE = PEDESTAL_APOTHEM * 2;
 const Y_PEDESTAL_Z = 2.6 / Math.sqrt(3);
 export const ROOMS: Record<RoomId, RoomDefinition> = {
-  A: { id: 'A', name: 'Квадратная комната', shape: 'square', sides: 4, apothem: 5, pedestals: [{ controls: 'A', x: -1.8, z: 1.8 }, { controls: 'B', x: 1.8, z: -1.8 }] },
+  A: { id: 'A', name: 'Квадратная комната', shape: 'square', sides: 4, apothem: SQUARE_APOTHEM, pedestals: [{ controls: 'A', x: -1.8, z: 1.8 }, { controls: 'B', x: 1.8, z: -1.8 }] },
   B: { id: 'B', name: 'Пятиугольная комната', shape: 'pentagon', sides: 5, apothem: 5, pedestals: [{ controls: 'C', x: 0, z: 0 }] },
   C: { id: 'C', name: 'Шестиугольная комната', shape: 'hexagon', sides: 6, apothem: 5, pedestals: [{ controls: 'D', x: 0, z: 0 }] },
   D: { id: 'D', name: 'Треугольная комната', shape: 'triangle', sides: 3, apothem: 5, pedestals: [{ controls: 'A', x: 0, z: -1.95 }, { controls: 'E', x: 0, z: 1.95 }] },
@@ -43,8 +48,13 @@ export const ROOMS: Record<RoomId, RoomDefinition> = {
       { controls: 'D', x: 3.6, z: -4.2 }, { controls: 'E', x: 3.6, z: 0 }, { controls: 'F', x: 3.6, z: 4.2 },
       { controls: 'G', x: 0, z: 0 },
     ] },
+  T: { id: 'T', name: 'Тоннель', shape: 'tunnel', sides: 2, apothem: EXIT_TUNNEL_WIDTH / 2, pedestals: [], portalEdges: [0, 2],
+    outline: [{ x: -EXIT_TUNNEL_WIDTH / 2, z: WALL_THICKNESS / 2 }, { x: EXIT_TUNNEL_WIDTH / 2, z: WALL_THICKNESS / 2 },
+      { x: EXIT_TUNNEL_WIDTH / 2, z: EXIT_TUNNEL_LENGTH - WALL_THICKNESS / 2 }, { x: -EXIT_TUNNEL_WIDTH / 2, z: EXIT_TUNNEL_LENGTH - WALL_THICKNESS / 2 }] },
 };
-export const ROOM_IDS = Object.keys(ROOMS) as RoomId[];
+// T has fixed architecture and lighting, but no ball-controlled connections.
+export const ROOM_IDS: Exclude<RoomId, 'T'>[] = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+export const ARCHITECTURE_IDS = [...ROOM_IDS, 'T'] as RoomId[];
 // Tile centers use the square pedestal's width; the origin is a tile center.
 // Round half-tiles away from zero to preserve symmetric pedestal arrangements.
 const ceilingCoordinate = (value: number) => Math.sign(value) * Math.round(Math.abs(value) / CEILING_TILE_SIZE) * CEILING_TILE_SIZE;
@@ -52,11 +62,10 @@ for (const id of ROOM_IDS) for (const pedestal of ROOMS[id].pedestals) {
   const origin = ROOMS[id].ceilingOrigin ?? { x: 0, z: 0 };
   pedestal.x = origin.x + ceilingCoordinate(pedestal.x - origin.x); pedestal.z = origin.z + ceilingCoordinate(pedestal.z - origin.z);
 }
-const outlines = Object.fromEntries(ROOM_IDS.map(id => [id, ROOMS[id].outline ?? regularOutline(ROOMS[id].sides, ROOMS[id].apothem)])) as Record<RoomId, Vec2[]>;
-const boundaries = Object.fromEntries(ROOM_IDS.map(id => [id, outlineWalls(outlines[id], ROOMS[id].portalEdges ?? Array.from({ length: ROOMS[id].sides }, (_, i) => i))])) as Record<RoomId, ReturnType<typeof outlineWalls>>;
-const doorways = Object.fromEntries(ROOM_IDS.map(id => [id, boundaries[id].filter(wall => wall.portal !== null).sort((a, b) => a.portal! - b.portal!)])) as typeof boundaries;
+const outlines = Object.fromEntries(ARCHITECTURE_IDS.map(id => [id, ROOMS[id].outline ?? regularOutline(ROOMS[id].sides, ROOMS[id].apothem)])) as Record<RoomId, Vec2[]>;
+const boundaries = Object.fromEntries(ARCHITECTURE_IDS.map(id => [id, outlineWalls(outlines[id], ROOMS[id].portalEdges ?? Array.from({ length: ROOMS[id].sides }, (_, i) => i))])) as Record<RoomId, ReturnType<typeof outlineWalls>>;
+const doorways = Object.fromEntries(ARCHITECTURE_IDS.map(id => [id, boundaries[id].filter(wall => wall.portal !== null).sort((a, b) => a.portal! - b.portal!)])) as typeof boundaries;
 export const ROOM_HEIGHT = 3.5;
-export const WALL_THICKNESS = 0.3;
 export const EYE_HEIGHT = 1.65;
 export const DOOR_WIDTH = 1.8;
 export const DOOR_HEIGHT = 2.6;
@@ -67,8 +76,6 @@ export const SOCKET_OPENING = .05;
 export const SOCKET_DEPTH = .01625;
 export const SOCKET_RECESS = .005;
 export const SOCKET_RADIUS = 0.235;
-export const EXIT_TUNNEL_LENGTH = ROOMS.A.apothem * 20;
-export const EXIT_TUNNEL_WIDTH = 3.4;
 export interface TunnelWall { size: [number, number, number]; position: [number, number, number] }
 const tunnelJambWidth = (EXIT_TUNNEL_WIDTH - DOOR_WIDTH) / 2 + WALL_THICKNESS;
 export const EXIT_TUNNEL_WALLS: TunnelWall[] = [

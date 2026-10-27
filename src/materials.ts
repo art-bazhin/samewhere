@@ -168,7 +168,7 @@ function preservePortalCoverage(material: THREE.MeshStandardMaterial) {
 }
 
 /** A normal map cannot expose the back of an opaque geometric face to light. */
-export function optimizeLighting(material: THREE.MeshStandardMaterial, enabled: THREE.IUniform<boolean>) {
+export function optimizeLighting(material: THREE.MeshStandardMaterial, enabled: THREE.IUniform<boolean>, distantRelief = true) {
   const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
   const lighting = 'float directReliefDistance2 = 0.;\n' + THREE.ShaderChunk.lights_fragment_begin.replace(
     /(getSpotLightInfo\( spotLight, geometryPosition, directLight \);)([\s\S]*?RE_Direct\( directLight,[^;]+;)/,
@@ -183,7 +183,7 @@ export function optimizeLighting(material: THREE.MeshStandardMaterial, enabled: 
       float reference = max(0., dot(nonPerturbedNormal, directLight.direction));
       float response = max(0., dot(geometryNormal, directLight.direction));
       vec3 gradient = reliefLightGradient(directLight.direction, nonPerturbedNormal, reference);
-      float relief = max(0., reference + dot(geometryNormal - nonPerturbedNormal, gradient) * directReliefDistanceGain(directReliefDistance2));
+      float relief = max(0., reference + dot(geometryNormal - nonPerturbedNormal, gradient)${distantRelief ? ' * directReliefDistanceGain(directReliefDistance2)' : ''});
       float gain = relief / max(response, .000001);
       reflectedLight.directDiffuse = diffuseBefore + (reflectedLight.directDiffuse - diffuseBefore) * gain;
     #endif
@@ -193,7 +193,7 @@ export function optimizeLighting(material: THREE.MeshStandardMaterial, enabled: 
     shader.fragmentShader = 'uniform bool surfaceOptimizations;\n' + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_begin>', lighting);
   };
-  material.customProgramCacheKey = () => `${key}:unlit-surfaces:geometric-facing`;
+  material.customProgramCacheKey = () => `${key}:unlit-surfaces:geometric-facing${distantRelief ? '' : ':natural-relief'}`;
 }
 
 /** Shade contacts in linear light, so the main view and portal buffers agree. */

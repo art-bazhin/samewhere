@@ -195,7 +195,7 @@ export class DirectLight {
     this.uniforms.directLightData.value.needsUpdate = true;
   }
   bind(room: RoomId, enabled: boolean) {
-    const row = ROOM_IDS.indexOf(room); this.uniforms.directRow.value = row;
+    const row = ROOM_IDS.findIndex(id => id === room); this.uniforms.directRow.value = row;
     this.uniforms.directNeighborCount.value = enabled ? this.counts[row] : 0;
     for (let passage = 0; passage < 4; passage++) {
       this.uniforms.directLocalStarts.value[passage] = this.starts[row * 4 + passage];

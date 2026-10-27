@@ -131,7 +131,7 @@ test('floor illumination stays continuous up to both jambs across every room sha
       return Array.from(pixels.subarray(0, 3));
     };
     const samples: any[] = [];
-    for (const room of Object.keys(ROOMS)) for (let side = 0; side < ROOMS[room].sides; side++) {
+    for (const room of Object.keys(space.rooms)) for (let side = 0; side < ROOMS[room].sides; side++) {
       const source = room === 'G' ? 'C' : 'G';
       const from = { room, side }, to = { room: source, side: side % ROOMS[source].sides };
       app.game.world.balls[0].socket = from; app.game.world.balls[1].socket = to;

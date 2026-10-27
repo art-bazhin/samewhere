@@ -6,6 +6,7 @@ interface Section { offset: number; length: number }
 interface Header {
   revision: string; elapsedMs: number; atlases: BakedLighting['atlases']; panels: Record<RoomId, Section>;
   fields: { room: RoomId; key: string; channels: number; runs: Section; values: Section }[];
+  joined?: Record<'A' | 'T', { size: [number, number]; panel: Section }>;
 }
 const MAGIC = 'SWLIGHT3', PREFIX = 12;
 
@@ -22,7 +23,9 @@ export function encodeLighting(data: BakedLighting, revision: string): Uint8Arra
   const fields = [...data.fields].sort((a, b) => a.key.localeCompare(b.key)).map(field => ({
     room: field.room, key: field.key, channels: field.channels, runs: append(field.runs), values: append(field.values),
   }));
-  const header = new TextEncoder().encode(JSON.stringify({ revision, elapsedMs: data.elapsedMs, atlases: data.atlases, panels, fields } satisfies Header));
+  const joined = data.joined && Object.fromEntries((['A', 'T'] as const).map(room => [room,
+    { size: data.joined![room].size, panel: append(data.joined![room].panel) }])) as Header['joined'];
+  const header = new TextEncoder().encode(JSON.stringify({ revision, elapsedMs: data.elapsedMs, atlases: data.atlases, panels, fields, joined } satisfies Header));
   const start = PREFIX + Math.ceil(header.length / 4) * 4, result = new Uint8Array(start + offset);
   result.set(new TextEncoder().encode(MAGIC)); new DataView(result.buffer).setUint32(8, header.length, true);
   result.set(header, PREFIX); offset = start;
@@ -51,7 +54,7 @@ export function decodeLighting(buffer: ArrayBuffer, revision: string): BakedLigh
   const sockets = ROOM_IDS.flatMap(room => Array.from({ length: ROOMS[room].sides }, (_, side) => `${room}${side}`));
   const expected = new Set(sockets.flatMap(receiver => sockets.filter(source => source !== receiver).map(source => `${receiver}<${source}`)));
   const fields = header.fields.map(field => {
-    if (!expected.delete(field.key) || !field.key.startsWith(field.room) || !ROOM_IDS.includes(field.room) || field.channels !== 4) throw new Error('Invalid lighting connection');
+    if (!expected.delete(field.key) || !field.key.startsWith(field.room) || field.room === 'T' || !ROOM_IDS.includes(field.room) || field.channels !== 4) throw new Error('Invalid lighting connection');
     const runs = view(field.runs, Uint32Array), values = view(field.values, Float32Array);
     let count = 0, end = 0;
     for (let i = 0; i < runs.length; i += 2) {
@@ -63,5 +66,10 @@ export function decodeLighting(buffer: ArrayBuffer, revision: string): BakedLigh
     return { room: field.room, key: field.key, channels: field.channels, runs, values };
   });
   if (expected.size) throw new Error('Missing lighting connections');
-  return { elapsedMs: header.elapsedMs, atlases: header.atlases, panels, fields };
+  const joined = header.joined && Object.fromEntries((['A', 'T'] as const).map(room => {
+    const field = header.joined![room], panel = view(field.panel, Uint16Array);
+    if (field.size.length !== 2 || !field.size.every(v => Number.isInteger(v) && v > 0) || panel.length !== field.size[0] * field.size[1] * PANEL_LIGHTMAP_CHANNELS) throw new Error('Invalid joined lighting atlas');
+    return [room, { size: field.size, panel }];
+  })) as BakedLighting['joined'];
+  return { elapsedMs: header.elapsedMs, atlases: header.atlases, panels, fields, joined };
 }

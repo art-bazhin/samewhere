@@ -22,7 +22,7 @@ export async function bakeLightingParallel(quality: LightingBakeQuality): Promis
       worker.once('message', resolve); worker.once('error', reject);
       worker.once('exit', code => { if (code !== 0) reject(new Error(`Lighting worker exited with code ${code}`)); });
     })));
-    return { elapsedMs: performance.now() - start, fields: results.flatMap(result => result.fields),
+    return { elapsedMs: performance.now() - start, fields: results.flatMap(result => result.fields), joined: results.find(result => result.joined)?.joined,
       atlases: Object.assign({}, ...results.map(result => result.atlases)), panels: Object.assign({}, ...results.map(result => result.panels)) };
   } finally { await Promise.all(workers.map(worker => worker.terminate())); }
 }
