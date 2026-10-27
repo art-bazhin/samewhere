@@ -1,5 +1,6 @@
 import './style.css';
-import { ballAt, connections, Game, inventoryCount, PASSAGE_GOALS, ROOMS } from './world';
+import { ballAt, connections, FINAL_PASSAGE_GOALS, Game, inventoryCount, PASSAGE_GOALS, ROOMS, wallNormal } from './world';
+import { galleryRoute } from './gallery';
 import { SpaceRenderer } from './scene';
 import { Sound } from './audio';
 import { FrameTiming } from './timing';
@@ -69,12 +70,21 @@ function nextDebugRoom() {
   Object.assign(game.player, { room, x: 0, z: 1, yaw: 0, pitch: 0 });
   sync(); toast(`Отладка: ${ROOMS[room].name}`);
 }
-function prepareGalleryTest() {
+function prepareGalleryTest(atTunnel = false) {
   stopSweep(); keys.clear(); mouseLook.reset(); game.remember();
   game.world.balls.forEach(ball => { ball.socket = null; });
   game.world.selected = 'red'; game.world.passageProgress = PASSAGE_GOALS.length; game.world.gallery = null;
   game.player = { room: 'A', x: -3, z: 3, yaw: -Math.PI / 4, pitch: -.3 };
-  sync(); toast('Проверка галереи · четыре шара в руках');
+  if (atTunnel) {
+    for (const goal of FINAL_PASSAGE_GOALS) {
+      game.world.balls.find(ball => ball.color === goal.color && !ball.socket)!.socket = { ...goal.from };
+    }
+    const signs = galleryRoute(), last = signs.at(-1)!, normal = wallNormal('A', last.side);
+    game.world.passageProgress++;
+    game.world.gallery = { cell: { x: last.x, z: last.z }, signs, inTunnel: false };
+    game.player = { room: 'A', x: 0, z: 0, yaw: -Math.atan2(normal.x, -normal.z), pitch: 0 };
+  }
+  sync(); toast(atTunnel ? 'Проверка тоннеля · последний проход EXIT' : 'Проверка галереи · четыре шара в руках');
 }
 function undo() {
   stopSweep(); mouseLook.reset();
@@ -152,6 +162,7 @@ document.addEventListener('keydown', event => {
   if (!locked) return;
   if (event.code === 'Tab') { event.preventDefault(); if (!event.repeat) nextDebugRoom(); return; }
   if (event.code === 'Digit0' || event.code === 'Numpad0') { event.preventDefault(); if (!event.repeat) prepareGalleryTest(); return; }
+  if (event.code === 'Digit9' || event.code === 'Numpad9') { event.preventDefault(); if (!event.repeat) prepareGalleryTest(true); return; }
   if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(event.code)) event.preventDefault();
   keys.add(event.code);
   if (event.repeat) return;
