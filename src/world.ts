@@ -5,7 +5,7 @@ export type { Vec2 } from './geometry';
 export type RoomId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'T';
 export const WALL_THICKNESS = .3;
 const SQUARE_APOTHEM = 5;
-export const EXIT_TUNNEL_LENGTH = SQUARE_APOTHEM * 20;
+export const EXIT_TUNNEL_LENGTH = 60;
 export const EXIT_TUNNEL_WIDTH = 3.4;
 export const EXIT_TUNNEL_FROM: SocketRef = { room: 'A', side: galleryRoute().at(-1)!.side };
 export type BallColor = 'red' | 'blue';
@@ -29,7 +29,7 @@ export const FINAL_PASSAGE_GOALS: PassageGoal[] = [
 ];
 export interface PedestalDefinition extends Vec2 { controls: RoomId }
 /** sides counts portal/socket positions; outlines may have additional solid edges. */
-export interface RoomDefinition { id: RoomId; name: string; shape: string; sides: number; apothem: number; pedestals: PedestalDefinition[]; outline?: Vec2[]; portalEdges?: number[]; ceilingOrigin?: Vec2 }
+export interface RoomDefinition { id: RoomId; name: string; shape: string; sides: number; apothem: number; pedestals: PedestalDefinition[]; outline?: Vec2[]; portalEdges?: number[]; terminalPortals?: number[]; ceilingOrigin?: Vec2 }
 export const PEDESTAL_APOTHEM = 0.325;
 export const CEILING_TILE_SIZE = PEDESTAL_APOTHEM * 2;
 const Y_PEDESTAL_Z = 2.6 / Math.sqrt(3);
@@ -48,7 +48,7 @@ export const ROOMS: Record<RoomId, RoomDefinition> = {
       { controls: 'D', x: 3.6, z: -4.2 }, { controls: 'E', x: 3.6, z: 0 }, { controls: 'F', x: 3.6, z: 4.2 },
       { controls: 'G', x: 0, z: 0 },
     ] },
-  T: { id: 'T', name: 'Тоннель', shape: 'tunnel', sides: 2, apothem: EXIT_TUNNEL_WIDTH / 2, pedestals: [], portalEdges: [0, 2],
+  T: { id: 'T', name: 'Тоннель', shape: 'tunnel', sides: 2, apothem: EXIT_TUNNEL_WIDTH / 2, pedestals: [], portalEdges: [0, 2], terminalPortals: [1],
     outline: [{ x: -EXIT_TUNNEL_WIDTH / 2, z: WALL_THICKNESS / 2 }, { x: EXIT_TUNNEL_WIDTH / 2, z: WALL_THICKNESS / 2 },
       { x: EXIT_TUNNEL_WIDTH / 2, z: EXIT_TUNNEL_LENGTH - WALL_THICKNESS / 2 }, { x: -EXIT_TUNNEL_WIDTH / 2, z: EXIT_TUNNEL_LENGTH - WALL_THICKNESS / 2 }] },
 };

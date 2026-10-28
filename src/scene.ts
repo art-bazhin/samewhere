@@ -2,8 +2,7 @@ import * as THREE from 'three';
 import { GpuTiming } from './gpu-timing';
 import { LightTransfer } from './light-transfer';
 import { createMaterials, optimizeLighting } from './materials';
-import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBILITY_END, VISIBILITY_START, visibilityRange } from './visibility';
-import { CEILING_LIGHT, SPOT_LIGHT_SHARE } from './lighting';
+import { MAX_PORTAL_DEPTH as MAX_DEPTH, MAX_PORTAL_PASSES as MAX_PASSES, VISIBILITY_END, VISIBILITY_START, visibilityRange, tunnelVisibility } from './visibility';
 import { ballAt, destination, DOOR_WIDTH, EYE_HEIGHT, EXIT_TUNNEL_LENGTH, Game, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, roomWalls, type RoomId, type SocketRef, type Vec2 } from './world';
 import { createRoom, type RoomVisual, type Portal, type SocketVisual } from './room-visual';
 import { preparePortalSurfaces } from './portal-surfaces';
@@ -63,7 +62,7 @@ export class SpaceRenderer {
   portalPixels = 0;
   occludedPortals = 0;
   readonly maxPasses = MAX_PASSES;
-  readonly visibilityDistance = VISIBILITY_END;
+  get visibilityDistance() { return visibilityRange.value.y; }
   private readonly center = new THREE.Vector2();
   private readonly bufferSize = new THREE.Vector2();
   private readonly hits: THREE.Intersection[] = [];
@@ -130,6 +129,7 @@ export class SpaceRenderer {
     this.resize(); this.sync();
     this.ready = Promise.all([this.assets.ready, this.lightTransfer.ready]).then(async () => {
       for (const field of Object.values(this.lightTransfer.joined)) this.renderer.initTexture(field.texture);
+      this.lightTransfer.joinedDirect.update();
       // Initialize clipping/shadows, then compile each room's light count while
       // the menu is loading. Shared materials must not be rebound by rendering
       // another scene while compileAsync waits for its programs to finish.
@@ -344,7 +344,9 @@ export class SpaceRenderer {
   }
   updateCamera() {
     const p = this.game.player;
-    const far = this.game.world.gallery?.inTunnel ? EXIT_TUNNEL_LENGTH * 2 : 80;
+    const progress = this.game.world.gallery?.inTunnel ? tunnelVisibility(p.z) : 0;
+    visibilityRange.value.set(VISIBILITY_START + progress, VISIBILITY_END + progress);
+    const far = Math.max(80, visibilityRange.value.y + 10);
     if (this.camera.far !== far) { this.camera.far = far; this.camera.updateProjectionMatrix(); }
     this.camera.position.set(p.x, EYE_HEIGHT, p.z); this.camera.rotation.set(p.pitch, p.yaw, 0, 'YXZ'); this.camera.updateMatrixWorld(true);
   }
@@ -363,7 +365,7 @@ export class SpaceRenderer {
     const distance = portal.distance - n.x * camera.position.x - n.z * camera.position.z;
     if (distance < -0.025) return false;
     const sideDistance = Math.max(0, Math.abs(-n.z * (camera.position.x - portal.center.x) + n.x * (camera.position.z - portal.center.z)) - DOOR_WIDTH / 2);
-    if (Math.hypot(distance, sideDistance) >= VISIBILITY_END) return false;
+    if (Math.hypot(distance, sideDistance) >= visibilityRange.value.y) return false;
     // The projection of a plane through the eye is degenerate. From inside the
     // aperture its forward view fills the frame; keep a complete image available.
     const lateral = -n.z * (camera.position.x - portal.center.x) + n.x * (camera.position.z - portal.center.z);
@@ -396,7 +398,7 @@ export class SpaceRenderer {
     bounds.minY = Math.max(clip.minY, minY); bounds.maxY = Math.min(clip.maxY, maxY);
     return bounds.maxX - bounds.minX > 0.002 && bounds.maxY - bounds.minY > 0.002;
   }
-  private childCamera(camera: THREE.PerspectiveCamera, portal: Portal, depth: number, transform = portal.transform, far = 80) {
+  private childCamera(camera: THREE.PerspectiveCamera, portal: Portal, depth: number, transform = portal.transform, far = this.camera.far) {
     const child = this.cameras[depth]; child.copy(this.camera, false);
     if (child.far !== far) { child.far = far; child.updateProjectionMatrix(); }
     this.matrix.multiplyMatrices(transform, camera.matrixWorld).decompose(child.position, child.quaternion, child.scale); child.updateMatrixWorld(true);
@@ -439,7 +441,7 @@ export class SpaceRenderer {
       const image = this.targetAt(this.passes++, view.rect);
       const tunnel = id === 'A' && cell && this.game.world.gallery && isTunnelEntrance(this.game.world.gallery, cell, view.portal.side);
       const child = this.childCamera(camera, view.portal, depth + 1,
-        tunnel ? this.exitTunnel.transforms[view.portal.side] : view.portal.transform, tunnel ? EXIT_TUNNEL_LENGTH * 2 : 80);
+        tunnel ? this.exitTunnel.transforms[view.portal.side] : view.portal.transform);
       // A passage at the eye is already the receiving view. Do not spend a hop
       // on it, or the distant recursion limit visibly jumps at the crossing.
       const distance = view.portal.distance - view.portal.normal.x * camera.position.x - view.portal.normal.z * camera.position.z;
@@ -472,14 +474,11 @@ export class SpaceRenderer {
       this.clipPlane.setComponents(-normal.x, 0, -normal.z, room.portals[incoming].distance - 0.00001);
     }
     this.renderer.setRenderTarget(target);
-    visibilityRange.value.set(VISIBILITY_START, VISIBILITY_END);
     const gallery = this.game.world.gallery, last = gallery?.signs.at(-1);
     const joined = id === 'A' && cell && gallery && last && isTunnelEntrance(gallery, cell, last.side);
     if (joined) this.lightTransfer.bindJoined('A'); else this.lightTransfer.bind(id);
     this.exitSigns.show(id === 'A' && cell && this.game.world.gallery ? galleryExitAt(this.game.world.gallery, cell) : null);
-    if (joined) room.shadowLights.forEach(light => { light.intensity = 0; });
-    try { this.renderer.render(room.scene, camera); }
-    finally { if (joined) room.shadowLights.forEach(light => { light.intensity = CEILING_LIGHT.intensity * SPOT_LIGHT_SHARE; }); }
+    this.renderer.render(room.scene, camera);
   }
   private renderTunnel(camera: THREE.PerspectiveCamera, depth: number, clip: Rect, target: THREE.WebGLRenderTarget | null, incoming = false, hops = 0) {
     const tunnel = this.exitTunnel, portal = tunnel.portal, bounds = { ...FULL };
@@ -499,9 +498,9 @@ export class SpaceRenderer {
     if (image) uniforms.imageRect.value.set(-image.viewport.x, -image.viewport.y, image.width, image.height);
     if (target) this.portalPixels += target.scissor.z * target.scissor.w;
     if (incoming) this.clipPlane.setComponents(0, 0, 1, -.00001); else this.clipPlane.setComponents(0, 1, 0, 1);
-    const reveal = THREE.MathUtils.smoothstep(camera.position.z, EXIT_TUNNEL_LENGTH * .5, EXIT_TUNNEL_LENGTH * .85);
     const outside = camera.position.z > EXIT_TUNNEL_LENGTH + .15;
-    visibilityRange.value.set(outside ? 10000 : VISIBILITY_START + reveal * 72, outside ? 10001 : VISIBILITY_END + reveal * 92);
+    tunnel.whiteVisibility.value.copy(visibilityRange.value);
+    if (outside) tunnel.whiteVisibility.value.set(10000, 10001);
     (tunnel.scene.background as THREE.Color).set(outside ? 0xffffff : 0);
     this.lightTransfer.bindJoined('T');
     this.renderer.setRenderTarget(target); this.renderer.render(tunnel.scene, camera);

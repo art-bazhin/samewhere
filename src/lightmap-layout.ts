@@ -19,7 +19,7 @@ const powerOfTwo = (value: number) => 2 ** Math.ceil(Math.log2(value));
 const rounded = (value: number) => Math.round(value * 10000) / 10000;
 
 /** One atlas per room. Coplanar floor/threshold and both wall variants share UVs. */
-export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = false, attributeName = direct ? 'directUv' : 'transferUv', passageSpacing = direct ? .0125 : PASSAGE_LIGHT_SPACING): SurfaceLayout {
+export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = false, attributeName = direct ? 'directUv' : 'transferUv', passageSpacing = direct ? .0125 : PASSAGE_LIGHT_SPACING, directSpacing = .025): SurfaceLayout {
   const charts = new Map<string, SurfaceChart>(), meshes: THREE.Mesh[] = [];
   scene.updateMatrixWorld(true);
   scene.traverse(object => {
@@ -102,7 +102,7 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = 
       chart.step.set((chart.max.x - chart.min.x) / (chart.width - PADDING * 2 - 1), (chart.max.y - chart.min.y) / (chart.height - PADDING * 2 - 1));
     } else {
       const spacing = chart.passage !== undefined ? passageSpacing
-        : direct ? .025 : chart.triangles[0].mesh.name === 'ceiling' ? LIGHTMAP_SPACING * 2 : LIGHTMAP_SPACING;
+        : direct ? directSpacing : chart.triangles[0].mesh.name === 'ceiling' ? LIGHTMAP_SPACING * 2 : LIGHTMAP_SPACING;
       // Resolve the steep floor-bounce profile on pedestal sides without
       // increasing horizontal density or the rest of the room's bake cost.
       const verticalSpacing = !direct && chart.triangles.some(t => t.mesh.name === 'pedestal-body' && Math.abs(t.normals[0].y) < .01) ? .05 : spacing;

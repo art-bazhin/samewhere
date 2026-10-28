@@ -203,8 +203,8 @@ test('the long diagonal EXIT section crosses eight red-left/blue-right doors wit
   close(Math.sin(game.player.yaw), Math.sin(-Math.PI / 4));
   close(Math.cos(game.player.yaw), Math.cos(-Math.PI / 4));
 });
-test('the last EXIT enters a 100 m tunnel with colliding walls, an open white end, and a reversible return', () => {
-  assert.equal(EXIT_TUNNEL_LENGTH, ROOMS.A.apothem * 20);
+test('the last EXIT enters a 60 m tunnel with colliding walls, an open white end, and a reversible return', () => {
+  assert.equal(EXIT_TUNNEL_LENGTH, 60);
   const game = loopGame(); game.world.passageProgress = PASSAGE_GOALS.length;
   game.interact({ room: 'A', side: 3 }); game.interact({ room: 'A', side: 3 });
   const gallery = game.world.gallery!, last = gallery.signs.at(-1)!;

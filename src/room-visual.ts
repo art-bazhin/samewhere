@@ -200,11 +200,12 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
     opening.lineTo(-DOOR_WIDTH / 2, DOOR_HEIGHT); opening.lineTo(DOOR_WIDTH / 2, DOOR_HEIGHT);
     opening.lineTo(DOOR_WIDTH / 2, 0); opening.lineTo(wallWidth / 2, 0);
     opening.lineTo(wallWidth / 2, ROOM_HEIGHT); opening.lineTo(-wallWidth / 2, ROOM_HEIGHT); opening.closePath();
-    // Each scene owns only its half of an open shared wall. The receiving scene
-    // supplies the other half, so reveals never overlap across the portal plane.
-    const geometry = new THREE.ExtrudeGeometry(opening, { depth: WALL_THICKNESS / 2, bevelEnabled: false, steps: 1 }); geometry.translate(0, 0, -WALL_THICKNESS / 2);
+    // A connected room supplies the other half. An exterior opening owns the
+    // full shell, including its outer miter, so the white sky cannot leak in.
+    const depth = definition.terminalPortals?.includes(side) ? WALL_THICKNESS : WALL_THICKNESS / 2;
+    const geometry = new THREE.ExtrudeGeometry(opening, { depth, bevelEnabled: false, steps: 1 }); geometry.translate(0, 0, -depth);
     const shell = new THREE.Mesh(miter(geometry), wallMaterial); shell.name = 'room-wall'; shell.castShadow = shell.receiveShadow = true; open.add(shell); blockers.push(shell);
-    const threshold = box(open, floor.material, [DOOR_WIDTH, 0.012, WALL_THICKNESS / 2], [0, -0.006, -WALL_THICKNESS / 4]);
+    const threshold = box(open, floor.material, [DOOR_WIDTH, 0.012, depth], [0, -0.006, -depth / 2]);
     threshold.name = 'threshold';
     // Continue the room's carpet coordinates across the rotated doorway.
     wall.updateMatrix();

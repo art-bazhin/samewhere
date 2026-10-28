@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { EXIT_TUNNEL_LENGTH } from './world';
 
 export const VISIBILITY_START = 28;
 export const VISIBILITY_END = 48;
@@ -6,6 +7,9 @@ export const VISIBILITY_END = 48;
 export const MAX_PORTAL_DEPTH = 8;
 export const MAX_PORTAL_PASSES = 32;
 export const visibilityRange = { value: new THREE.Vector2(VISIBILITY_START, VISIBILITY_END) };
+export function tunnelVisibility(z: number) {
+  return Math.max(0, Math.min(EXIT_TUNNEL_LENGTH, z));
+}
 
 /** Fade toward black in linear light, without adding a colored fog layer. */
 export function withDistanceFade<T extends THREE.Material>(material: T, range = visibilityRange): T {

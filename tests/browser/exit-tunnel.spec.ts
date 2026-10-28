@@ -47,13 +47,19 @@ test('the final EXIT leads through a dark tunnel before revealing the white exte
     const images = [{ name: 'tunnel-entrance.png', data: entrance.image },
       { name: 'tunnel-seam-before.png', data: before.image }, { name: 'tunnel-seam-after.png', data: after.image }];
     const samples: { z: number; mean: number; wall: number; white: number; center: number[]; visibility: number }[] = [];
-    for (const z of [1, 10, 25, 50, 75, 95, EXIT_TUNNEL_LENGTH + 2]) {
+    for (const z of [0, 5, 10, 20, 30, 45, EXIT_TUNNEL_LENGTH - 5, EXIT_TUNNEL_LENGTH + 2]) {
       game.move({ x: -game.player.x, z: z - game.player.z });
       Object.assign(game.player, { yaw: Math.PI, pitch: 0 }); app.sync(); space.render();
       const image = capture(); samples.push({ z, mean: image.mean, wall: image.wall, white: image.white, center: image.center,
         visibility: space.exitTunnel.visibility.value.y });
       images.push({ name: `tunnel-${z}.png`, data: image.image });
     }
+    game.move({ x: 0, z: EXIT_TUNNEL_LENGTH - .5 - game.player.z }); game.player.yaw = 0;
+    let returnViews = 0; const render = space.renderer.render.bind(space.renderer);
+    space.renderer.render = (scene: any, camera: any) => { if (scene === space.rooms.A.scene) returnViews++; return render(scene, camera); };
+    try { app.sync(); space.render(); images.push({ name: 'tunnel-back-from-end.png', data: capture().image }); }
+    finally { space.renderer.render = render; }
+    const backVisibility = space.exitTunnel.visibility.value.y;
     check(space.pick() === null, 'A phantom square-room pedestal can be selected inside the tunnel');
     game.move({ x: 0, z: 10 - game.player.z }); game.player.yaw = 0; app.sync(); space.render();
     const reverse = capture(); images.push({ name: 'tunnel-turn-at-10.png', data: reverse.image });
@@ -65,18 +71,16 @@ test('the final EXIT leads through a dark tunnel before revealing the white exte
     const lamps = space.exitTunnel.scene.children.filter((object: any) => object.name === 'tunnel-ceiling-lamp').length;
     const exitSource = { z: space.exitTunnel.exitLight.position.z, shadows: space.exitTunnel.exitLight.castShadow };
     app.reset(); space.render();
-    return { seamMean, samples, lamps, length: EXIT_TUNNEL_LENGTH, images, exitSource, reverse: reverse.mean, entrance: entrance.center };
+    return { seamMean, samples, lamps, length: EXIT_TUNNEL_LENGTH, images, exitSource, reverse: reverse.mean, entrance: entrance.center, returnViews, backVisibility };
   });
   for (const image of result.images) await writeFile(info.outputPath(image.name), Buffer.from(image.data.split(',')[1], 'base64'));
   console.log('Exit tunnel:', { seamMean: result.seamMean, samples: result.samples });
-  expect(result.length).toBe(100); expect(result.lamps).toBe(1); expect(result.seamMean).toBeLessThan(.3);
+  expect(result.length).toBe(60); expect(result.lamps).toBe(1); expect(result.seamMean).toBeLessThan(.3);
   expect(Math.max(...result.entrance)).toBeLessThan(2);
-  for (const sample of result.samples.filter(sample => sample.z <= 25)) {
-    expect(Math.max(...sample.center)).toBeLessThan(2); expect(sample.white).toBe(0); expect(sample.visibility).toBe(48);
-  }
-  expect(result.samples.find(sample => sample.z === 25)!.mean).toBeLessThan(2);
-  expect(result.samples.find(sample => sample.z === 75)!.visibility).toBeGreaterThan(48);
-  expect(Math.min(...result.samples.find(sample => sample.z === 75)!.center)).toBeGreaterThan(240);
+  expect(Math.max(...result.samples[0].center)).toBeLessThan(2);
+  for (const sample of result.samples) expect(sample.visibility).toBeCloseTo(48 + Math.min(result.length, sample.z), 6);
+  expect(Math.min(...result.samples.find(sample => sample.z === 45)!.center)).toBeGreaterThan(240);
+  expect(result.returnViews).toBeGreaterThan(0); expect(result.backVisibility).toBeCloseTo(107.5);
   expect(result.reverse).toBeGreaterThan(30);
   expect(result.exitSource.z).toBeGreaterThan(result.length + .15); expect(result.exitSource.shadows).toBe(true);
   expect(result.samples.at(-1)!.mean).toBeGreaterThan(253); expect(errors).toEqual([]);
@@ -124,4 +128,57 @@ test('oblique views have continuous floor lighting across the tunnel threshold',
     canvas.getContext('2d')!.drawImage(source, 0, 0); return canvas.toDataURL();
   });
   await writeFile(info.outputPath('tunnel-oblique-textured.png'), Buffer.from(textured.split(',')[1], 'base64'));
+  const pedestal = await page.evaluate(() => {
+    const { game, space } = window.__samewhere;
+    const target = space.rooms.A.scene.getObjectsByProperty('name', 'pedestal-body')[0];
+    const center = target.parent.position;
+    Object.assign(game.player, { x: -.5, z: 3.4, yaw: -Math.atan2(center.x + .5, 3.4 - center.z), pitch: -.45 });
+    space.render();
+    const source = space.renderer.domElement, canvas = document.createElement('canvas'); canvas.width = source.width; canvas.height = source.height;
+    canvas.getContext('2d')!.drawImage(source, 0, 0); return canvas.toDataURL();
+  });
+  await writeFile(info.outputPath('tunnel-pedestal.png'), Buffer.from(pedestal.split(',')[1], 'base64'));
+});
+
+test('the exterior white space does not leak through terminal wall corners', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+  await page.evaluate(() => window.__samewhere.space.ready);
+  await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden(); await page.keyboard.press('Digit9');
+  const result = await page.evaluate(async () => {
+    const threePath = '/node_modules/three/build/three.module.js', worldPath = '/src/world.ts';
+    const { Vector3 } = await import(threePath), { EXIT_TUNNEL_LENGTH: length, EXIT_TUNNEL_WIDTH: width, ROOM_HEIGHT: height, WALL_THICKNESS } = await import(worldPath);
+    const { game, space, sync } = window.__samewhere;
+    game.world.gallery.inTunnel = true;
+    Object.assign(game.player, { x: .25, z: length - 5, yaw: Math.PI + .04, pitch: .08 }); sync();
+    const capture = () => {
+      space.render(); const source = space.renderer.domElement, canvas = document.createElement('canvas'); canvas.width = source.width; canvas.height = source.height;
+      const context = canvas.getContext('2d')!; context.drawImage(source, 0, 0);
+      return { image: canvas.toDataURL(), pixels: context.getImageData(0, 0, canvas.width, canvas.height).data, width: canvas.width, height: canvas.height };
+    };
+    const lit = capture(), intensity = space.exitTunnel.exitLight.intensity;
+    space.exitTunnel.exitLight.intensity = 0; const dark = capture(); space.exitTunnel.exitLight.intensity = intensity;
+    const points: number[][] = [], z = length - WALL_THICKNESS / 2;
+    for (let i = 1; i < 40; i++) {
+      const x = -width / 2 + width * i / 40, y = height * i / 40;
+      points.push([x, height, z], [-width / 2, y, z], [width / 2, y, z]);
+      if (Math.abs(x) > 1) points.push([x, 0, z]);
+    }
+    let brightest = 0, litBrightest = 0;
+    for (const coordinates of points) {
+      const p = new Vector3(...coordinates).project(space.camera), cx = Math.round((p.x + 1) * dark.width / 2), cy = Math.round((1 - p.y) * dark.height / 2);
+      for (let y = cy - 1; y <= cy + 1; y++) for (let x = cx - 1; x <= cx + 1; x++) {
+        if (x < 0 || y < 0 || x >= dark.width || y >= dark.height) continue;
+        const i = (y * dark.width + x) * 4;
+        brightest = Math.max(brightest, Math.min(dark.pixels[i], dark.pixels[i + 1], dark.pixels[i + 2]));
+        litBrightest = Math.max(litBrightest, Math.min(lit.pixels[i], lit.pixels[i + 1], lit.pixels[i + 2]));
+      }
+    }
+    return { brightest, litBrightest, images: [{ name: 'tunnel-exit-oblique.png', data: lit.image }, { name: 'tunnel-exit-without-light.png', data: dark.image }] };
+  });
+  for (const image of result.images) await writeFile(info.outputPath(image.name), Buffer.from(image.data.split(',')[1], 'base64'));
+  console.log('Exterior wall corner brightness:', { dark: result.brightest, lit: result.litBrightest });
+  expect(result.brightest).toBeLessThan(140); expect(result.litBrightest).toBeLessThan(140); expect(errors).toEqual([]);
 });
