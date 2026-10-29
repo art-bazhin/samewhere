@@ -10,20 +10,23 @@ test('the white EXIT fades in over the normal visibility range through successiv
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   await page.keyboard.press('Digit9');
   const result = await page.evaluate(async () => {
-    const path = '/src/world.ts', { portalPosition, portalDistance, wallNormal } = await import(path);
+    const path = '/src/world.ts', visibilityPath = '/src/visibility.ts';
+    const { portalPosition, portalDistance, wallNormal } = await import(path), { VISIBILITY_START, VISIBILITY_END } = await import(visibilityPath);
     const { game, space } = window.__samewhere, gallery = game.world.gallery, last = gallery.signs.at(-1);
     const p = portalPosition('A', last.side), n = wallNormal('A', last.side), period = portalDistance('A') * 2;
+    const middle = VISIBILITY_END - 8, seam = Math.ceil(VISIBILITY_START / period) * period;
     const canvas = document.createElement('canvas'), source = space.renderer.domElement;
     canvas.width = source.width; canvas.height = source.height;
     const context = canvas.getContext('2d')!, samples: { distance: number; rgb: number[] }[] = [], images: { name: string; data: string }[] = [];
-    for (const distance of [49, 48.05, 47.95, 46, 44, 40, 36, period * 3 + .001, period * 3 - .001, 28, 24]) {
+    for (const distance of [VISIBILITY_END + 1, VISIBILITY_END + .05, VISIBILITY_END - .05, VISIBILITY_END - 2,
+      VISIBILITY_END - 4, middle, VISIBILITY_END - 12, seam + .001, seam - .001, VISIBILITY_START, VISIBILITY_START - 4]) {
       const rooms = Math.floor(distance / period), local = distance - rooms * period;
       gallery.cell = { x: Math.round(last.x - n.x * rooms), z: Math.round(last.z - n.z * rooms) };
       Object.assign(game.player, { x: p.x - n.x * local, z: p.z - n.z * local });
       space.render(); context.drawImage(source, 0, 0);
       const rgb = Array.from(context.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data.slice(0, 3));
       samples.push({ distance, rgb });
-      if ([49, 40, 28].includes(distance)) images.push({ name: `exit-distance-${distance}.png`, data: canvas.toDataURL() });
+      if ([VISIBILITY_END + 1, middle, VISIBILITY_START].includes(distance)) images.push({ name: `exit-distance-${distance}.png`, data: canvas.toDataURL() });
     }
     return { samples, images };
   });
@@ -32,7 +35,7 @@ test('the white EXIT fades in over the normal visibility range through successiv
   expect(Math.max(...result.samples[0].rgb)).toBeLessThan(3);
   expect(Math.max(...result.samples[2].rgb)).toBeLessThan(3);
   for (let i = 1; i < result.samples.length; i++) expect(result.samples[i].rgb[0]).toBeGreaterThanOrEqual(result.samples[i - 1].rgb[0] - 2);
-  const middle = result.samples.find(sample => sample.distance === 40)!.rgb;
+  const middle = result.samples[5].rgb;
   expect(Math.min(...middle)).toBeGreaterThan(80); expect(Math.max(...middle)).toBeLessThan(220);
   expect(Math.abs(result.samples[7].rgb[0] - result.samples[8].rgb[0])).toBeLessThan(3);
   expect(result.samples.at(-1)!.rgb).toEqual([255, 255, 255]); expect(errors).toEqual([]);

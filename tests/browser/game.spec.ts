@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { MAX_PORTAL_PASSES } from '../../src/visibility';
+import { MAX_PORTAL_PASSES, VISIBILITY_END } from '../../src/visibility';
 import { ROOM_LIGHTS } from '../../src/lighting';
 import { doorFrame, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, transformPoint, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../../src/world';
 
@@ -302,7 +302,7 @@ test('near colors stay saturated and distant surfaces fade smoothly to black thr
   await ready(page);
   const samples = await page.evaluate(async () => {
     const threePath = '/node_modules/three/build/three.module.js', visibilityPath = '/src/visibility.ts';
-    const THREE = await import(threePath), { withDistanceFade } = await import(visibilityPath);
+    const THREE = await import(threePath), { withDistanceFade, VISIBILITY_START, VISIBILITY_END } = await import(visibilityPath);
     const app = window.__samewhere, space = app.space;
     app.game.world.balls[0].socket = { room: 'A', side: 0 };
     app.game.world.balls[1].socket = { room: 'B', side: 0 };
@@ -318,7 +318,7 @@ test('near colors stay saturated and distant surfaces fade smoothly to black thr
       return Array.from(pixel);
     };
     try {
-      return [15, 28, 38, 48, 60].map(distance => {
+      return [15, VISIBILITY_START, (VISIBILITY_START + VISIBILITY_END) / 2, VISIBILITY_END, VISIBILITY_END + 1].map(distance => {
         reference.position.z = distance - 5.8;
         Object.assign(app.game.player, { room: 'A', x: 0, z: -4.5, yaw: 0, pitch: 0 }); const portal = read();
         Object.assign(app.game.player, { room: 'B', z: -5.8, yaw: Math.PI });
@@ -333,7 +333,7 @@ test('near colors stay saturated and distant surfaces fade smoothly to black thr
     // A linear RGBA8 intermediate can round dim sRGB channels by two levels.
     for (let i = 0; i < 4; i++) expect(Math.abs(sample.portal[i] - sample.direct[i]), JSON.stringify(sample)).toBeLessThanOrEqual(2);
     expect(sample.direct[2]).toBe(0);
-    if (sample.distance >= 48) expect(sample.direct.slice(0, 3)).toEqual([0, 0, 0]);
+    if (sample.distance >= VISIBILITY_END) expect(sample.direct.slice(0, 3)).toEqual([0, 0, 0]);
   }
 });
 

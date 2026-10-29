@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 
-export const VISIBILITY_START = 28;
-export const VISIBILITY_END = 48;
+export const VISIBILITY_START = 48;
+export const VISIBILITY_END = 68;
 // Distance determines visibility; these caps only bound pathological branches.
-export const MAX_PORTAL_DEPTH = 8;
+export const MAX_PORTAL_DEPTH = 10;
 export const MAX_PORTAL_PASSES = 32;
 
 /** Fade toward black in linear light, without adding a colored fog layer. */
