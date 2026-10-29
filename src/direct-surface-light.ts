@@ -16,8 +16,7 @@ export class DirectSurfaceLight {
   private readonly bakeLocalStart = { value: 0 };
   private readonly bakeLocalCount = { value: 0 };
 
-  constructor(rooms: Record<RoomId, { scene: THREE.Scene }>, uniforms: Record<string, THREE.IUniform>, declarations: string, shadows: string,
-    ids: RoomId[] = ROOM_IDS, attribute = 'directUv') {
+  constructor(rooms: Record<RoomId, { scene: THREE.Scene }>, uniforms: Record<string, THREE.IUniform>, declarations: string, shadows: string) {
     this.material = new THREE.ShaderMaterial({
       uniforms: { ...uniforms, bakeLocal: this.bakeLocal, bakeLocalStart: this.bakeLocalStart, bakeLocalCount: this.bakeLocalCount },
       depthTest: false, depthWrite: false, side: THREE.DoubleSide,
@@ -37,8 +36,8 @@ export class DirectSurfaceLight {
           gl_FragColor = light;
         }`,
     });
-    this.fields = Object.fromEntries(ids.map(room => {
-      const layout = prepareSurfaceLayout(rooms[room].scene, room, true, attribute, .0125, room === 'T' ? .05 : .025), scene = new THREE.Scene(), passages: THREE.Vector4[] = [], localPassages: THREE.Vector4[] = [];
+    this.fields = Object.fromEntries(ROOM_IDS.map(room => {
+      const layout = prepareSurfaceLayout(rooms[room].scene, room, true), scene = new THREE.Scene(), passages: THREE.Vector4[] = [], localPassages: THREE.Vector4[] = [];
       const positions: number[] = [], normals: number[] = [], uvs: number[] = [], bounds: number[] = [];
       for (const chart of layout.charts) {
         if (chart.passage !== undefined) {

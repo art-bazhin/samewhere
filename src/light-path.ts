@@ -1,13 +1,13 @@
 import { insideOutline } from './geometry';
-import { ARCHITECTURE_IDS, DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, ROOMS, roomWalls, WALL_THICKNESS, type RoomId, type Vec2 } from './world';
+import { DOOR_HEIGHT, DOOR_WIDTH, PEDESTAL_HEIGHT, pedestalOutline, ROOM_IDS, ROOMS, roomWalls, WALL_THICKNESS, type RoomId, type Vec2 } from './world';
 
 interface Point extends Vec2 { y: number }
 export const SURFACE_SAMPLE_OFFSET = .002, LIGHT_RAY_OFFSET = .005;
 // Surface samples are stored as float32; a point exactly on a jamb must not
 // become an outside-aperture sample after transforming or rounding coordinates.
 export const APERTURE_EPSILON = .00001;
-const pedestalShapes = Object.fromEntries(ARCHITECTURE_IDS.map(id => [id, ROOMS[id].pedestals.map(p => pedestalOutline(p.controls).map(v => ({ x: v.x + p.x, z: v.z + p.z })))])) as Record<RoomId, Vec2[][]>;
-const pedestalBounds = Object.fromEntries(ARCHITECTURE_IDS.map(id => [id, pedestalShapes[id].map(shape => ({
+const pedestalShapes = Object.fromEntries(ROOM_IDS.map(id => [id, ROOMS[id].pedestals.map(p => pedestalOutline(p.controls).map(v => ({ x: v.x + p.x, z: v.z + p.z })))])) as Record<RoomId, Vec2[][]>;
+const pedestalBounds = Object.fromEntries(ROOM_IDS.map(id => [id, pedestalShapes[id].map(shape => ({
   minX: Math.min(...shape.map(p => p.x)), maxX: Math.max(...shape.map(p => p.x)),
   minZ: Math.min(...shape.map(p => p.z)), maxZ: Math.max(...shape.map(p => p.z)),
 }))])) as Record<RoomId, { minX: number; maxX: number; minZ: number; maxZ: number }[]>;

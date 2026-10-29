@@ -5,6 +5,7 @@ import { floorWithContacts, pedestalUV, surfaceUV, type MaterialSet } from './ma
 import { ceilingWithContacts, pedestalEdgeDistances, wallCornerDistances } from './contact-shading';
 import { offsetOutline } from './geometry';
 import { passageMarking } from './passage-marking';
+import { withDistanceFade } from './visibility';
 import { BALL_RADIUS, DOOR_HEIGHT, DOOR_WIDTH, FINAL_PASSAGE_GOALS, PASSAGE_GOALS, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
 
 const PALETTE = { background: 0x000000 };
@@ -53,16 +54,16 @@ export interface Portal { side: number; mesh: THREE.Mesh<THREE.PlaneGeometry, TH
 export interface SocketVisual { ref: SocketRef; hit: THREE.Mesh; ball: THREE.Mesh; occupied: THREE.Uint8BufferAttribute }
 export interface RoomVisual { scene: THREE.Scene; portals: Portal[]; sockets: SocketVisual[]; blockers: THREE.Object3D[]; pickables: THREE.Object3D[]; walls: { solid: THREE.Group; open: THREE.Group }[]; markings: { goal: number; shown: THREE.IUniform<number> }[]; shadowLights: THREE.SpotLight[]; shadows: RoomShadows; contactOpenings: THREE.IUniform<Int32Array> }
 
-export function portalMaterial() {
+function portalMaterial() {
   // Keep the aperture rasterizable while the eye is closer than the normal near
   // plane. Restore its actual depth per fragment so foreground objects still occlude it.
-  return new THREE.ShaderMaterial({
+  return withDistanceFade(new THREE.ShaderMaterial({
     uniforms: { image: { value: null }, viewOrigin: { value: new THREE.Vector2() }, imageRect: { value: new THREE.Vector4(0, 0, 1, 1) }, hasImage: { value: false }, mainView: { value: false }, apertureOffset: { value: 0 }, endColor: { value: new THREE.Color(0) } },
     vertexShader: `#include <clipping_planes_pars_vertex>
       varying vec2 portalDepth; uniform bool mainView; uniform float apertureOffset;
-      void main() { vec3 aperture = position; aperture.z -= apertureOffset;
-        vec4 p = modelViewMatrix * vec4(aperture, 1.); gl_Position = projectionMatrix * p; portalDepth = gl_Position.zw;
-        vec4 mvPosition = p;
+      void main() { vec3 transformed = position; transformed.z -= apertureOffset;
+        #include <project_vertex>
+        portalDepth = gl_Position.zw;
         #include <clipping_planes_vertex>
         if (mainView) gl_Position.z = 0.;
       }`,
@@ -74,10 +75,14 @@ export function portalMaterial() {
         vec3 color = hasImage ? texture2D(image, uv).rgb : endColor;
         gl_FragDepth = mainView ? clamp(portalDepth.x / portalDepth.y * .5 + .5, 0., 1.) : gl_FragCoord.z;
         gl_FragColor = vec4(color, 1.);
+        // Portal images already contain the receiving scene's distance fade.
+        if (!hasImage) {
+          #include <tonemapping_fragment>
+        }
         #include <colorspace_fragment>
       }`,
     toneMapped: false, clipping: true,
-  });
+  }));
 }
 
 function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, visuals: SocketVisual[], blockers: THREE.Object3D[], materials: MaterialSet) {
@@ -200,12 +205,11 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
     opening.lineTo(-DOOR_WIDTH / 2, DOOR_HEIGHT); opening.lineTo(DOOR_WIDTH / 2, DOOR_HEIGHT);
     opening.lineTo(DOOR_WIDTH / 2, 0); opening.lineTo(wallWidth / 2, 0);
     opening.lineTo(wallWidth / 2, ROOM_HEIGHT); opening.lineTo(-wallWidth / 2, ROOM_HEIGHT); opening.closePath();
-    // A connected room supplies the other half. An exterior opening owns the
-    // full shell, including its outer miter, so the white sky cannot leak in.
-    const depth = definition.terminalPortals?.includes(side) ? WALL_THICKNESS : WALL_THICKNESS / 2;
-    const geometry = new THREE.ExtrudeGeometry(opening, { depth, bevelEnabled: false, steps: 1 }); geometry.translate(0, 0, -depth);
+    // Each scene owns only its half of an open shared wall. The receiving scene
+    // supplies the other half, so reveals never overlap across the portal plane.
+    const geometry = new THREE.ExtrudeGeometry(opening, { depth: WALL_THICKNESS / 2, bevelEnabled: false, steps: 1 }); geometry.translate(0, 0, -WALL_THICKNESS / 2);
     const shell = new THREE.Mesh(miter(geometry), wallMaterial); shell.name = 'room-wall'; shell.castShadow = shell.receiveShadow = true; open.add(shell); blockers.push(shell);
-    const threshold = box(open, floor.material, [DOOR_WIDTH, 0.012, depth], [0, -0.006, -depth / 2]);
+    const threshold = box(open, floor.material, [DOOR_WIDTH, 0.012, WALL_THICKNESS / 2], [0, -0.006, -WALL_THICKNESS / 4]);
     threshold.name = 'threshold';
     // Continue the room's carpet coordinates across the rotated doorway.
     wall.updateMatrix();

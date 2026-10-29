@@ -412,7 +412,7 @@ test('saucer recesses support centered balls; each pedestal has a light aligned 
     expect(bowl.clearance).toBeGreaterThanOrEqual(-.000001); expect(bowl.minUpNormal).toBeGreaterThan(.8);
   }
   for (const fixture of result.fixtures) {
-    const id = fixture.id as typeof ROOM_IDS[number];
+    const id = fixture.id as RoomId;
     const expected = ROOM_LIGHTS[id].map(({ x, z }) => [x, z]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     expect(fixture.pedestalCount).toBe(ROOMS[fixture.id as RoomId].pedestals.length);
     expect(fixture.sizes).toHaveLength(expected.length);

@@ -41,8 +41,8 @@ function shadowRoom(room: RoomId, material: THREE.Material) {
   return { group, doors, walls };
 }
 
-/** Preallocated cropped depth tiles for the ordinary network or a fixed room
- * connection. No shader compilation, GPU allocation, or CPU lighting bake on interaction. */
+/** Four directed doorway ends at most. Each gets seven preallocated cropped
+ * depth tiles. No shader compilation, GPU allocation, or CPU lighting bake on interaction. */
 export class DirectLight {
   readonly surfaces: DirectSurfaceLight;
   readonly target = new THREE.WebGLRenderTarget(ATLAS_SIZE, ATLAS_SIZE, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
@@ -52,15 +52,14 @@ export class DirectLight {
     directLightData: { value: new THREE.DataTexture(this.data, DATA_WIDTH, 7, THREE.RGBAFormat, THREE.FloatType) }, directRow: { value: 0 },
     directLocalStarts: { value: new Int32Array(4) }, directLocalCounts: { value: new Int32Array(4) },
   };
-  readonly slots: Slot[];
+  readonly slots: Slot[] = Array.from({ length: 4 }, () => ({ key: '', link: null, dirty: false,
+    cameras: Array.from({ length: 7 }, () => new THREE.PerspectiveCamera(110, 1, .05, CEILING_LIGHT.distance * 2)),
+    matrices: Array.from({ length: 7 }, () => new THREE.Matrix4()), frames: new THREE.Vector4(), lamps: [], axis: { x: 1, z: 0 } }));
   updates = 0;
   private readonly scene = new THREE.Scene();
   private readonly material = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, side: THREE.DoubleSide });
-  private readonly receiver: Record<RoomId, ReturnType<typeof shadowRoom>>;
-  private readonly source: typeof this.receiver;
-  private readonly ids: RoomId[];
-  private readonly stride: number;
-  private readonly localPassages: boolean;
+  private readonly receiver = Object.fromEntries(ROOM_IDS.map(room => [room, shadowRoom(room, this.material)])) as Record<RoomId, ReturnType<typeof shadowRoom>>;
+  private readonly source = Object.fromEntries(ROOM_IDS.map(room => [room, shadowRoom(room, this.material)])) as typeof this.receiver;
   private readonly matrix = new THREE.Matrix4();
   private readonly transform = new THREE.Matrix4();
   private readonly bias = new THREE.Matrix4().set(.5, 0, 0, .5, 0, .5, 0, .5, 0, 0, .5, .5, 0, 0, 0, 1);
@@ -69,25 +68,15 @@ export class DirectLight {
   private readonly counts = new Int32Array(7);
   private readonly starts = new Int32Array(28);
   private readonly localCounts = new Int32Array(28);
-  constructor(private readonly renderer: THREE.WebGLRenderer, rooms: Record<RoomId, { scene: THREE.Scene }>,
-    options: { ids?: RoomId[]; slots?: number; stride?: number; attribute?: string; localPassages?: boolean } = {}) {
-    this.ids = options.ids ?? ROOM_IDS; this.stride = options.stride ?? 7; this.localPassages = options.localPassages ?? true;
-    this.slots = Array.from({ length: options.slots ?? 4 }, () => ({ key: '', link: null, dirty: false,
-      cameras: Array.from({ length: 7 }, () => new THREE.PerspectiveCamera(110, 1, .05, CEILING_LIGHT.distance * 2)),
-      matrices: Array.from({ length: 7 }, () => new THREE.Matrix4()), frames: new THREE.Vector4(), lamps: [], axis: { x: 1, z: 0 } }));
-    this.receiver = Object.fromEntries(this.ids.map(room => [room, shadowRoom(room, this.material)])) as typeof this.receiver;
-    this.source = Object.fromEntries(this.ids.map(room => [room, shadowRoom(room, this.material)])) as typeof this.source;
-    for (const room of this.ids) this.scene.add(this.receiver[room].group, this.source[room].group);
-    this.surfaces = new DirectSurfaceLight(rooms, this.uniforms, DIRECT_LIGHT_SHADER, DIRECT_SHADOW_SHADER, this.ids, options.attribute);
+  constructor(private readonly renderer: THREE.WebGLRenderer, rooms: Record<RoomId, { scene: THREE.Scene }>) {
+    for (const room of ROOM_IDS) this.scene.add(this.receiver[room].group, this.source[room].group);
+    this.surfaces = new DirectSurfaceLight(rooms, this.uniforms, DIRECT_LIGHT_SHADER, DIRECT_SHADOW_SHADER);
   }
   sync(world: WorldState) {
     const links: Link[] = connections(world).flatMap(({ ends }) => [
       { receiver: ends[0], source: ends[1], key: `${ends[0].room}${ends[0].side}<${ends[1].room}${ends[1].side}` },
       { receiver: ends[1], source: ends[0], key: `${ends[1].room}${ends[1].side}<${ends[0].room}${ends[0].side}` },
     ]);
-    this.syncLinks(links);
-  }
-  syncLinks(links: Link[]) {
     const state = links.map(link => link.key).sort().join('|');
     if (state === this.state) return;
     this.state = state;
@@ -122,7 +111,7 @@ export class DirectLight {
         slot.matrices[index].copy(this.bias).multiply(camera.projectionMatrix).multiply(camera.matrixWorldInverse);
       });
     }
-    for (const room of this.ids) this.receiver[room].doors.forEach((door, side) => {
+    for (const room of ROOM_IDS) this.receiver[room].doors.forEach((door, side) => {
       const open = links.some(link => link.receiver.room === room && link.receiver.side === side);
       door.visible = this.source[room].doors[side].visible = !open;
     });
@@ -138,7 +127,7 @@ export class DirectLight {
       for (const [slotIndex, slot] of this.slots.entries()) {
         if (!slot.link || !slot.dirty) continue;
         const { receiver, source } = slot.link;
-        for (const room of this.ids) {
+        for (const room of ROOM_IDS) {
           this.receiver[room].group.visible = room === receiver.room; this.source[room].group.visible = room === source.room;
           this.receiver[room].walls.forEach((wall, side) => { wall.visible = side !== receiver.side; });
           this.source[room].walls.forEach((wall, side) => { wall.visible = side !== source.side; });
@@ -150,7 +139,7 @@ export class DirectLight {
           .multiply(this.matrix.makeRotationY(-portalAngle(source, receiver)))
           .multiply(this.matrix.makeTranslation(-from.x, 0, -from.z));
         for (let lamp = 0; lamp < slot.lamps.length; lamp++) {
-          const tile = slotIndex * this.stride + lamp, x = tile % 8 * TILE_WIDTH, y = Math.floor(tile / 8) * TILE_HEIGHT;
+          const tile = slotIndex * 7 + lamp, x = tile % 8 * TILE_WIDTH, y = Math.floor(tile / 8) * TILE_HEIGHT;
           // Render-target rectangles are physical texels. Renderer setters use
           // logical screen pixels and would apply the display's pixel ratio.
           this.target.viewport.set(x, y, TILE_WIDTH, TILE_HEIGHT);
@@ -160,7 +149,7 @@ export class DirectLight {
         }
         slot.dirty = false;
       }
-      for (const room of this.ids) if (this.slots.some(slot => slot.link?.receiver.room === room))
+      for (const room of ROOM_IDS) if (this.slots.some(slot => slot.link?.receiver.room === room))
         this.surfaces.render(renderer, room, () => this.bind(room, true), this.uniforms.directLocalStarts.value, this.uniforms.directLocalCounts.value);
     } finally {
       renderer.clippingPlanes = clipping; renderer.autoClear = autoClear; renderer.shadowMap.enabled = shadow; renderer.setClearColor(clear, alpha);
@@ -170,7 +159,7 @@ export class DirectLight {
   private pack() {
     this.data.fill(0); this.starts.fill(0); this.localCounts.fill(0);
     const matrix = new THREE.Matrix4();
-    for (const [row, room] of this.ids.entries()) {
+    for (const [row, room] of ROOM_IDS.entries()) {
       let count = 0;
       const write = (lamp: CeilingLamp, frame: THREE.Vector4, shadow: THREE.Matrix4, tile: number, axis: Vec2) => {
         const out = (row * DATA_WIDTH + count * DATA_STRIDE) * 4;
@@ -182,13 +171,13 @@ export class DirectLight {
       this.slots.forEach((slot, index) => {
         if (slot.link?.receiver.room !== room) return;
         slot.lamps.forEach((lamp, light) => {
-          write(lamp, slot.frames, slot.matrices[light], index * this.stride + light, slot.axis);
+          write(lamp, slot.frames, slot.matrices[light], index * 7 + light, slot.axis);
         });
       });
       this.counts[row] = count;
       const active = this.slots.filter(slot => slot.link?.receiver.room === room).map(slot => slot.link!.receiver.side).sort((a, b) => a - b);
       this.surfaces.fields[room].active = active;
-      if (this.localPassages) active.forEach((side, passage) => {
+      active.forEach((side, passage) => {
         const forward = this.slots.find(slot => slot.link?.receiver.room === room && slot.link.receiver.side === side)!;
         const link = forward.link!, reverseIndex = this.slots.findIndex(slot => slot.link?.receiver.room === link.source.room && slot.link.receiver.side === link.source.side);
         const reverse = this.slots[reverseIndex];
@@ -199,14 +188,14 @@ export class DirectLight {
         this.starts[row * 4 + passage] = count;
         this.localCounts[row * 4 + passage] = ROOM_LIGHTS[room].length;
         ROOM_LIGHTS[room].forEach((lamp, light) => {
-          write(lamp, forward.frames, matrix.copy(reverse.matrices[light]).multiply(transform), reverseIndex * this.stride + light, { x: 1, z: 0 });
+          write(lamp, forward.frames, matrix.copy(reverse.matrices[light]).multiply(transform), reverseIndex * 7 + light, { x: 1, z: 0 });
         });
       });
     }
     this.uniforms.directLightData.value.needsUpdate = true;
   }
   bind(room: RoomId, enabled: boolean) {
-    const row = this.ids.indexOf(room); this.uniforms.directRow.value = row;
+    const row = ROOM_IDS.indexOf(room); this.uniforms.directRow.value = row;
     this.uniforms.directNeighborCount.value = enabled ? this.counts[row] : 0;
     for (let passage = 0; passage < 4; passage++) {
       this.uniforms.directLocalStarts.value[passage] = this.starts[row * 4 + passage];
@@ -228,14 +217,14 @@ export class DirectLight {
       this.target.viewport.set(2047, 2047, 1, 1); this.target.scissor.set(2047, 2047, 1, 1); this.target.scissorTest = true;
       renderer.setRenderTarget(this.target);
       renderer.render(this.scene, this.slots[0].cameras[0]);
-      for (const room of this.ids) this.surfaces.render(renderer, room, () => this.bind(room, true), this.uniforms.directLocalStarts.value, this.uniforms.directLocalCounts.value, true);
+      for (const room of ROOM_IDS) this.surfaces.render(renderer, room, () => this.bind(room, true), this.uniforms.directLocalStarts.value, this.uniforms.directLocalCounts.value, true);
     } finally {
       this.scene.children.forEach((object, index) => { object.visible = visible[index]; });
       renderer.clippingPlanes = clipping; renderer.shadowMap.enabled = shadow; renderer.setRenderTarget(target);
       renderer.setClearColor(clear, alpha);
       renderer.setViewport(viewport); renderer.setScissor(scissor); renderer.setScissorTest(scissorTest);
       // Restore plug visibility after the warmup's forced draw.
-      for (const room of this.ids) this.receiver[room].doors.forEach((door, side) => {
+      for (const room of ROOM_IDS) this.receiver[room].doors.forEach((door, side) => {
         const open = this.slots.some(slot => slot.link?.receiver.room === room && slot.link.receiver.side === side);
         door.visible = this.source[room].doors[side].visible = !open;
       });

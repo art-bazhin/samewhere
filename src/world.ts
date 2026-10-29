@@ -1,13 +1,8 @@
 /** Pure game rules and collision/portal math. No dependency on WebGL or the DOM. */
 import { closestOnSegment, crossOutline, hOutline, insideOutline, outlineWalls, regularOutline, yOutline, type Vec2 } from './geometry';
-import { galleryNeighbor, galleryRoute, isTunnelEntrance, type GalleryState } from './gallery';
+import { galleryNeighbor, galleryRoute, isGalleryExit, type GalleryState } from './gallery';
 export type { Vec2 } from './geometry';
-export type RoomId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'T';
-export const WALL_THICKNESS = .3;
-const SQUARE_APOTHEM = 5;
-export const EXIT_TUNNEL_LENGTH = 60;
-export const EXIT_TUNNEL_WIDTH = 3.4;
-export const EXIT_TUNNEL_FROM: SocketRef = { room: 'A', side: galleryRoute().at(-1)!.side };
+export type RoomId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
 export type BallColor = 'red' | 'blue';
 export interface SocketRef { room: RoomId; side: number }
 export interface BallState { id: string; color: BallColor; socket: SocketRef | null }
@@ -29,12 +24,12 @@ export const FINAL_PASSAGE_GOALS: PassageGoal[] = [
 ];
 export interface PedestalDefinition extends Vec2 { controls: RoomId }
 /** sides counts portal/socket positions; outlines may have additional solid edges. */
-export interface RoomDefinition { id: RoomId; name: string; shape: string; sides: number; apothem: number; pedestals: PedestalDefinition[]; outline?: Vec2[]; portalEdges?: number[]; terminalPortals?: number[]; ceilingOrigin?: Vec2 }
+export interface RoomDefinition { id: RoomId; name: string; shape: string; sides: number; apothem: number; pedestals: PedestalDefinition[]; outline?: Vec2[]; portalEdges?: number[]; ceilingOrigin?: Vec2 }
 export const PEDESTAL_APOTHEM = 0.325;
 export const CEILING_TILE_SIZE = PEDESTAL_APOTHEM * 2;
 const Y_PEDESTAL_Z = 2.6 / Math.sqrt(3);
 export const ROOMS: Record<RoomId, RoomDefinition> = {
-  A: { id: 'A', name: 'Квадратная комната', shape: 'square', sides: 4, apothem: SQUARE_APOTHEM, pedestals: [{ controls: 'A', x: -1.8, z: 1.8 }, { controls: 'B', x: 1.8, z: -1.8 }] },
+  A: { id: 'A', name: 'Квадратная комната', shape: 'square', sides: 4, apothem: 5, pedestals: [{ controls: 'A', x: -1.8, z: 1.8 }, { controls: 'B', x: 1.8, z: -1.8 }] },
   B: { id: 'B', name: 'Пятиугольная комната', shape: 'pentagon', sides: 5, apothem: 5, pedestals: [{ controls: 'C', x: 0, z: 0 }] },
   C: { id: 'C', name: 'Шестиугольная комната', shape: 'hexagon', sides: 6, apothem: 5, pedestals: [{ controls: 'D', x: 0, z: 0 }] },
   D: { id: 'D', name: 'Треугольная комната', shape: 'triangle', sides: 3, apothem: 5, pedestals: [{ controls: 'A', x: 0, z: -1.95 }, { controls: 'E', x: 0, z: 1.95 }] },
@@ -48,13 +43,8 @@ export const ROOMS: Record<RoomId, RoomDefinition> = {
       { controls: 'D', x: 3.6, z: -4.2 }, { controls: 'E', x: 3.6, z: 0 }, { controls: 'F', x: 3.6, z: 4.2 },
       { controls: 'G', x: 0, z: 0 },
     ] },
-  T: { id: 'T', name: 'Тоннель', shape: 'tunnel', sides: 2, apothem: EXIT_TUNNEL_WIDTH / 2, pedestals: [], portalEdges: [0, 2], terminalPortals: [1],
-    outline: [{ x: -EXIT_TUNNEL_WIDTH / 2, z: WALL_THICKNESS / 2 }, { x: EXIT_TUNNEL_WIDTH / 2, z: WALL_THICKNESS / 2 },
-      { x: EXIT_TUNNEL_WIDTH / 2, z: EXIT_TUNNEL_LENGTH - WALL_THICKNESS / 2 }, { x: -EXIT_TUNNEL_WIDTH / 2, z: EXIT_TUNNEL_LENGTH - WALL_THICKNESS / 2 }] },
 };
-// T has fixed architecture and lighting, but no ball-controlled connections.
-export const ROOM_IDS: Exclude<RoomId, 'T'>[] = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
-export const ARCHITECTURE_IDS = [...ROOM_IDS, 'T'] as RoomId[];
+export const ROOM_IDS = Object.keys(ROOMS) as RoomId[];
 // Tile centers use the square pedestal's width; the origin is a tile center.
 // Round half-tiles away from zero to preserve symmetric pedestal arrangements.
 const ceilingCoordinate = (value: number) => Math.sign(value) * Math.round(Math.abs(value) / CEILING_TILE_SIZE) * CEILING_TILE_SIZE;
@@ -62,10 +52,11 @@ for (const id of ROOM_IDS) for (const pedestal of ROOMS[id].pedestals) {
   const origin = ROOMS[id].ceilingOrigin ?? { x: 0, z: 0 };
   pedestal.x = origin.x + ceilingCoordinate(pedestal.x - origin.x); pedestal.z = origin.z + ceilingCoordinate(pedestal.z - origin.z);
 }
-const outlines = Object.fromEntries(ARCHITECTURE_IDS.map(id => [id, ROOMS[id].outline ?? regularOutline(ROOMS[id].sides, ROOMS[id].apothem)])) as Record<RoomId, Vec2[]>;
-const boundaries = Object.fromEntries(ARCHITECTURE_IDS.map(id => [id, outlineWalls(outlines[id], ROOMS[id].portalEdges ?? Array.from({ length: ROOMS[id].sides }, (_, i) => i))])) as Record<RoomId, ReturnType<typeof outlineWalls>>;
-const doorways = Object.fromEntries(ARCHITECTURE_IDS.map(id => [id, boundaries[id].filter(wall => wall.portal !== null).sort((a, b) => a.portal! - b.portal!)])) as typeof boundaries;
+const outlines = Object.fromEntries(ROOM_IDS.map(id => [id, ROOMS[id].outline ?? regularOutline(ROOMS[id].sides, ROOMS[id].apothem)])) as Record<RoomId, Vec2[]>;
+const boundaries = Object.fromEntries(ROOM_IDS.map(id => [id, outlineWalls(outlines[id], ROOMS[id].portalEdges ?? Array.from({ length: ROOMS[id].sides }, (_, i) => i))])) as Record<RoomId, ReturnType<typeof outlineWalls>>;
+const doorways = Object.fromEntries(ROOM_IDS.map(id => [id, boundaries[id].filter(wall => wall.portal !== null).sort((a, b) => a.portal! - b.portal!)])) as typeof boundaries;
 export const ROOM_HEIGHT = 3.5;
+export const WALL_THICKNESS = 0.3;
 export const EYE_HEIGHT = 1.65;
 export const DOOR_WIDTH = 1.8;
 export const DOOR_HEIGHT = 2.6;
@@ -76,18 +67,6 @@ export const SOCKET_OPENING = .05;
 export const SOCKET_DEPTH = .01625;
 export const SOCKET_RECESS = .005;
 export const SOCKET_RADIUS = 0.235;
-export interface TunnelWall { size: [number, number, number]; position: [number, number, number] }
-const tunnelJambWidth = (EXIT_TUNNEL_WIDTH - DOOR_WIDTH) / 2 + WALL_THICKNESS;
-export const EXIT_TUNNEL_WALLS: TunnelWall[] = [
-  ...[-1, 1].map(sign => ({ size: [WALL_THICKNESS, ROOM_HEIGHT, EXIT_TUNNEL_LENGTH + WALL_THICKNESS] as [number, number, number],
-    position: [sign * (EXIT_TUNNEL_WIDTH + WALL_THICKNESS) / 2, ROOM_HEIGHT / 2, EXIT_TUNNEL_LENGTH / 2] as [number, number, number] })),
-  ...[0, EXIT_TUNNEL_LENGTH].flatMap(z => [
-    ...[-1, 1].map(sign => ({ size: [tunnelJambWidth, ROOM_HEIGHT, WALL_THICKNESS] as [number, number, number],
-      position: [sign * (DOOR_WIDTH + tunnelJambWidth) / 2, ROOM_HEIGHT / 2, z] as [number, number, number] })),
-    { size: [DOOR_WIDTH, ROOM_HEIGHT - DOOR_HEIGHT, WALL_THICKNESS] as [number, number, number],
-      position: [0, (ROOM_HEIGHT + DOOR_HEIGHT) / 2, z] as [number, number, number] },
-  ]),
-];
 export const roomOutline = (room: RoomId) => outlines[room];
 export const roomWalls = (room: RoomId) => boundaries[room];
 export const doorFrame = (room: RoomId, side: number) => doorways[room][side];
@@ -124,13 +103,6 @@ export function transformPoint(p: Vec2, from: SocketRef, to: SocketRef): Vec2 {
   const a = portalPosition(from.room, from.side), b = portalPosition(to.room, to.side);
   const offset = rotate({ x: p.x - a.x, z: p.z - a.z }, portalAngle(from, to));
   return { x: offset.x + b.x, z: offset.z + b.z };
-}
-export function toExitTunnel(p: Vec2, from: SocketRef): Vec2 {
-  const point = transformPoint(p, from, { room: 'A', side: 0 });
-  point.z += portalDistance('A', 0); return point;
-}
-export function fromExitTunnel(p: Vec2, to: SocketRef): Vec2 {
-  return transformPoint({ x: p.x, z: p.z - portalDistance('A', 0) }, { room: 'A', side: 0 }, to);
 }
 export function canStand(room: RoomId, point: Vec2, radius = PLAYER_RADIUS): boolean {
   if (!insideOutline(point, outlines[room])) return false;
@@ -211,7 +183,7 @@ export class Game {
     this.restore(initialState()); this.history = []; this.transitions = 0;
   }
   interact(socket: SocketRef): 'take' | 'place' | null {
-    if (this.world.gallery?.inTunnel) return null;
+    if (this.world.gallery?.outside) return null;
     if (!ROOMS[socket.room] || socket.side < 0 || socket.side >= ROOMS[socket.room].sides || !Number.isInteger(socket.side)) return null;
     const existing = ballAt(this.world, socket);
     const available = this.world.balls.find(b => !b.socket && b.color === this.world.selected);
@@ -234,7 +206,7 @@ export class Game {
     if (this.world.passageProgress === PASSAGE_GOALS.length && this.player.room === 'A' && squareLoops) this.world.passageProgress++;
     if (!squareLoops) this.world.gallery = null;
     else if (!this.world.gallery && this.world.passageProgress > PASSAGE_GOALS.length && this.player.room === 'A') {
-      this.world.gallery = { cell: { x: 0, z: 0 }, signs: galleryRoute(), inTunnel: false };
+      this.world.gallery = { cell: { x: 0, z: 0 }, signs: galleryRoute(), outside: false };
     }
   }
   move(displacement: Vec2) {
@@ -244,15 +216,14 @@ export class Game {
     for (let s = 0; s < steps; s++) {
       const old = { x: this.player.x, z: this.player.z };
       let next = { x: old.x + step.x, z: old.z + step.z };
-      if (this.world.gallery?.inTunnel) {
-        this.moveTunnelStep(next, step);
+      if (this.world.gallery?.outside) {
+        this.moveOutside(next);
         this.player.x = next.x; this.player.z = next.z; continue;
       }
       const room = ROOMS[this.player.room];
       let crossed = false;
       for (let side = 0; side < room.sides; side++) {
-        const tunnel = room.id === 'A' && this.world.gallery && isTunnelEntrance(this.world.gallery, this.world.gallery.cell, side);
-        const n = wallNormal(room.id, side), to = tunnel ? { room: 'A' as const, side: 0 } : destination(this.world, { room: room.id, side });
+        const n = wallNormal(room.id, side), to = destination(this.world, { room: room.id, side });
         const frame = doorFrame(room.id, side);
         const d0 = (old.x - frame.center.x) * n.x + (old.z - frame.center.z) * n.z;
         let d1 = (next.x - frame.center.x) * n.x + (next.z - frame.center.z) * n.z;
@@ -282,14 +253,17 @@ export class Game {
           before.player.x = boundary.x - n.x * (WALL_THICKNESS / 2 + PLAYER_RADIUS + 0.035);
           before.player.z = boundary.z - n.z * (WALL_THICKNESS / 2 + PLAYER_RADIUS + 0.035);
           this.remember(before);
-          next = tunnel ? toExitTunnel(next, from) : transformPoint(next, from, to);
-          const delta = portalAngle(from, to);
-          step = rotate(step, delta);
-          this.player.yaw -= delta;
-          this.player.room = to.room;
+          const exit = room.id === 'A' && this.world.gallery && isGalleryExit(this.world.gallery, this.world.gallery.cell, side);
+          if (!exit) {
+            next = transformPoint(next, from, to);
+            const delta = portalAngle(from, to);
+            step = rotate(step, delta);
+            this.player.yaw -= delta;
+            this.player.room = to.room;
+          }
           if (this.world.gallery && from.room === 'A' && to.room === 'A') {
             this.world.gallery.cell = galleryNeighbor(this.world.gallery.cell, side);
-            this.world.gallery.inTunnel = !!tunnel;
+            this.world.gallery.outside = !!exit;
           }
           this.transitions++;
           crossed = true; break;
@@ -335,31 +309,23 @@ export class Game {
       this.player.x = next.x; this.player.z = next.z;
     }
   }
-  private moveTunnelStep(next: Vec2, step: Vec2) {
-    const gallery = this.world.gallery!;
-    if (this.player.z >= 0 && next.z < 0 && Math.abs(next.x) <= DOOR_WIDTH / 2 - PLAYER_RADIUS) {
-      const last = gallery.signs.at(-1)!, to: SocketRef = { room: 'A', side: last.side };
-      const before = this.snapshot(); before.player.z = WALL_THICKNESS / 2 + PLAYER_RADIUS + .035; this.remember(before);
-      Object.assign(next, fromExitTunnel(next, to));
-      const angle = portalAngle({ room: 'A', side: 0 }, to);
-      Object.assign(step, rotate(step, angle)); this.player.yaw -= angle;
-      gallery.cell = { x: last.x, z: last.z }; gallery.inTunnel = false; this.transitions++; return;
-    }
-    for (let pass = 0; pass < 2; pass++) for (const wall of EXIT_TUNNEL_WALLS) {
-      if (wall.position[1] - wall.size[1] / 2 > EYE_HEIGHT) continue;
-      const left = wall.position[0] - wall.size[0] / 2, right = wall.position[0] + wall.size[0] / 2;
-      const near = wall.position[2] - wall.size[2] / 2, far = wall.position[2] + wall.size[2] / 2;
-      const x = Math.max(left, Math.min(right, next.x)), z = Math.max(near, Math.min(far, next.z));
-      const dx = next.x - x, dz = next.z - z, distance = Math.hypot(dx, dz);
-      if (distance >= PLAYER_RADIUS) continue;
-      if (distance > .000001) {
-        next.x = x + dx / distance * PLAYER_RADIUS; next.z = z + dz / distance * PLAYER_RADIUS;
-      } else {
-        const edges = [next.x - left, right - next.x, next.z - near, far - next.z];
-        const edge = edges.indexOf(Math.min(...edges));
-        if (edge < 2) next.x = edge === 0 ? left - PLAYER_RADIUS : right + PLAYER_RADIUS;
-        else next.z = edge === 2 ? near - PLAYER_RADIUS : far + PLAYER_RADIUS;
+  private moveOutside(next: Vec2) {
+    const gallery = this.world.gallery!, last = gallery.signs.at(-1)!;
+    const p = portalPosition('A', last.side), n = wallNormal('A', last.side);
+    const depth = (next.x - p.x) * n.x + (next.z - p.z) * n.z;
+    const lateral = (next.x - p.x) * -n.z + (next.z - p.z) * n.x;
+    const clearance = DOOR_WIDTH / 2 - PLAYER_RADIUS;
+    if (Math.abs(lateral) <= clearance) {
+      if (depth < 0) {
+        const before = this.snapshot();
+        before.player.x = p.x + n.x * (PLAYER_RADIUS + .035);
+        before.player.z = p.z + n.z * (PLAYER_RADIUS + .035);
+        this.remember(before);
+        gallery.outside = false; gallery.cell = { x: last.x, z: last.z }; this.transitions++;
       }
+    } else if (depth < PLAYER_RADIUS) {
+      // The white exterior has no obstacles, apart from the wall around its entrance.
+      next.x += n.x * (PLAYER_RADIUS - depth); next.z += n.z * (PLAYER_RADIUS - depth);
     }
   }
 }

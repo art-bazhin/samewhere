@@ -1,4 +1,4 @@
-import { ARCHITECTURE_IDS, PEDESTAL_HEIGHT, pedestalOutline, ROOM_HEIGHT, ROOMS, roomWalls, type RoomId } from './world';
+import { PEDESTAL_HEIGHT, pedestalOutline, ROOM_HEIGHT, ROOM_IDS, ROOMS, roomWalls, type RoomId } from './world';
 
 export interface Point { x: number; y: number; z: number }
 export interface BounceArea { point: Point; normal: Point; halfU: Point; halfV: Point; vertices?: Point[] }
@@ -8,7 +8,7 @@ const bounds = (points: Point[]): Bounds => ({
   min: { x: Math.min(...points.map(p => p.x)), y: Math.min(...points.map(p => p.y)), z: Math.min(...points.map(p => p.z)) },
   max: { x: Math.max(...points.map(p => p.x)), y: Math.max(...points.map(p => p.y)), z: Math.max(...points.map(p => p.z)) },
 });
-const blockers = Object.fromEntries(ARCHITECTURE_IDS.map(room => [room, [
+const blockers = Object.fromEntries(ROOM_IDS.map(room => [room, [
   ...roomWalls(room).map(wall => ({
     ...bounds([{ ...wall.a, y: 0 }, { ...wall.b, y: ROOM_HEIGHT }]), portal: wall.portal, wall: true,
   })),

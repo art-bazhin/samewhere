@@ -3,10 +3,9 @@ import { bakingLayout, surfaceSamples } from './lightmap-layout';
 import { bakeSurfaceTransfer } from './surface-lightmap';
 import { bakePanelLight, type LightingBakeQuality } from './panel-light-bake';
 import { ROOM_IDS, ROOMS, type RoomId } from './world';
-import { bakeJoinedLighting, type JoinedLighting } from './joined-lighting-bake';
 
-export interface BakedLighting { elapsedMs: number; fields: PreparedTransfer[]; atlases: Record<RoomId, [number, number]>; panels: Record<RoomId, Uint16Array>; joined?: JoinedLighting }
-export interface BakedRoomLighting { elapsedMs: number; fields: PreparedTransfer[]; atlases: Partial<BakedLighting['atlases']>; panels: Partial<BakedLighting['panels']>; joined?: JoinedLighting }
+export interface BakedLighting { elapsedMs: number; fields: PreparedTransfer[]; atlases: Record<RoomId, [number, number]>; panels: Record<RoomId, Uint16Array> }
+export interface BakedRoomLighting { elapsedMs: number; fields: PreparedTransfer[]; atlases: Partial<BakedLighting['atlases']>; panels: Partial<BakedLighting['panels']> }
 
 /** Build-time calculation; independent of filesystem, assets, DOM and WebGL. */
 export function bakeLightTransfer(quality: LightingBakeQuality = 'full'): BakedLighting {
@@ -31,6 +30,5 @@ export function bakeLightingRooms(rooms: RoomId[], quality: LightingBakeQuality 
   const panels = Object.fromEntries(rooms.map(room => {
     const layout = layouts[room]; return [room, bakePanelLight(room, layout.samples, layout.width * layout.height, quality)];
   })) as BakedRoomLighting['panels'];
-  const joined = rooms.includes('A') ? bakeJoinedLighting(quality) : undefined;
-  return { elapsedMs: performance.now() - start, fields, atlases, panels, joined };
+  return { elapsedMs: performance.now() - start, fields, atlases, panels };
 }

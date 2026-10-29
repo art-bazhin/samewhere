@@ -40,7 +40,7 @@ export function panelLightSampler(room: RoomId, share = 1 - SPOT_LIGHT_SHARE, qu
 }
 
 /** Analytic counterpart of the live spot's diffuse term, used at floor joins. */
-export function spotLightSampler(room: RoomId, relief = false) {
+function spotLightSampler(room: RoomId, relief = false) {
   const cone = Math.cos(CEILING_LIGHT.angle), penumbra = Math.cos(CEILING_LIGHT.angle * (1 - CEILING_LIGHT.penumbra));
   return (point: Point, normal: Point, gradient?: Float64Array) => {
     gradient?.fill(0);
@@ -114,7 +114,7 @@ export function bouncePatches(room: RoomId, subdivisions?: number, quality: Ligh
   const result = [...patches.values()]; bounceCache.set(key, result); return result;
 }
 
-export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount: number, quality: LightingBakeQuality = 'full', allDirect = false) {
+export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount: number, quality: LightingBakeQuality = 'full') {
   const values = new Uint16Array(texelCount * PANEL_LIGHTMAP_CHANNELS), sample = panelLightSampler(room, 1 - SPOT_LIGHT_SHARE, quality, true), sampleSpot = spotLightSampler(room, true), sampleBounce = createBounceSampler(room, undefined, true, quality), bounce = new Float32Array(3), moment = new Float32Array(4);
   const direct = new Float64Array(4), spot = new Float64Array(4);
   const point = { x: 0, y: 0, z: 0 }, normal = { ...point };
@@ -124,7 +124,7 @@ export function bakePanelLight(room: RoomId, samples: SurfaceSamples, texelCount
     normal.x = samples.normals[i]; normal.y = samples.normals[i + 1]; normal.z = samples.normals[i + 2];
     const out = texel * 4, panel = sample(point, normal, direct);
     spot.fill(0);
-    const passage = allDirect || samples.passages[texel] >= 0 ? sampleSpot(point, normal, spot) : 0;
+    const passage = samples.passages[texel] >= 0 ? sampleSpot(point, normal, spot) : 0;
     values[out] = DataUtils.toHalfFloat(panel + passage);
     sampleBounce(point, normal, bounce, moment);
     values[out + 1] = DataUtils.toHalfFloat(bounce[0]); values[out + 2] = DataUtils.toHalfFloat(bounce[1]); values[out + 3] = DataUtils.toHalfFloat(bounce[2]);

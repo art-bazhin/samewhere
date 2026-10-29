@@ -39,7 +39,7 @@ function applyLook(delta: { x: number; y: number }) {
 }
 function updateHUD() {
   const world = game.world;
-  const room = world.gallery?.inTunnel ? { name: 'Тоннель', shape: 'tunnel' } : ROOMS[game.player.room];
+  const room = world.gallery?.outside ? { name: 'Белое пространство', shape: '' } : ROOMS[game.player.room];
   $('room-name').textContent = room.name;
   $('room-shape').className = `shape ${room.shape}`;
   $('red-count').textContent = String(inventoryCount(world, 'red')); $('blue-count').textContent = String(inventoryCount(world, 'blue'));
@@ -65,26 +65,26 @@ function nextDebugRoom() {
   stopSweep(); keys.clear(); mouseLook.reset();
   const room = DEBUG_ROOMS[debugRoomIndex];
   debugRoomIndex = (debugRoomIndex + 1) % DEBUG_ROOMS.length;
-  if (game.world.gallery) game.world.gallery.inTunnel = false;
+  if (game.world.gallery) game.world.gallery.outside = false;
   // The hub's central pedestal occupies the origin; this spot is clear in every room.
   Object.assign(game.player, { room, x: 0, z: 1, yaw: 0, pitch: 0 });
   sync(); toast(`Отладка: ${ROOMS[room].name}`);
 }
-function prepareGalleryTest(atTunnel = false) {
+function prepareGalleryTest(atExit = false) {
   stopSweep(); keys.clear(); mouseLook.reset(); game.remember();
   game.world.balls.forEach(ball => { ball.socket = null; });
   game.world.selected = 'red'; game.world.passageProgress = PASSAGE_GOALS.length; game.world.gallery = null;
   game.player = { room: 'A', x: -3, z: 3, yaw: -Math.PI / 4, pitch: -.3 };
-  if (atTunnel) {
+  if (atExit) {
     for (const goal of FINAL_PASSAGE_GOALS) {
       game.world.balls.find(ball => ball.color === goal.color && !ball.socket)!.socket = { ...goal.from };
     }
     const signs = galleryRoute(), last = signs.at(-1)!, normal = wallNormal('A', last.side);
     game.world.passageProgress++;
-    game.world.gallery = { cell: { x: last.x, z: last.z }, signs, inTunnel: false };
+    game.world.gallery = { cell: { x: last.x, z: last.z }, signs, outside: false };
     game.player = { room: 'A', x: 0, z: 0, yaw: -Math.atan2(normal.x, -normal.z), pitch: 0 };
   }
-  sync(); toast(atTunnel ? 'Проверка тоннеля · последний проход EXIT' : 'Проверка галереи · четыре шара в руках');
+  sync(); toast(atExit ? 'Последний проход EXIT' : 'Проверка галереи · четыре шара в руках');
 }
 function undo() {
   stopSweep(); mouseLook.reset();
@@ -241,7 +241,7 @@ function frame(time: number) {
 }
 try {
   space = new SpaceRenderer(canvas, game);
-  surfaceTextures = new SurfaceTextures([...Object.values(space.rooms).map(room => room.scene), space.exitTunnel.scene], space.assets.textures);
+  surfaceTextures = new SurfaceTextures(Object.values(space.rooms).map(room => room.scene), space.assets.textures);
   updateHUD(); requestAnimationFrame(frame);
   const playButton = $<HTMLButtonElement>('play-button'), playLabel = playButton.querySelector('span')!;
   playButton.disabled = true; playLabel.textContent = 'Подготовка пространства…';
