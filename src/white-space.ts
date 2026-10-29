@@ -11,5 +11,14 @@ export function createWhiteSpace(room: RoomVisual) {
   const portal: Portal = { ...source, mesh, to: { room: 'A', side: source.side }, transform: new THREE.Matrix4(),
     normal: { x: -source.normal.x, z: -source.normal.z }, distance: -source.distance };
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0xffffff); scene.add(mesh); scene.updateMatrixWorld(true);
-  return { scene, portal, dispose: () => mesh.material.dispose() };
+  const glow = {
+    scene: new THREE.Scene(), camera: new THREE.Camera(),
+    material: new THREE.ShaderMaterial({
+      uniforms: { amount: { value: 0 } }, transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
+      vertexShader: 'void main() { gl_Position = vec4(position.xy, 0., 1.); }',
+      fragmentShader: 'uniform float amount; void main() { gl_FragColor = vec4(1., 1., 1., amount); }',
+    }),
+  };
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), glow.material); glow.scene.add(screen);
+  return { scene, portal, glow, dispose() { mesh.material.dispose(); screen.geometry.dispose(); glow.material.dispose(); } };
 }

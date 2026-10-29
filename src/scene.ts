@@ -134,6 +134,8 @@ export class SpaceRenderer {
           this.renderer.setRenderTarget(target);
           for (const id of ROOM_IDS) await this.renderer.compileAsync(this.rooms[id].scene, this.camera);
         }
+        this.renderer.setRenderTarget(null);
+        await this.renderer.compileAsync(this.whiteSpace.glow.scene, this.whiteSpace.glow.camera);
         await this.prepareRooms();
       } finally { this.renderer.setRenderTarget(previousTarget); this.compiling = false; }
       // Entry becomes available only after a complete, final-lit main view.
@@ -469,6 +471,21 @@ export class SpaceRenderer {
     this.clipPlane.setComponents(0, 1, 0, 1);
     this.renderer.setRenderTarget(null); this.renderer.render(scene, this.camera);
   }
+  private renderExitGlow() {
+    const gallery = this.game.world.gallery, { material, scene, camera } = this.whiteSpace.glow;
+    let amount = gallery?.outside ? 1 : 0;
+    if (gallery && !gallery.outside && this.game.player.room === 'A' && isGalleryExit(gallery, gallery.cell, gallery.signs.at(-1)!.side)) {
+      const portal = this.rooms.A.portals[gallery.signs.at(-1)!.side], n = portal.normal, p = this.game.player;
+      const depth = portal.distance - n.x * p.x - n.z * p.z;
+      const lateral = Math.max(0, Math.abs(-n.z * (p.x - portal.center.x) + n.x * (p.z - portal.center.z)) - DOOR_WIDTH / 2);
+      amount = 1 - THREE.MathUtils.smoothstep(Math.hypot(depth, lateral), 0, 7);
+    }
+    material.uniforms.amount.value = amount;
+    if (!amount) return;
+    const autoClear = this.renderer.autoClear; this.renderer.autoClear = false;
+    try { this.renderer.render(scene, camera); }
+    finally { this.renderer.autoClear = autoClear; }
+  }
   private preparePendingShadow() {
     // Visible rooms have already updated their shadows. Prepare at most one
     // remaining map per frame, so walking to a changed room does not defer all
@@ -499,6 +516,7 @@ export class SpaceRenderer {
       if (gallery?.outside) this.renderWhiteSpace();
       else this.renderRoom(this.game.player.room, this.camera, 0, FULL, null, undefined, 0, gallery?.cell ?? null);
       this.preparePendingShadow();
+      this.renderExitGlow();
     }
     finally { this.gpuTiming.end(); }
     this.drawCalls = this.renderer.info.render.calls; this.passes++;

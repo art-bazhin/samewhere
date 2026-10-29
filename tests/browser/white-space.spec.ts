@@ -80,7 +80,7 @@ test('9 prepares the final EXIT into unlit white space, with a continuous crossi
   });
   for (const image of result.images) await writeFile(info.outputPath(image.name), Buffer.from(image.data.split(',')[1], 'base64'));
   expect(result.entrance).toEqual([255, 255, 255]); expect(result.outside).toBe(true);
-  expect(result.forward).toBe(1); expect(result.back).toBeGreaterThan(.5); expect(result.back).toBeLessThan(.99);
+  expect(result.forward).toBe(1); expect(result.back).toBe(1);
   expect(result.lights).toBe(0); expect(result.pick).toBeNull(); expect(result.returned).toBe(true); expect(result.undoOutside).toBe(true);
   expect(result.seamMean).toBeLessThan(.3);
   await page.keyboard.press('Numpad9');
@@ -90,4 +90,59 @@ test('9 prepares the final EXIT into unlit white space, with a continuous crossi
   await page.keyboard.press('Digit9'); await page.keyboard.press('KeyZ');
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
   expect(errors).toEqual([]);
+});
+
+test('approaching the final EXIT washes the entire view into white over seven metres without changing lights', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+  await page.evaluate(() => window.__samewhere.space.ready);
+  await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  await page.keyboard.press('Digit9');
+  const result = await page.evaluate(async () => {
+    const path = '/src/world.ts', { portalPosition, wallNormal } = await import(path);
+    const { game, space } = window.__samewhere, gallery = game.world.gallery, last = gallery.signs.at(-1);
+    const p = portalPosition('A', last.side), n = wallNormal('A', last.side), yaw = game.player.yaw, renderGlow = space.renderExitGlow.bind(space);
+    const range = 7;
+    const canvas = document.createElement('canvas'), source = space.renderer.domElement;
+    canvas.width = source.width; canvas.height = source.height;
+    const context = canvas.getContext('2d')!, samples: { distance: number; gain: number; coverage: number }[] = [], images: { name: string; data: string }[] = [];
+    const lights = () => JSON.stringify(Object.values(space.rooms).flatMap((room: any) => room.scene.children.filter((object: any) => object.isLight).map((light: any) => light.intensity)));
+    const lighting = lights(), revision = space.lightTransfer.revision;
+    function capture(glow: boolean) {
+      space.renderExitGlow = glow ? renderGlow : () => {};
+      try {
+        space.render(); context.drawImage(source, 0, 0);
+        return context.getImageData(0, 0, canvas.width, canvas.height).data;
+      } finally { space.renderExitGlow = renderGlow; }
+    }
+    for (const distance of [range + .1, range, range - .01, range * .75, range / 2, range * .25, .01, range / 2, range]) {
+      Object.assign(game.player, { x: p.x - n.x * distance, z: p.z - n.z * distance, yaw: distance === .01 ? yaw + Math.PI : yaw });
+      const before = capture(false), after = capture(true);
+      let changed = 0, eligible = 0, increase = 0, available = 0;
+      for (let i = 0; i < before.length; i += 4) {
+        if (Math.max(before[i], before[i + 1], before[i + 2]) < 240) {
+          eligible++; if (Math.min(after[i] - before[i], after[i + 1] - before[i + 1], after[i + 2] - before[i + 2]) > 2) changed++;
+        }
+        for (let c = 0; c < 3; c++) { increase += after[i + c] - before[i + c]; available += 255 - before[i + c]; }
+      }
+      samples.push({ distance, gain: increase / available, coverage: changed / eligible });
+      if ([range * .75, range / 2, range * .25].includes(distance) && images.length < 3) images.push({ name: `exit-glow-${distance.toFixed(2)}.png`, data: canvas.toDataURL() });
+    }
+    Object.assign(game.player, { x: p.x - n.x * range / 2, z: p.z - n.z * range / 2, yaw: game.player.yaw + Math.PI });
+    capture(true); const reversedGlow = space.whiteSpace.glow.material.uniforms.amount.value;
+    gallery.cell = { x: 0, z: 0 }; capture(true);
+    const elsewhere = space.whiteSpace.glow.material.uniforms.amount.value;
+    return { samples, reversedGlow, elsewhere, unchangedLighting: lighting === lights() && revision === space.lightTransfer.revision, images };
+  });
+  for (const image of result.images) await writeFile(info.outputPath(image.name), Buffer.from(image.data.split(',')[1], 'base64'));
+  console.log('EXIT screen glow:', result.samples);
+  expect(Math.abs(result.samples[0].gain)).toBeLessThan(.001); expect(Math.abs(result.samples[1].gain)).toBeLessThan(.001);
+  for (let i = 2; i <= 6; i++) expect(result.samples[i].gain).toBeGreaterThanOrEqual(result.samples[i - 1].gain);
+  expect(result.samples[3].gain).toBeGreaterThan(.05); expect(result.samples[3].gain).toBeLessThan(.3);
+  expect(result.samples[4].gain).toBeGreaterThan(.4); expect(result.samples[4].gain).toBeLessThan(.6);
+  expect(result.samples[4].coverage).toBeGreaterThan(.99); expect(result.samples[6].gain).toBeGreaterThan(.999);
+  expect(result.samples[7].gain).toBeCloseTo(result.samples[4].gain, 3); expect(Math.abs(result.samples[8].gain)).toBeLessThan(.001);
+  expect(result.reversedGlow).toBeCloseTo(.5); expect(result.elsewhere).toBe(0); expect(result.unchangedLighting).toBe(true); expect(errors).toEqual([]);
 });
