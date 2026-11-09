@@ -53,6 +53,22 @@ test('occupied socket always picks up, selects its color and never silently swap
   assert.equal(game.world.selected, 'blue'); assert.equal(ballAt(game.world, { room: 'C', side: 0 }), undefined);
   assert.equal(inventoryCount(game.world, 'red'), 1); assert.equal(inventoryCount(game.world, 'blue'), 1);
 });
+test('using the last ball of a color selects an available color and undo restores the previous choice', () => {
+  for (const color of ['red', 'blue'] as const) {
+    const game = new Game(), other = color === 'red' ? 'blue' : 'red';
+    game.world.balls.forEach(ball => { ball.socket = null; }); game.selectColor(color);
+    game.interact({ room: 'A', side: 0 });
+    assert.equal(game.world.selected, color);
+    game.interact({ room: 'A', side: 1 });
+    assert.equal(game.world.selected, other); assert.equal(inventoryCount(game.world, other), 2);
+    game.selectColor(color); assert.equal(game.world.selected, other);
+    assert.equal(game.history.length, 2, 'Changing color does not create an undo action');
+    game.undo(); assert.equal(game.world.selected, color); assert.equal(inventoryCount(game.world, color), 1);
+    game.interact({ room: 'A', side: 1 }); game.interact({ room: 'A', side: 2 }); game.interact({ room: 'A', side: 3 });
+    assert.ok(game.world.balls.every(ball => ball.socket));
+    game.interact({ room: 'A', side: 0 }); assert.equal(game.world.selected, color);
+  }
+});
 test('unrelated hub connections and self-loops do not advance the first goal', () => {
   const game = new Game();
   assert.equal(game.world.passageProgress, 0);

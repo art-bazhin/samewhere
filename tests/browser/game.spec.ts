@@ -90,7 +90,7 @@ test('initial ball placement, actual mouse pick/place, and both shared pedestal 
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await ready(page);
-  await expect(page.locator('#red-count')).toHaveText('0'); await expect(page.locator('#blue-count')).toHaveText('0');
+  await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(0); await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(0);
   expect(await page.evaluate(() => Object.fromEntries(Object.entries(window.__samewhere.space.rooms).map(([id, room]: [string, any]) =>
     [id, room.sockets.filter((socket: any) => socket.ball.visible).map((socket: any) => `${socket.ref.room}${socket.ref.side}`)]))))
     .toEqual({ A: ['B0', 'B2'], B: ['C0', 'C3'], C: [], D: [], E: ['B0', 'B2'], F: [], G: ['B0', 'B2', 'C0', 'C3'] });
@@ -99,7 +99,7 @@ test('initial ball placement, actual mouse pick/place, and both shared pedestal 
   const b = ROOMS.A.pedestals.find(p => p.controls === 'B')!;
   const hit = await aim(page, 'B', 0, b.x, b.z + 1.25); expect(hit).toEqual({ room: 'B', side: 0 });
   await page.mouse.down(); await page.mouse.up();
-  await expect(page.locator('#red-count')).toHaveText('1');
+  await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(1);
   const state = await page.evaluate(() => {
     const app = window.__samewhere;
     return { a: app.space.rooms.A.sockets.find((s: any) => s.ref.room === 'B' && s.ref.side === 0).ball.visible, b: app.space.rooms.E.sockets.find((s: any) => s.ref.room === 'B' && s.ref.side === 0).ball.visible, closedB0: app.space.rooms.B.walls[0].solid.visible, closedB2: app.space.rooms.B.walls[2].solid.visible };
@@ -107,9 +107,9 @@ test('initial ball placement, actual mouse pick/place, and both shared pedestal 
   expect(state).toEqual({ a: false, b: false, closedB0: true, closedB2: true });
   const a = ROOMS.A.pedestals.find(p => p.controls === 'A')!;
   expect(await aim(page, 'A', 0, a.x, a.z + 1.25)).toEqual({ room: 'A', side: 0 });
-  await page.mouse.down(); await page.mouse.up(); await expect(page.locator('#red-count')).toHaveText('0');
-  await page.keyboard.press('KeyZ'); await expect(page.locator('#red-count')).toHaveText('1');
-  await page.keyboard.press('KeyR'); await expect(page.locator('#red-count')).toHaveText('0');
+  await page.mouse.down(); await page.mouse.up(); await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(0);
+  await page.keyboard.press('KeyZ'); await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(1);
+  await page.keyboard.press('KeyR'); await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(0);
   await pose(page, -2.8, 3, -Math.PI / 4, -0.36);
   await page.screenshot({ path: 'test-results/02-room.png' });
   await pose(page, 0, 0, 0, -0.02, 'B');
@@ -515,37 +515,33 @@ test('the complete layout reaches the H hub and all seven pedestals work with na
     expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe(expected);
   }
   await operate('B', 2); await operate('A', 0);
-  await enter(0, 'B'); await expect(page.locator('#room-name')).toHaveText('Пятиугольная комната');
+  await enter(0, 'B'); expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('B');
   await page.screenshot({ path: 'test-results/room-B.png' });
   await operate('C', 3); await enter(0, 'A');
-  await operate('A', 1); await operate('B', 0); await enter(1, 'C'); await expect(page.locator('#room-name')).toHaveText('Шестиугольная комната');
+  await operate('A', 1); await operate('B', 0); await enter(1, 'C'); expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('C');
   await page.screenshot({ path: 'test-results/room-C.png' });
   await operate('D', 0); await enter(0, 'A'); await enter(0, 'D');
-  await center(); await expect(page.locator('#room-name')).toHaveText('Треугольная комната');
-  await expect(page.locator('#room-shape')).toHaveClass('shape triangle');
+  await center(); expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('D');
   await expect(page.locator('#objective')).toHaveCount(0);
   expect(await page.evaluate(() => window.__samewhere.game.transitions)).toBe(5);
   await page.screenshot({ path: 'test-results/room-D.png' });
 
   await operate('A', 0); await operate('E', 0);
   await operate('A', 1); await operate('E', 1);
-  await enter(0, 'E'); await expect(page.locator('#room-name')).toHaveText('Y-комната');
-  await expect(page.locator('#room-shape')).toHaveClass('shape y-room');
+  await enter(0, 'E'); expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('E');
   await page.screenshot({ path: 'test-results/room-E.png' });
   await enter(1, 'C'); await operate('D', 0); await enter(0, 'E');
   await operate('B', 0); await enter(0, 'B');
   await operate('C', 0); await enter(0, 'E');
   await operate('B', 0); await operate('F', 0); await enter(0, 'F');
-  await expect(page.locator('#room-name')).toHaveText('Комната-крест');
-  await expect(page.locator('#room-shape')).toHaveClass('shape cross-room');
+  expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('F');
   await page.keyboard.press('Digit2'); await operate('G', 0);
   await page.screenshot({ path: 'test-results/room-F.png' });
   await enter(0, 'E'); await enter(1, 'G'); await center();
-  await expect(page.locator('#room-name')).toHaveText('H-комната');
-  await expect(page.locator('#room-shape')).toHaveClass('shape h-room');
+  expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('G');
   await expect(page.locator('#objective')).toHaveCount(0);
   expect(await page.evaluate(() => window.__samewhere.game.transitions)).toBe(13);
-  await expect(page.locator('#red-count')).toHaveText('0'); await expect(page.locator('#blue-count')).toHaveText('0');
+  await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(0); await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(0);
   expect(await page.evaluate(() => window.__samewhere.game.world.balls.length)).toBe(4);
   await page.screenshot({ path: 'test-results/room-G.png' });
 
@@ -562,15 +558,15 @@ test('the complete layout reaches the H hub and all seven pedestals work with na
     for (let socket = 0; socket < ROOMS[room].sides; socket++) expect(await aimFromHere(page, room, socket)).toEqual({ room, side: socket });
     expect(await aimFromHere(page, room, side)).toEqual({ room, side });
     await page.mouse.down(); await page.mouse.up();
-    await expect(page.locator('#red-count')).toHaveText('1');
+    await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(1);
   }
   await operate('E', 0);
   const hubActions = await page.evaluate(history => window.__samewhere.game.history.length - history, atHub.history);
   for (let i = 0; i < hubActions; i++) await page.keyboard.press('KeyZ');
   expect(await page.evaluate(() => window.__samewhere.game.world)).toEqual(atHub.world);
-  await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Y-комната');
-  await page.keyboard.press('KeyZ'); await expect(page.locator('#room-name')).toHaveText('Комната-крест');
-  await page.keyboard.press('KeyR'); await expect(page.locator('#room-name')).toHaveText('Квадратная комната');
+  await page.keyboard.press('KeyZ'); expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('E');
+  await page.keyboard.press('KeyZ'); expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('F');
+  await page.keyboard.press('KeyR'); expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('A');
   expect(await page.evaluate(() => window.__samewhere.game.world.balls.map((ball: any) => ball.socket?.room))).toEqual(['B', 'B', 'C', 'C']);
   expect(errors).toEqual([]);
 });

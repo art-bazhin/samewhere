@@ -7,7 +7,7 @@ test('0 shortcuts prepare the square gallery with four balls in hand and can be 
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   const initial = await page.evaluate(() => window.__samewhere.game.snapshot());
   await page.keyboard.press('Digit0');
-  await expect(page.locator('#red-count')).toHaveText('2'); await expect(page.locator('#blue-count')).toHaveText('2');
+  await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(2); await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(2);
   const ready = await page.evaluate(() => {
     const { game, space } = window.__samewhere;
     return { room: game.player.room, balls: game.world.balls.every((ball: any) => ball.socket === null),

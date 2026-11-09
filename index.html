@@ -11,18 +11,8 @@
   <body>
     <canvas id="game" aria-label="Трёхмерное пространство Samewhere"></canvas>
     <div id="hud">
-      <header class="topbar">
-        <a class="wordmark" href="/" aria-label="Samewhere">samewhere<span class="wordmark-dot">.</span></a>
-        <div class="location"><span id="room-shape" class="shape square"></span><span id="room-name">Квадратная комната</span></div>
-        <div class="topbar-tools"><span class="performance-counter"><span id="fps-counter" class="fps-counter" aria-label="Частота кадров">— FPS</span><small id="frame-time">— мс</small></span><button class="quiet-button" data-fullscreen aria-label="На весь экран (F)" aria-pressed="false">⛶ <kbd>F</kbd></button><button id="menu-button" class="quiet-button">Меню <kbd>Esc</kbd></button></div>
-      </header>
       <div class="crosshair" id="crosshair"><span></span></div>
-      <div id="interaction" class="interaction" aria-live="polite"></div>
-      <div id="toast" class="toast" role="status"></div>
-      <footer class="bottom-bar">
-        <div class="inventory" aria-label="Инвентарь"><span class="inventory-label">В руках</span><button id="select-red" class="inventory-slot selected" aria-label="Выбрать красный шар"><kbd>1</kbd><i class="ball red"></i><span id="red-count">0</span></button><button id="select-blue" class="inventory-slot" aria-label="Выбрать синий шар"><kbd>2</kbd><i class="ball blue"></i><span id="blue-count">0</span></button><span class="inventory-note">ЛКМ <small>взять / положить</small></span></div>
-        <div class="utility-hint"><span><kbd>Z</kbd> Отмена</span><span><kbd>R</kbd> Заново</span><button id="help-button" class="help-button" aria-label="Справка">?</button></div>
-      </footer>
+      <div id="inventory" class="inventory" role="group" aria-label="Шары в руках"></div>
       <pre id="debug" hidden></pre>
     </div>
     <div id="overlay" class="overlay">

@@ -20,47 +20,19 @@ a { color: inherit; text-decoration: none; }
 #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 #hud { position: fixed; inset: 0; pointer-events: none; }
 #hud button, #hud a { pointer-events: auto; }
-.topbar { position: absolute; inset: 0 0 auto; display: flex; align-items: center; justify-content: space-between; padding: 26px 32px; gap: 20px; }
 .wordmark { font: 650 25px/1 Arial, sans-serif; letter-spacing: -1.4px; }
-#hud .wordmark { color: var(--paper); text-shadow: 0 1px 3px #0008; }
 .wordmark-dot { color: inherit; }
-.topbar-tools { display: flex; align-items: center; gap: 22px; }
-.performance-counter { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; min-width: 125px; background: var(--paper); padding: 8px 10px; }
-.fps-counter { font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-#frame-time { font-size: 9px; font-variant-numeric: tabular-nums; white-space: nowrap; color: #777; }
-.quiet-button { background: var(--paper); display: flex; gap: 9px; align-items: center; font-size: 10px; padding: 4px 0; }
 kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 19px; height: 19px; padding: 0 4px; border: 1px solid #ccc; font: 9px "SFMono-Regular", Consolas, monospace; background: var(--paper); }
-.location { display: flex; align-items: center; gap: 10px; background: var(--paper); padding: 9px 12px; border: 1px solid #ddd; font-size: 10px; }
-.shape { display: inline-block; width: 11px; height: 11px; border: 1px solid currentColor; }
-.shape.pentagon { border: 0; background: var(--ink); clip-path: polygon(50% 0,100% 38%,81% 100%,19% 100%,0 38%); }
-.shape.hexagon { border: 0; background: var(--ink); clip-path: polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%); }
-.shape.triangle { border: 0; background: var(--ink); clip-path: polygon(50% 0,100% 100%,0 100%); }
-.shape.y-room { border: 0; background: var(--ink); clip-path: polygon(0 9%,22% 0,50% 37%,78% 0,100% 9%,63% 60%,63% 100%,37% 100%,37% 60%); }
-.shape.cross-room { border: 0; background: var(--ink); clip-path: polygon(35% 0,65% 0,65% 35%,100% 35%,100% 65%,65% 65%,65% 100%,35% 100%,35% 65%,0 65%,0 35%,35% 35%); }
-.shape.h-room { border: 0; background: var(--ink); clip-path: polygon(0 0,28% 0,28% 37%,72% 37%,72% 0,100% 0,100% 100%,72% 100%,72% 63%,28% 63%,28% 100%,0 100%); }
-.bottom-bar { position: absolute; bottom: 30px; left: 32px; right: 32px; display: flex; align-items: center; justify-content: flex-end; min-height: 50px; }
-.inventory { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; background: var(--paper); border: 1px solid #ccc; padding: 5px; }
-.inventory-label { color: #777; font-size: 9px; padding: 0 12px; }
-.inventory-slot { display: flex; align-items: center; gap: 13px; background: var(--paper); border: 1px solid transparent; padding: 10px 12px; min-width: 87px; }
-.inventory-slot.selected { border-color: var(--ink); }
-.inventory-slot > span { font-size: 12px; }
-.inventory-slot kbd { border: 0; min-width: auto; padding: 0; color: #777; }
-.ball { display: block; width: 17px; height: 17px; border-radius: 50%; }
-.red { background: var(--red); }
-.blue { background: var(--blue); }
-.inventory-note { font-size: 9px; border-left: 1px solid #ddd; padding: 0 12px; margin-left: 6px; }
-.inventory-note small { display: block; color: #777; font-size: 8px; margin-top: 4px; }
-.utility-hint { background: var(--paper); padding: 7px 10px; display: flex; align-items: center; gap: 16px; font-size: 9px; }
-.utility-hint > span { display: flex; align-items: center; gap: 7px; }
-.help-button { width: 22px; height: 22px; border: 1px solid #aaa; background: var(--paper); font-size: 11px; }
-.crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 4px; height: 4px; border-radius: 50%; background: #171717; box-shadow: 0 0 0 1px #fff; }
-.crosshair.available { width: 9px; height: 9px; background: var(--paper); border: 1px solid #171717; }
-.interaction { position: absolute; left: 50%; top: calc(50% + 23px); transform: translateX(-50%); font-size: 10px; background: var(--paper); white-space: nowrap; }
-.interaction:not(:empty) { padding: 5px 8px; border: 1px solid #ddd; }
-.toast { position: absolute; left: 50%; bottom: 106px; transform: translateX(-50%) translateY(5px); background: var(--paper); border: 1px solid #aaa; padding: 10px 14px; font-size: 10px; white-space: nowrap; opacity: 0; transition: opacity .15s, transform .15s; }
-.toast.visible { opacity: 1; transform: translateX(-50%); }
+.inventory { position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; height: 20px; }
+.inventory-ball { flex: 0 0 auto; width: 0; height: 14px; margin: 0; border-radius: 50%; opacity: 0; transform: scale(.7); box-shadow: 0 1px 3px #0005; transition: width .18s ease, margin .18s ease, opacity .18s ease, transform .18s ease; }
+.inventory-ball[data-color="red"] { background: var(--red); }
+.inventory-ball[data-color="blue"] { background: var(--blue); }
+.inventory-ball.held { width: 14px; margin: 0 5px; opacity: 1; transform: scale(.85); }
+.inventory-ball.held.selected { transform: scale(1.22); }
+.crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 3px; height: 3px; border-radius: 50%; background: #f3eed9; box-shadow: 0 0 0 1px #0005; opacity: .55; transition: width .12s, height .12s, opacity .12s; }
+.crosshair.available { width: 7px; height: 7px; opacity: 1; }
 .eyebrow { text-transform: uppercase; font-size: 9px; letter-spacing: 1.6px; }
-#debug { position: absolute; top: 92px; left: 32px; max-width: 470px; background: var(--paper); border: 1px solid #aaa; padding: 15px 18px; font: 10px/1.8 "SFMono-Regular", Consolas, monospace; pointer-events: auto; user-select: text; }
+#debug { position: absolute; top: 24px; left: 24px; max-width: 470px; background: var(--paper); border: 1px solid #aaa; padding: 15px 18px; font: 10px/1.8 "SFMono-Regular", Consolas, monospace; pointer-events: auto; user-select: text; }
 .overlay { position: fixed; inset: 0; display: flex; align-items: safe center; padding: 100px 7vw 75px; overflow: auto; background: transparent; }
 .menu-brand { color: var(--paper); text-shadow: 0 1px 3px #0008; position: fixed; top: 29px; left: 32px; z-index: 1; }
 .menu-card { width: 511px; max-width: 100%; padding: 28px; background: var(--paper); border: 1px solid #bcb184; }
@@ -88,10 +60,8 @@ details[open] summary > span { transform: rotate(45deg); }
 .help-content b { color: var(--ink); font-weight: 600; }
 .overlay-caption { position: fixed; left: 7vw; right: 32px; bottom: 26px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 8px; line-height: 1.7; color: #888; }
 .overlay-caption > span:last-child { text-align: right; }
-body.paused #hud .wordmark { visibility: hidden; }
 .overlay-caption { color: var(--paper); text-shadow: 0 1px 3px #000a; }
-body.paused .bottom-bar, body.paused .location, body.paused #crosshair, body.paused .interaction, body.paused #toast { opacity: 0; }
-body.paused .quiet-button { visibility: hidden; }
+body.paused .inventory, body.paused #crosshair { opacity: 0; }
 #error { font: 12px/1.7 Arial, sans-serif; background: var(--paper); border-left: 2px solid #171717; padding-left: 12px; }
 @media (max-height: 810px) {
   .overlay { align-items: flex-start; padding-top: 90px; padding-bottom: 55px; }
@@ -103,22 +73,13 @@ body.paused .quiet-button { visibility: hidden; }
   .menu-note { margin-bottom: 17px; }
   .overlay-caption { display: none; }
 }
-@media (max-width: 1100px) {
-  .topbar { padding: 22px; gap: 12px; }
-  .topbar-tools { gap: 15px; }
-  .inventory-label, .inventory-note, .utility-hint > span { display: none; }
-  .bottom-bar { left: 22px; right: 22px; bottom: 22px; }
-  .performance-counter { min-width: auto; }
-}
 @media (max-width: 700px) {
-  .location { display: none; }
   .wordmark { font-size: 23px; }
-  .topbar-tools { gap: 12px; }
-  .quiet-button { font-size: 0; }
-  .quiet-button kbd { font-size: 9px; }
   .overlay { padding-left: 24px; padding-right: 24px; background: transparent; }
   .menu-brand { left: 24px; }
   .menu-card h1 { font-size: 40px; }
-  .toast { white-space: normal; max-width: calc(100vw - 30px); text-align: center; }
   #debug { left: 15px; max-width: calc(100vw - 30px); font-size: 9px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .inventory-ball { transition: none; }
 }

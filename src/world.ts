@@ -182,6 +182,9 @@ export class Game {
   reset() {
     this.restore(initialState()); this.history = []; this.transitions = 0;
   }
+  selectColor(color: BallColor) {
+    this.world.selected = inventoryCount(this.world, color) ? color : this.world.balls.find(ball => !ball.socket)?.color ?? color;
+  }
   interact(socket: SocketRef): 'take' | 'place' | null {
     if (this.world.gallery?.outside) return null;
     if (!ROOMS[socket.room] || socket.side < 0 || socket.side >= ROOMS[socket.room].sides || !Number.isInteger(socket.side)) return null;
@@ -191,6 +194,7 @@ export class Game {
     this.remember();
     if (existing) { existing.socket = null; this.world.selected = existing.color; }
     else available!.socket = { ...socket };
+    this.selectColor(this.world.selected);
     validateWorld(this.world);
     this.advancePassageGoals();
     return existing ? 'take' : 'place';
