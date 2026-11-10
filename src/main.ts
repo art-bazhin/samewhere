@@ -177,7 +177,7 @@ document.addEventListener('keydown', event => {
   if (event.repeat) return;
   if (event.code === 'Digit1' || event.code === 'Digit2') { game.selectColor(event.code === 'Digit1' ? 'red' : 'blue'); updateHUD(); }
   if (event.code === 'KeyZ') undo();
-  if (event.code === 'KeyR') reset();
+  if (event.code === 'KeyR' && devMode) reset();
   if (event.code === 'KeyM') sound.enabled = !sound.enabled;
   if (event.code === 'KeyT') surfaceTextures.toggle();
 });

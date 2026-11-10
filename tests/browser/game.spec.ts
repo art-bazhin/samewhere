@@ -4,8 +4,8 @@ import { ROOM_LIGHTS } from '../../src/lighting';
 import { doorFrame, portalAngle, portalDistance, portalPosition, ROOM_IDS, ROOMS, transformPoint, WALL_THICKNESS, wallNormal, type RoomId, type SocketRef } from '../../src/world';
 
 declare global { interface Window { __samewhere: any } }
-async function ready(page: Page) {
-  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space && window.__samewhere.space.passes > 0);
+async function ready(page: Page, url = '/') {
+  await page.goto(url); await page.waitForFunction(() => !!window.__samewhere?.space && window.__samewhere.space.passes > 0);
   await page.evaluate(() => window.__samewhere.space.ready);
 }
 async function pose(page: Page, x: number, z: number, yaw: number, pitch = 0, room = 'A') {
@@ -89,7 +89,7 @@ async function aimFromHere(page: Page, room: RoomId, side: number) {
 test('initial ball placement, actual mouse pick/place, and both shared pedestal representations', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await ready(page);
+  await ready(page, '/?dev=1');
   await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(0); await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(0);
   expect(await page.evaluate(() => Object.fromEntries(Object.entries(window.__samewhere.space.rooms).map(([id, room]: [string, any]) =>
     [id, room.sockets.filter((socket: any) => socket.ball.visible).map((socket: any) => `${socket.ref.room}${socket.ref.side}`)]))))
@@ -477,7 +477,7 @@ test('the complete layout reaches the H hub and all seven pedestals work with na
   test.setTimeout(120_000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await ready(page);
+  await ready(page, '/?dev=1');
   await expect(page.locator('[data-mode], #mode-label, #objective')).toHaveCount(0);
   await page.locator('#play-button').click();
   await expect(page.locator('#overlay')).toBeHidden();

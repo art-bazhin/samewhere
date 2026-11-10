@@ -18,7 +18,7 @@ test('six music stems share a seamless clock and unlock only at the specified mi
       return ramp.call(this, value, endTime);
     };
   });
-  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.sound);
+  await page.goto('/?dev=1'); await page.waitForFunction(() => !!window.__samewhere?.sound);
   await page.evaluate(() => Promise.all([window.__samewhere.space.ready, window.__samewhere.sound.ready]));
   expect(await page.evaluate(() => window.__samewhere.sound.context)).toBeNull();
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();

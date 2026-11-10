@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 for (const url of ['/', '/?dev=0', '/?dev=1']) {
-  test(`fast travel and the FPS counter require dev=1: ${url}`, async ({ page }, info) => {
+  test(`fast travel, restart and the FPS counter require dev=1: ${url}`, async ({ page }, info) => {
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(url);
@@ -26,12 +26,22 @@ for (const url of ['/', '/?dev=0', '/?dev=1']) {
       expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('A');
       await page.keyboard.press('Digit9');
       expect(await page.evaluate(() => window.__samewhere.game.world.gallery.signs.length)).toBe(42);
+      await page.keyboard.press('KeyR');
+      expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
     } else {
       await expect(page.locator('#fps-counter')).toBeHidden();
       for (const key of ['Tab', 'Digit0', 'Numpad0', 'Digit9', 'Numpad9']) {
         await page.keyboard.press(key);
         expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
       }
+      const changed = await page.evaluate(() => {
+        const { game, sync } = window.__samewhere;
+        game.interact({ room: 'B', side: 0 }); sync();
+        return game.snapshot();
+      });
+      expect(changed).not.toEqual(initial);
+      await page.keyboard.press('KeyR');
+      expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(changed);
       expect((await page.locator('#hud').innerText()).trim()).toBe('');
     }
     await page.screenshot({ path: info.outputPath('game.png') });
