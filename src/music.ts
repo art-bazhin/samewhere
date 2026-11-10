@@ -3,6 +3,7 @@ import { PASSAGE_GOALS, type RoomId } from './world';
 const files = import.meta.glob<string>('../music/SAMEWHERE-*.mp3', { eager: true, query: '?url', import: 'default' });
 const urls = Array.from({ length: 6 }, (_, i) => files[`../music/SAMEWHERE-${String(i + 1).padStart(3, '0')}.mp3`]);
 const LOOP_FADE = .005, LAYER_FADE = 15;
+const BASE_GAIN = 10 ** (-5 / 20);
 
 export function fadeGain(gain: AudioParam, target: number, time: number, duration: number) {
   const value = gain.value;
@@ -47,7 +48,7 @@ export class Music {
     for (const [index, buffer] of this.buffers.entries()) {
       const source = context.createBufferSource(), gain = context.createGain();
       source.buffer = buffer; source.loop = true; source.loopEnd = duration;
-      gain.gain.value = index === 0 ? 1 : 0;
+      gain.gain.value = index === 0 ? BASE_GAIN : 0;
       if (index && this.active.has(index)) fadeGain(gain.gain, 1, when, LAYER_FADE);
       source.connect(gain).connect(output); source.start(when);
       this.layers.push({ source, gain });
@@ -72,7 +73,7 @@ export class Music {
     if (!this.context) return;
     const now = this.context.currentTime;
     for (const [index, { gain }] of this.layers.entries()) {
-      fadeGain(gain.gain, index === 0 ? 1 : 0, now, LOOP_FADE);
+      fadeGain(gain.gain, index === 0 ? BASE_GAIN : 0, now, LOOP_FADE);
     }
   }
   dispose() {
