@@ -237,7 +237,7 @@ for (const status of [503, 200]) test(`lighting download failure (${status}) rep
   await page.route(/\/assets\/lighting-[a-f0-9]{64}\.bin/, route => route.fulfill({ status, contentType: 'application/octet-stream', body: 'Invalid lighting' }));
   await page.goto('/');
   await expect(page.locator('#error')).toBeVisible();
-  await expect(page.locator('#error')).toContainText('Не удалось подготовить пространство');
+  await expect(page.locator('#error')).toContainText('Could not prepare the game');
   await expect(page.locator('#play-button')).toBeDisabled();
   const result = await page.evaluate(() => {
     const light = window.__samewhere.space.lightTransfer; return { jobs: light.jobs, fields: light.cacheSize };

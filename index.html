@@ -1,34 +1,45 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#eee6bf" />
-    <meta name="description" content="Samewhere — пространственная головоломка о комнатах, которые соединяете вы." />
-    <title>Samewhere — комнаты и связи</title>
+    <meta name="description" content="Samewhere — a spatial puzzle about rooms you connect." />
+    <title>Samewhere</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
   <body>
-    <canvas id="game" aria-label="Трёхмерное пространство Samewhere"></canvas>
+    <canvas id="game" aria-label="Samewhere game world"></canvas>
     <div id="hud">
       <div class="crosshair" id="crosshair"><span></span></div>
-      <div id="inventory" class="inventory" role="group" aria-label="Шары в руках"></div>
-      <span id="fps-counter" aria-label="Частота кадров" hidden>— FPS</span>
+      <div id="inventory" class="inventory" role="group" aria-label="Balls in hand"></div>
+      <span id="fps-counter" aria-label="Frame rate" hidden>— FPS</span>
       <pre id="debug" hidden></pre>
     </div>
     <div id="overlay" class="overlay">
       <div class="menu-brand wordmark">samewhere<span class="wordmark-dot">.</span></div>
-      <section class="menu-card" aria-labelledby="menu-title">
-        <div class="menu-meta"><span class="eyebrow">Комнаты и связи</span><span class="edition">Прототип 0.1</span></div>
-        <h1 id="menu-title">Одно место.<br>Бесконечно <em>другое.</em></h1>
-        <div class="connection-sketch" aria-hidden="true"><span class="sketch-room">□</span><i class="sketch-line"></i><span class="sketch-room pentagon-glyph">⬠</span><i class="sketch-line"></i><span class="sketch-room">⬡</span><i class="sketch-line"></i><span class="sketch-room">△</span><i class="sketch-line"></i><span class="sketch-room">…</span></div>
-        <button id="play-button" class="play-button"><span>Войти в пространство</span><span>↗</span></button>
-        <button class="fullscreen-menu-button" data-fullscreen aria-pressed="false"><span data-fullscreen-label>На весь экран</span><kbd>F</kbd></button>
-        <p class="menu-note">WASD — движение · Мышь — обзор · Esc — пауза</p>
+      <section class="menu-actions wordmark" aria-label="Game menu">
+        <button id="resume-button" class="menu-item" hidden>RESUME GAME</button>
+        <button id="play-button" class="menu-item" disabled aria-busy="true">NEW GAME</button>
+        <button id="controls-button" class="menu-item">CONTROLS</button>
         <p id="error" role="alert" hidden></p>
       </section>
-      <div class="overlay-caption"><span>Пространство меняется.<br>Правила остаются.</span><span>△<br>SAMEWHERE / 2026</span></div>
     </div>
+    <dialog id="controls-dialog" aria-labelledby="controls-title">
+      <h2 id="controls-title" class="wordmark">CONTROLS</h2>
+      <dl>
+        <div><dt>WASD / ARROWS</dt><dd>Move</dd></div>
+        <div><dt>MOUSE</dt><dd>Look around</dd></div>
+        <div><dt>LEFT CLICK</dt><dd>Take or place a ball</dd></div>
+        <div><dt>1 / 2</dt><dd>Select red / blue</dd></div>
+        <div><dt>MOUSE WHEEL</dt><dd>Switch ball color</dd></div>
+        <div><dt>Z</dt><dd>Undo last action</dd></div>
+        <div><dt>ESC</dt><dd>Pause</dd></div>
+        <div><dt>F</dt><dd>Toggle fullscreen</dd></div>
+        <div><dt>M</dt><dd>Toggle sound</dd></div>
+      </dl>
+      <button id="controls-close" class="menu-item wordmark">BACK</button>
+    </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

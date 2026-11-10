@@ -13,7 +13,7 @@
 body { margin: 0; overflow: hidden; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { font: inherit; color: inherit; cursor: pointer; border: 0; }
-button:focus-visible, a:focus-visible { outline: 2px solid #171717; outline-offset: 5px; }
+button:focus-visible, a:focus-visible { outline: 1px solid currentColor; outline-offset: 6px; }
 button:disabled { opacity: .4; cursor: wait; }
 a { color: inherit; text-decoration: none; }
 [hidden] { display: none !important; }
@@ -22,7 +22,6 @@ a { color: inherit; text-decoration: none; }
 #hud button, #hud a { pointer-events: auto; }
 .wordmark { font: 650 25px/1 Arial, sans-serif; letter-spacing: -1.4px; }
 .wordmark-dot { color: inherit; }
-kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 19px; height: 19px; padding: 0 4px; border: 1px solid #ccc; font: 9px "SFMono-Regular", Consolas, monospace; background: var(--paper); }
 .inventory { position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; height: 20px; }
 .inventory-ball { flex: 0 0 auto; width: 0; height: 14px; margin: 0; border-radius: 50%; opacity: 0; transform: scale(.7); box-shadow: 0 1px 3px #0005; transition: width .18s ease, margin .18s ease, opacity .18s ease, transform .18s ease; }
 .inventory-ball[data-color="red"] { background: var(--red); }
@@ -31,44 +30,29 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 .inventory-ball.held.selected { transform: scale(1.22); }
 .crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 3px; height: 3px; border-radius: 50%; background: #f3eed9; box-shadow: 0 0 0 1px #0005; opacity: .55; transition: width .12s, height .12s, opacity .12s; }
 .crosshair.available { width: 7px; height: 7px; opacity: 1; }
-.eyebrow { text-transform: uppercase; font-size: 9px; letter-spacing: 1.6px; }
 #fps-counter { position: absolute; top: 24px; right: 32px; background: var(--paper); padding: 8px 10px; font-size: 11px; font-variant-numeric: tabular-nums; }
 #debug { position: absolute; top: 24px; left: 24px; max-width: 470px; background: var(--paper); border: 1px solid #aaa; padding: 15px 18px; font: 10px/1.8 "SFMono-Regular", Consolas, monospace; pointer-events: auto; user-select: text; }
-.overlay { position: fixed; inset: 0; display: flex; align-items: safe center; padding: 100px 7vw 75px; overflow: auto; background: transparent; }
+.overlay { position: fixed; inset: 0; display: flex; align-items: safe center; padding: 100px 7vw 75px; overflow: auto; }
 .menu-brand { color: var(--paper); text-shadow: 0 1px 3px #0008; position: fixed; top: 29px; left: 32px; z-index: 1; }
-.menu-card { width: 511px; max-width: 100%; padding: 28px; background: var(--paper); border: 1px solid #bcb184; }
-.menu-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
-.edition { font-size: 9px; color: #888; }
-.menu-card h1 { font: 500 49px/1.08 Arial, sans-serif; letter-spacing: -2.4px; margin: 0 0 24px; }
-.menu-card h1 em { font: inherit; color: var(--ink); }
-.connection-sketch { display: flex; align-items: center; gap: 13px; height: 48px; margin-bottom: 20px; }
-.sketch-room { font: 33px/1 Arial, sans-serif; }
-.pentagon-glyph { font-size: 37px; }
-.sketch-line { width: 28px; height: 1px; background: #888; }
-.play-button { display: flex; align-items: center; justify-content: space-between; width: 100%; background: #171717; color: #fff; padding: 16px 18px; font-size: 12px; }
-.play-button:hover { background: #333; }
-.play-button > span:last-child { font: 25px/1 Arial, sans-serif; }
-.fullscreen-menu-button { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; margin-top: 10px; padding: 8px; background: transparent; font-size: 10px; }
-.menu-note { text-align: center; font-size: 9px; color: #777; margin: 16px 0 24px; }
-.overlay-caption { position: fixed; left: 7vw; right: 32px; bottom: 26px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 8px; line-height: 1.7; color: #888; }
-.overlay-caption > span:last-child { text-align: right; }
-.overlay-caption { color: var(--paper); text-shadow: 0 1px 3px #000a; }
+.menu-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 22px; color: var(--paper); text-shadow: 0 1px 3px #0008; }
+.menu-item { padding: 4px 0; background: transparent; text-align: left; text-shadow: inherit; letter-spacing: inherit; }
+.menu-item:hover { opacity: .7; }
+body.paused #game { filter: blur(3px); transform: scale(1.02); }
 body.paused .inventory, body.paused #crosshair { opacity: 0; }
-#error { font: 12px/1.7 Arial, sans-serif; background: var(--paper); border-left: 2px solid #171717; padding-left: 12px; }
-@media (max-height: 810px) {
-  .overlay { align-items: flex-start; padding-top: 90px; padding-bottom: 55px; }
-  .menu-card { width: 476px; }
-  .menu-meta { margin-bottom: 18px; }
-  .menu-card h1 { font-size: 40px; margin-bottom: 17px; }
-  .connection-sketch { height: 30px; margin-bottom: 16px; }
-  .menu-note { margin-bottom: 17px; }
-  .overlay-caption { display: none; }
-}
+#error { max-width: 420px; margin: 0; font: 14px/1.6 Arial, sans-serif; letter-spacing: 0; }
+#controls-dialog { width: 440px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); padding: 32px; color: var(--paper); background: #17160f; border: 1px solid #eee6bf55; font-family: Arial, sans-serif; }
+#controls-dialog::backdrop { background: #0004; }
+#controls-title { margin: 0; }
+#controls-dialog dl { display: grid; gap: 18px; margin: 30px 0; }
+#controls-dialog dl > div { display: grid; grid-template-columns: 145px 1fr; gap: 16px; align-items: baseline; }
+#controls-dialog dt { font-size: 11px; font-weight: 650; }
+#controls-dialog dd { margin: 0; font-size: 14px; line-height: 1.4; }
 @media (max-width: 700px) {
   .wordmark { font-size: 23px; }
-  .overlay { padding-left: 24px; padding-right: 24px; background: transparent; }
+  .overlay { padding-left: 24px; padding-right: 24px; }
   .menu-brand { left: 24px; }
-  .menu-card h1 { font-size: 40px; }
+  #controls-dialog { padding: 24px; }
+  #controls-dialog dl > div { grid-template-columns: 115px 1fr; gap: 12px; }
   #debug { left: 15px; max-width: calc(100vw - 30px); font-size: 9px; }
 }
 @media (prefers-reduced-motion: reduce) {

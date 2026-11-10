@@ -16,8 +16,8 @@ test('the minimal inventory shows held balls, switches available colors and foll
   await page.keyboard.press('F3'); await expect(page.locator('#debug')).toBeVisible();
   await page.keyboard.press('F3'); await expect(page.locator('#debug')).toBeHidden();
   await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
-  await expect(page.locator('[data-fullscreen]')).toBeVisible();
-  await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  await expect(page.locator('#controls-button')).toBeVisible();
+  await page.locator('#resume-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   await page.keyboard.press('Digit0'); await expect(held).toHaveCount(4);
   await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(2);
   await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(2);
@@ -27,7 +27,7 @@ test('the minimal inventory shows held balls, switches available colors and foll
   await page.keyboard.press('Digit2'); await expect(selected.first()).toHaveAttribute('data-color', 'blue');
   await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
   await page.mouse.wheel(0, 100); await expect(selected.first()).toHaveAttribute('data-color', 'blue');
-  await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  await page.locator('#resume-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   await expect.poll(() => page.evaluate(() => {
     const selected = document.querySelector('#inventory .held.selected')!.getBoundingClientRect();
     const other = document.querySelector('#inventory .held:not(.selected)')!.getBoundingClientRect();

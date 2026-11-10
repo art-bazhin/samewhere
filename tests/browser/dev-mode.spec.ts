@@ -6,9 +6,6 @@ for (const url of ['/', '/?dev=0', '/?dev=1']) {
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(url);
-    await expect(page.locator('.menu-intro, #help')).toHaveCount(0);
-    await expect(page.getByText('Семь комнат. Четыре шара.')).toHaveCount(0);
-    await expect(page.getByText('Как устроены связи')).toHaveCount(0);
     await expect(page.locator('#play-button')).toBeEnabled();
     await page.screenshot({ path: info.outputPath('menu.png') });
     await page.locator('#play-button').click();

@@ -11,6 +11,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const devMode = new URLSearchParams(location.search).get('dev') === '1';
 $('fps-counter').hidden = !devMode;
 const canvas = $<HTMLCanvasElement>('game');
+const controlsDialog = $<HTMLDialogElement>('controls-dialog');
 const game = new Game();
 const sound = new Sound();
 const timing = new FrameTiming();
@@ -42,13 +43,13 @@ function applyLook(delta: { x: number; y: number }) {
 function updateHUD() {
   const world = game.world;
   const red = inventoryCount(world, 'red'), blue = inventoryCount(world, 'blue');
-  inventory.setAttribute('aria-label', red + blue ? `В руках: красных ${red}, синих ${blue}. Выбран ${world.selected === 'red' ? 'красный' : 'синий'} цвет.` : 'В руках нет шаров');
+  inventory.setAttribute('aria-label', red + blue ? `In hand: ${red} red, ${blue} blue. Selected: ${world.selected}.` : 'No balls in hand');
   for (const ball of world.balls) {
     const element = inventoryBalls.get(ball.id)!;
     element.classList.toggle('held', !ball.socket);
     element.classList.toggle('selected', world.selected === ball.color);
     element.setAttribute('aria-hidden', String(!!ball.socket));
-    element.setAttribute('aria-label', `${ball.color === 'red' ? 'Красный' : 'Синий'} шар${world.selected === ball.color ? ', выбран' : ''}`);
+    element.setAttribute('aria-label', `${ball.color === 'red' ? 'Red' : 'Blue'} ball${world.selected === ball.color ? ', selected' : ''}`);
   }
 }
 function sync() {
@@ -98,17 +99,6 @@ function undo() {
   if (game.undo()) { sync(); sound.play('undo'); }
 }
 function pause() { if (document.pointerLockElement) document.exitPointerLock(); }
-function updateFullscreenButtons() {
-  const active = !!document.fullscreenElement;
-  const label = active ? 'Выйти из полного экрана' : 'На весь экран';
-  document.querySelectorAll<HTMLButtonElement>('[data-fullscreen]').forEach(button => {
-    button.hidden = !document.fullscreenEnabled && !active;
-    button.setAttribute('aria-pressed', String(active));
-    button.setAttribute('aria-label', `${label} (F)`);
-    button.title = `${label} (F)`;
-  });
-  document.querySelectorAll<HTMLElement>('[data-fullscreen-label]').forEach(element => { element.textContent = label; });
-}
 async function toggleFullscreen() {
   if (fullscreenPending) return;
   fullscreenPending = true;
@@ -116,12 +106,13 @@ async function toggleFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen();
     else await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
   } catch {
-    const message = 'Не удалось включить полноэкранный режим. Попробуйте открыть игру в отдельной вкладке браузера.';
+    const message = 'Could not enter fullscreen. Try opening the game in a separate browser tab.';
     pause(); $('error').hidden = false; $('error').textContent = message;
   } finally { fullscreenPending = false; }
 }
 async function play() {
   if (!space) return;
+  $('error').hidden = true;
   sound.unlock();
   try {
     try { await canvas.requestPointerLock({ unadjustedMovement: true }); mouseInput = 'raw'; }
@@ -130,12 +121,12 @@ async function play() {
       await canvas.requestPointerLock(); mouseInput = 'standard';
     }
   }
-  catch { $('error').hidden = false; $('error').textContent = 'Браузер не разрешил захват мыши. Откройте игру в отдельной вкладке и нажмите «Войти» ещё раз.'; }
+  catch { $('error').hidden = false; $('error').textContent = 'Mouse capture was blocked. Open the game in a separate browser tab and try again.'; }
 }
-$('play-button').addEventListener('click', () => void play());
-document.querySelectorAll<HTMLButtonElement>('[data-fullscreen]').forEach(button => button.addEventListener('click', () => void toggleFullscreen()));
-document.addEventListener('fullscreenchange', updateFullscreenButtons);
-updateFullscreenButtons();
+$('play-button').addEventListener('click', () => { reset(); void play(); });
+$('resume-button').addEventListener('click', () => void play());
+$('controls-button').addEventListener('click', () => controlsDialog.showModal());
+$('controls-close').addEventListener('click', () => controlsDialog.close());
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas; keys.clear();
   mouseLook.reset();
@@ -143,10 +134,7 @@ document.addEventListener('pointerlockchange', () => {
   timing.reset();
   $('overlay').hidden = locked; document.body.classList.toggle('paused', !locked);
   if (locked && !started) started = true;
-  if (!locked && started) {
-    $('play-button').firstElementChild!.textContent = 'Вернуться в пространство';
-    $('menu-title').innerHTML = 'Вы всё ещё<br>в том же <em>месте.</em>';
-  }
+  $('resume-button').hidden = !started;
 });
 document.addEventListener(mouseEvent, event => {
   if (!locked || sweep) return;
@@ -164,7 +152,10 @@ document.addEventListener('wheel', event => {
   if (inventoryCount(game.world, color)) { game.selectColor(color); updateHUD(); }
 }, { passive: false });
 document.addEventListener('keydown', event => {
-  if (event.code === 'Escape') { pause(); return; }
+  if (event.code === 'Escape') {
+    if (controlsDialog.open) { event.preventDefault(); controlsDialog.close(); } else pause();
+    return;
+  }
   if (event.code === 'KeyF') { event.preventDefault(); if (!event.repeat) void toggleFullscreen(); return; }
   if (event.code === 'F3') { event.preventDefault(); if (devMode) { debug = !debug; $('debug').hidden = !debug; } return; }
   if (event.code === 'F4') { event.preventDefault(); if (devMode && locked && !event.repeat) toggleSweep(); return; }
@@ -194,7 +185,7 @@ canvas.addEventListener('click', () => {
 });
 canvas.addEventListener('contextmenu', event => event.preventDefault());
 window.addEventListener('resize', () => space?.resize());
-canvas.addEventListener('webglcontextlost', event => { event.preventDefault(); pause(); $('error').hidden = false; $('error').textContent = 'Графический контекст потерян. Перезагрузите страницу, чтобы продолжить.'; });
+canvas.addEventListener('webglcontextlost', event => { event.preventDefault(); pause(); $('error').hidden = false; $('error').textContent = 'The graphics context was lost. Reload the page to continue.'; });
 
 let previousTime = performance.now(), hudTime = previousTime, fps = 0;
 function frame(time: number) {
@@ -236,7 +227,7 @@ function frame(time: number) {
     if (devMode) $('fps-counter').textContent = `${fps} FPS`;
     if (debug) {
       const p = game.player;
-      $('debug').textContent = `SAMEWHERE / DEBUG\nКомната ${p.room}\nПозиция ${p.x.toFixed(2)}, ${p.z.toFixed(2)}\nYaw ${p.yaw.toFixed(2)} · Pitch ${p.pitch.toFixed(2)}\n${fps} FPS · ${space.passes}/${space.maxPasses} проходов · дальность ${space.visibilityDistance} м\nКадр: p95 ${stats.p95Ms.toFixed(1)} / max ${stats.maxMs.toFixed(1)} мс\nCPU p95 ${stats.cpuP95Ms.toFixed(1)} мс · долгих ${stats.slowFrames}/120\nGPU p95 ${gpu.p95Ms?.toFixed(1) ?? '—'} / max ${gpu.maxMs?.toFixed(1) ?? '—'} мс · очередь ${gpu.pending}\nМышь: ${mouseInput === 'raw' ? 'raw input' : 'обычный ввод'}\nGPU: ${space.renderer.info.memory.geometries} геометрий / ${space.renderer.info.memory.textures} текстур\n${space.drawCalls} draw calls · пул ${space.targets.length}/${space.maxPasses - 1}\nПорталы: ${(space.portalPixels / 1e6).toFixed(2)} Мпикс / кадр\nПереходов ${game.transitions} · история ${game.history.length}/256\n\n${game.world.balls.map(b => `${b.id}: ${b.socket ? b.socket.room + b.socket.side : 'инвентарь'}`).join('\n')}\n\n${connections(game.world).map(c => `${c.color}: ${c.ends.map(e => e.room + e.side).join(' ↔ ')}`).join('\n')}`;
+      $('debug').textContent = `SAMEWHERE / DEBUG\nRoom ${p.room}\nPosition ${p.x.toFixed(2)}, ${p.z.toFixed(2)}\nYaw ${p.yaw.toFixed(2)} · Pitch ${p.pitch.toFixed(2)}\n${fps} FPS · ${space.passes}/${space.maxPasses} passes · visibility ${space.visibilityDistance} m\nFrame: p95 ${stats.p95Ms.toFixed(1)} / max ${stats.maxMs.toFixed(1)} ms\nCPU p95 ${stats.cpuP95Ms.toFixed(1)} ms · slow frames ${stats.slowFrames}/120\nGPU p95 ${gpu.p95Ms?.toFixed(1) ?? '—'} / max ${gpu.maxMs?.toFixed(1) ?? '—'} ms · pending ${gpu.pending}\nMouse: ${mouseInput === 'raw' ? 'raw input' : 'standard input'}\nGPU: ${space.renderer.info.memory.geometries} geometries / ${space.renderer.info.memory.textures} textures\n${space.drawCalls} draw calls · pool ${space.targets.length}/${space.maxPasses - 1}\nPortals: ${(space.portalPixels / 1e6).toFixed(2)} Mpixels / frame\nTransitions ${game.transitions} · history ${game.history.length}/256\n\n${game.world.balls.map(b => `${b.id}: ${b.socket ? b.socket.room + b.socket.side : 'inventory'}`).join('\n')}\n\n${connections(game.world).map(c => `${c.color}: ${c.ends.map(e => e.room + e.side).join(' ↔ ')}`).join('\n')}`;
     }
   }
 }
@@ -244,16 +235,15 @@ try {
   space = new SpaceRenderer(canvas, game);
   surfaceTextures = new SurfaceTextures(Object.values(space.rooms).map(room => room.scene), space.assets.textures);
   updateHUD(); requestAnimationFrame(frame);
-  const playButton = $<HTMLButtonElement>('play-button'), playLabel = playButton.querySelector('span')!;
-  playButton.disabled = true; playLabel.textContent = 'Подготовка пространства…';
-  void Promise.all([space.ready, sound.ready]).then(() => { playButton.disabled = false; playLabel.textContent = 'Войти в пространство'; }).catch(error => {
-    console.error(error); $('error').hidden = false; $('error').textContent = 'Не удалось подготовить игру. Обновите страницу.';
+  const playButton = $<HTMLButtonElement>('play-button');
+  void Promise.all([space.ready, sound.ready]).then(() => { playButton.disabled = false; playButton.removeAttribute('aria-busy'); }).catch(error => {
+    console.error(error); $('error').hidden = false; $('error').textContent = 'Could not prepare the game. Reload the page to try again.';
   });
   // Development-only inspection surface for reproducible browser acceptance checks.
   if (import.meta.env.DEV) Object.assign(window, { __samewhere: { game, space, sound, sync, reset, undo, pause, timing, mouseLook, mouseEvent, get fps() { return fps; }, get mouseInput() { return mouseInput; } } });
 } catch (error) {
   console.error(error); $('error').hidden = false;
-  $('error').textContent = 'Не удалось запустить 3D. Нужен настольный браузер с WebGL 2 и аппаратным ускорением.';
+  $('error').textContent = 'Could not start 3D. Use a desktop browser with WebGL 2 and hardware acceleration.';
   $<HTMLButtonElement>('play-button').disabled = true;
 }
 window.addEventListener('pagehide', event => { if (event.persisted) { pause(); return; } disposed = true; space?.dispose(); sound.dispose(); });
