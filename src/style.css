@@ -32,7 +32,7 @@ a { color: inherit; text-decoration: none; }
 .crosshair.available { width: 7px; height: 7px; opacity: 1; }
 #fps-counter { position: absolute; top: 24px; right: 32px; background: var(--paper); padding: 8px 10px; font-size: 11px; font-variant-numeric: tabular-nums; }
 #debug { position: absolute; top: 24px; left: 24px; max-width: 470px; background: var(--paper); border: 1px solid #aaa; padding: 15px 18px; font: 10px/1.8 "SFMono-Regular", Consolas, monospace; pointer-events: auto; user-select: text; }
-.overlay { position: fixed; inset: 0; display: flex; align-items: safe center; padding: 100px 7vw 75px; overflow: auto; }
+.overlay { position: fixed; inset: 0; display: flex; align-items: safe center; padding: 75px 7vw; overflow: auto; }
 .loading-screen { position: fixed; inset: 0; z-index: 2; display: grid; place-items: center; background: #000; color: var(--paper); }
 .loading-screen.revealing { animation: loading-reveal .6s ease forwards; }
 @keyframes loading-reveal { from { opacity: 1; } to { opacity: 0; } }
