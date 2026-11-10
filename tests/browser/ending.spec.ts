@@ -42,7 +42,7 @@ test('crossing the white EXIT freezes play, reveals the ending and leaves only s
     const title = document.getElementById('ending-title')!, button = document.getElementById('play-again')!;
     const animation = title.getAnimations()[0], current = animation.currentTime;
     animation.pause();
-    const samples = [0, 5000, 10000].map(time => {
+    const samples = [0, 6000, 12000].map(time => {
       animation.currentTime = time;
       const style = getComputedStyle(title), bounds = title.getBoundingClientRect();
       return { opacity: Number(style.opacity), scale: new DOMMatrix(style.transform).a,
@@ -61,7 +61,7 @@ test('crossing the white EXIT freezes play, reveals the ending and leaves only s
   expect(appearance.samples[1].opacity).toBeGreaterThan(0); expect(appearance.samples[1].opacity).toBeLessThan(1);
   expect(appearance.samples[1].scale).toBeGreaterThan(1); expect(appearance.samples[1].scale).toBeLessThan(3);
   expect(appearance.samples[2].opacity).toBe(1); expect(appearance.samples[2].scale).toBe(3);
-  expect(appearance.titleDuration).toBe(10000); expect(appearance.buttonDelay).toBe(10000); expect(appearance.buttonDuration).toBe(1000);
+  expect(appearance.titleDuration).toBe(12000); expect(appearance.buttonDelay).toBe(12000); expect(appearance.buttonDuration).toBe(1000);
   expect(appearance.color).toBe('rgb(0, 0, 0)'); expect(appearance.background).toBe('rgb(255, 255, 255)');
   expect(appearance.fontSize).toBe(appearance.menuFontSize);
   expect(appearance.pointerEvents).toBe('none'); expect(appearance.userSelect).toBe('none');
@@ -80,7 +80,7 @@ test('crossing the white EXIT freezes play, reveals the ending and leaves only s
     (window as any).endingRamps.filter((event: any) => event.parameter === gain.gain).map((event: any) => ({ value: event.value, seconds: event.endTime - event.now }))));
   ramps.forEach((events: any[], index: number) => {
     if (index === 4) expect(events).toEqual([]);
-    else { expect(events).toHaveLength(1); expect(events[0].value).toBe(0); expect(events[0].seconds).toBeCloseTo(10, 2); }
+    else { expect(events).toHaveLength(1); expect(events[0].value).toBe(0); expect(events[0].seconds).toBeCloseTo(12, 2); }
   });
   const middle = await page.evaluate(() => window.__samewhere.sound.music.layers.map(({ gain }: any) => gain.gain.value));
   middle.forEach((gain: number, index: number) => { if (index === 4) expect(gain).toBe(1); else { expect(gain, `Stem ${index + 1}`).toBeGreaterThan(0); expect(gain).toBeLessThan(1); } });

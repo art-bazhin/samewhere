@@ -2,7 +2,7 @@ import { PASSAGE_GOALS, type RoomId } from './world';
 
 const files = import.meta.glob<string>('../music/SAMEWHERE-*.mp3', { eager: true, query: '?url', import: 'default' });
 const urls = Array.from({ length: 6 }, (_, i) => files[`../music/SAMEWHERE-${String(i + 1).padStart(3, '0')}.mp3`]);
-const LOOP_FADE = .005, LAYER_FADE = 15, ENDING_FADE = 10;
+const LOOP_FADE = .005, LAYER_FADE = 15, ENDING_FADE = 12;
 const BASE_GAIN = 10 ** (-5 / 20);
 
 export function fadeGain(gain: AudioParam, target: number, time: number, duration: number) {
