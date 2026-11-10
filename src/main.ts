@@ -182,8 +182,7 @@ document.addEventListener('visibilitychange', () => {
 canvas.addEventListener('click', () => {
   if (!locked || sweep) return;
   const socket = space.pick(); if (!socket) return;
-  const result = game.interact(socket);
-  if (result) { sync(); sound.play(result); }
+  if (game.interact(socket)) sync();
 });
 canvas.addEventListener('contextmenu', event => event.preventDefault());
 window.addEventListener('resize', () => space?.resize());
