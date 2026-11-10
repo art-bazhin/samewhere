@@ -50,6 +50,15 @@ body.loading #hud { visibility: hidden; }
 .menu-item:hover { opacity: .7; }
 body.paused #game { filter: blur(3px); transform: scale(1.02); }
 body.paused .inventory, body.paused #crosshair { opacity: 0; }
+#ending-screen { position: fixed; inset: 0; z-index: 3; background: #fff; color: #000; cursor: none; }
+#ending-screen.interactive { cursor: auto; }
+#ending-title { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(1); transform-origin: center; margin: 0; opacity: 0; pointer-events: none; user-select: none; animation: ending-title-reveal 15s ease forwards; }
+.ending-replay { position: absolute; top: calc(50% + 52px); left: 50%; transform: translateX(-50%); opacity: 0; visibility: hidden; animation: ending-appear 1s ease 15s forwards; }
+@keyframes ending-title-reveal {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(3); }
+}
+@keyframes ending-appear { from { opacity: 0; visibility: visible; } to { opacity: 1; visibility: visible; } }
 #error { max-width: 420px; margin: 0; font: 14px/1.6 Arial, sans-serif; letter-spacing: 0; }
 #controls-dialog { width: 440px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); padding: 32px; color: var(--paper); background: #17160f; border: 1px solid #eee6bf55; font-family: Arial, sans-serif; }
 #controls-dialog::backdrop { background: #0004; }

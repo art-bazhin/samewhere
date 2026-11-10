@@ -86,6 +86,9 @@ test('9 prepares the final EXIT into unlit white space, with a continuous crossi
   expect(result.forward).toBe(1); expect(result.back).toBe(1);
   expect(result.lights).toBe(0); expect(result.pick).toBeNull(); expect(result.returned).toBe(true); expect(result.undoOutside).toBe(true);
   expect(result.seamMean).toBeLessThan(.3);
+  await page.locator('#play-again').click({ timeout: 20_000 });
+  await expect(page.locator('#ending-screen')).toBeHidden();
+  await expect(page.locator('#overlay')).toBeHidden();
   await page.keyboard.press('Numpad9');
   expect(await page.evaluate(() => window.__samewhere.game.world.gallery.outside)).toBe(false);
   await page.keyboard.press('KeyR');

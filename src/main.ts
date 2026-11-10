@@ -11,6 +11,7 @@ const devMode = new URLSearchParams(location.search).get('dev') === '1';
 $('fps-counter').hidden = !devMode;
 const canvas = $<HTMLCanvasElement>('game');
 const controlsDialog = $<HTMLDialogElement>('controls-dialog');
+const endingScreen = $('ending-screen'), playAgain = $<HTMLButtonElement>('play-again');
 const game = new Game();
 const sound = new Sound();
 const timing = new FrameTiming();
@@ -29,7 +30,7 @@ const DEBUG_ROOMS = ['G', 'A', 'B', 'C', 'D', 'E', 'F'] as const;
 let debugRoomIndex = 0;
 let space: SpaceRenderer;
 let surfaceTextures: SurfaceTextures;
-let locked = false, started = false, debug = false, disposed = false;
+let locked = false, started = false, ended = false, debug = false, disposed = false;
 let fullscreenPending = false;
 let sweep: { yaw: number; pitch: number; start: number } | null = null;
 const keys = new Set<string>();
@@ -74,8 +75,19 @@ function toggleSweep() {
   sweep = { yaw: game.player.yaw, pitch: game.player.pitch, start: performance.now() };
 }
 function reset() {
+  ended = false; endingScreen.hidden = true; $('hud').hidden = false;
+  $('overlay').hidden = locked; document.body.classList.toggle('paused', !locked);
   stopSweep(); mouseLook.reset(); debugRoomIndex = 0;
   game.reset(); sound.music.reset(); sync();
+}
+function finishGame() {
+  if (ended) return;
+  ended = true; keys.clear(); stopSweep(); mouseLook.reset(); controlsDialog.close();
+  $('hud').hidden = true; $('overlay').hidden = true;
+  document.body.classList.remove('paused');
+  endingScreen.classList.remove('interactive');
+  playAgain.disabled = true; endingScreen.hidden = false;
+  sound.music.finish();
 }
 function nextDebugRoom() {
   stopSweep(); keys.clear(); mouseLook.reset();
@@ -132,6 +144,11 @@ async function play() {
   catch { $('error').hidden = false; $('error').textContent = 'Mouse capture was blocked. Open the game in a separate browser tab and try again.'; }
 }
 $('play-button').addEventListener('click', () => { reset(); void play(); });
+playAgain.addEventListener('click', () => { reset(); void play(); });
+playAgain.addEventListener('animationstart', () => {
+  if (ended) { endingScreen.classList.add('interactive'); pause(); }
+});
+playAgain.addEventListener('animationend', () => { playAgain.disabled = false; });
 $('resume-button').addEventListener('click', () => void play());
 $('controls-button').addEventListener('click', () => controlsDialog.showModal());
 $('controls-close').addEventListener('click', () => controlsDialog.close());
@@ -140,12 +157,12 @@ document.addEventListener('pointerlockchange', () => {
   mouseLook.reset();
   if (!locked) stopSweep();
   timing.reset();
-  $('overlay').hidden = locked; document.body.classList.toggle('paused', !locked);
+  $('overlay').hidden = locked || ended; document.body.classList.toggle('paused', !locked && !ended);
   if (locked && !started) started = true;
   $('resume-button').hidden = !started;
 });
 document.addEventListener(mouseEvent, event => {
-  if (!locked || sweep) return;
+  if (!locked || sweep || ended) return;
   const pointer = event as PointerEvent;
   const coalesced = pointer.getCoalescedEvents?.();
   // Use either individual packets or their aggregate; never count both streams.
@@ -154,12 +171,13 @@ document.addEventListener(mouseEvent, event => {
   } else mouseLook.push(pointer.movementX, pointer.movementY);
 }, { passive: true });
 document.addEventListener('wheel', event => {
-  if (!locked || sweep || !event.deltaY) return;
+  if (!locked || sweep || ended || !event.deltaY) return;
   event.preventDefault();
   const color = game.world.selected === 'red' ? 'blue' : 'red';
   if (inventoryCount(game.world, color)) { game.selectColor(color); updateHUD(); }
 }, { passive: false });
 document.addEventListener('keydown', event => {
+  if (ended) { if (event.code === 'Escape') event.preventDefault(); return; }
   if (event.code === 'Escape') {
     if (controlsDialog.open) { event.preventDefault(); controlsDialog.close(); } else pause();
     return;
@@ -187,7 +205,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) { keys.clear(); pause(); }
 });
 canvas.addEventListener('click', () => {
-  if (!locked || sweep) return;
+  if (!locked || sweep || ended) return;
   const socket = space.pick(); if (!socket) return;
   if (game.interact(socket)) sync();
 });
@@ -202,7 +220,7 @@ function frame(time: number) {
   const dt = Math.min((time - previousTime) / 1000, 0.1); previousTime = time;
   if (document.hidden) return;
   const frameStart = performance.now();
-  if (locked) {
+  if (locked && !ended) {
     if (!sweep) {
       applyLook(mouseLook.consume());
     }
@@ -227,6 +245,7 @@ function frame(time: number) {
     crosshair.classList.toggle('available', !!socket && (!!ballAt(game.world, socket) || inventoryCount(game.world, game.world.selected) > 0));
     sound.music.update(game.player.room, game.world.passageProgress);
   }
+  if (!ended && game.world.gallery?.outside) finishGame();
   space.render(); timing.record(frameStart, performance.now() - frameStart);
   if (time - hudTime > 500) {
     const stats = timing.summary();

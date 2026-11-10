@@ -20,6 +20,7 @@ export class Music {
   readonly layers: { source: AudioBufferSourceNode; gain: GainNode }[] = [];
   private buffers: AudioBuffer[] = [];
   private context: AudioContext | null = null;
+  private ending = false;
   private readonly download = new AbortController();
   constructor() { this.ready = this.load(); }
   private async load() {
@@ -55,6 +56,7 @@ export class Music {
     }
   }
   update(room: RoomId, passageProgress: number) {
+    if (this.ending) return;
     if (room === 'B') this.activate(1);
     if (room === 'D') this.activate(2);
     if (room === 'G') this.activate(3);
@@ -68,7 +70,15 @@ export class Music {
       fadeGain(this.layers[index].gain.gain, 1, this.context.currentTime, LAYER_FADE);
     }
   }
+  finish() {
+    if (this.ending) return;
+    this.ending = true;
+    if (!this.context) return;
+    const now = this.context.currentTime;
+    for (const [index, { gain }] of this.layers.entries()) if (index !== 4) fadeGain(gain.gain, 0, now, LAYER_FADE);
+  }
   reset() {
+    this.ending = false;
     this.active.clear(); this.active.add(0);
     if (!this.context) return;
     const now = this.context.currentTime;
