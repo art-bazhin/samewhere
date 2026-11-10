@@ -166,8 +166,8 @@ document.addEventListener('wheel', event => {
 document.addEventListener('keydown', event => {
   if (event.code === 'Escape') { pause(); return; }
   if (event.code === 'KeyF') { event.preventDefault(); if (!event.repeat) void toggleFullscreen(); return; }
-  if (event.code === 'F3') { event.preventDefault(); debug = !debug; $('debug').hidden = !debug; return; }
-  if (event.code === 'F4') { event.preventDefault(); if (locked && !event.repeat) toggleSweep(); return; }
+  if (event.code === 'F3') { event.preventDefault(); if (devMode) { debug = !debug; $('debug').hidden = !debug; } return; }
+  if (event.code === 'F4') { event.preventDefault(); if (devMode && locked && !event.repeat) toggleSweep(); return; }
   if (!locked) return;
   if (event.code === 'Tab') { event.preventDefault(); if (devMode && !event.repeat) nextDebugRoom(); return; }
   if (event.code === 'Digit0' || event.code === 'Numpad0') { event.preventDefault(); if (devMode && !event.repeat) prepareGalleryTest(); return; }
@@ -179,7 +179,7 @@ document.addEventListener('keydown', event => {
   if (event.code === 'KeyZ') undo();
   if (event.code === 'KeyR' && devMode) reset();
   if (event.code === 'KeyM') sound.enabled = !sound.enabled;
-  if (event.code === 'KeyT') surfaceTextures.toggle();
+  if (event.code === 'KeyT' && devMode) surfaceTextures.toggle();
 });
 document.addEventListener('keyup', event => keys.delete(event.code));
 window.addEventListener('blur', () => { keys.clear(); pause(); });

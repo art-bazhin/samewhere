@@ -119,7 +119,7 @@ test('initial ball placement, actual mouse pick/place, and both shared pedestal 
 });
 
 test('native relative mouse input is applied once, preserves sensitivity, and settles without camera drift', async ({ page }) => {
-  await ready(page); await page.locator('#play-button').click();
+  await ready(page, '/?dev=1'); await page.locator('#play-button').click();
   await expect(page.locator('#overlay')).toBeHidden();
   await page.evaluate(() => {
     const app = window.__samewhere;

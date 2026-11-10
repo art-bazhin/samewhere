@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 for (const url of ['/', '/?dev=0', '/?dev=1']) {
-  test(`fast travel, restart and the FPS counter require dev=1: ${url}`, async ({ page }, info) => {
+  test(`developer controls and the FPS counter require dev=1: ${url}`, async ({ page }, info) => {
+    const dev = url === '/?dev=1';
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(url);
@@ -13,7 +14,21 @@ for (const url of ['/', '/?dev=0', '/?dev=1']) {
     await page.locator('#play-button').click();
     await expect(page.locator('#overlay')).toBeHidden();
     const initial = await page.evaluate(() => window.__samewhere.game.snapshot());
-    if (url === '/?dev=1') {
+    await page.keyboard.press('F3');
+    await expect(page.locator('#debug')).toHaveJSProperty('hidden', !dev);
+    await page.keyboard.press('F3'); await expect(page.locator('#debug')).toBeHidden();
+    const texture = await page.evaluate(() => window.__samewhere.space.assets.materials.wall.map.uuid);
+    await page.keyboard.press('KeyT');
+    const changedTexture = await page.evaluate(() => window.__samewhere.space.assets.materials.wall.map.uuid);
+    if (dev) expect(changedTexture).not.toBe(texture); else expect(changedTexture).toBe(texture);
+    await page.keyboard.press('KeyT');
+    expect(await page.evaluate(() => window.__samewhere.space.assets.materials.wall.map.uuid)).toBe(texture);
+    await page.keyboard.press('F4'); await page.waitForTimeout(150);
+    const player = await page.evaluate(() => ({ ...window.__samewhere.game.player }));
+    if (dev) expect(player).not.toEqual(initial.player); else expect(player).toEqual(initial.player);
+    await page.keyboard.press('F4');
+    expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
+    if (dev) {
       await expect(page.locator('#fps-counter')).toBeVisible();
       await expect(page.locator('#fps-counter')).toHaveText(/^\d+ FPS$/);
       const bounds = await page.locator('#fps-counter').boundingBox();
