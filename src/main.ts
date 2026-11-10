@@ -157,6 +157,12 @@ document.addEventListener(mouseEvent, event => {
     for (const sample of coalesced) mouseLook.push(sample.movementX, sample.movementY);
   } else mouseLook.push(pointer.movementX, pointer.movementY);
 }, { passive: true });
+document.addEventListener('wheel', event => {
+  if (!locked || sweep || !event.deltaY) return;
+  event.preventDefault();
+  const color = game.world.selected === 'red' ? 'blue' : 'red';
+  if (inventoryCount(game.world, color)) { game.selectColor(color); updateHUD(); }
+}, { passive: false });
 document.addEventListener('keydown', event => {
   if (event.code === 'Escape') { pause(); return; }
   if (event.code === 'KeyF') { event.preventDefault(); if (!event.repeat) void toggleFullscreen(); return; }

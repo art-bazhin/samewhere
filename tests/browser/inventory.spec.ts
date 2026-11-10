@@ -22,7 +22,12 @@ test('the minimal inventory shows held balls, switches available colors and foll
   await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(2);
   await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(2);
   await expect(selected).toHaveCount(2); await expect(selected.first()).toHaveAttribute('data-color', 'red');
+  await page.mouse.wheel(0, 100); await expect(selected.first()).toHaveAttribute('data-color', 'blue');
+  await page.mouse.wheel(0, -100); await expect(selected.first()).toHaveAttribute('data-color', 'red');
   await page.keyboard.press('Digit2'); await expect(selected.first()).toHaveAttribute('data-color', 'blue');
+  await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
+  await page.mouse.wheel(0, 100); await expect(selected.first()).toHaveAttribute('data-color', 'blue');
+  await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   await expect.poll(() => page.evaluate(() => {
     const selected = document.querySelector('#inventory .held.selected')!.getBoundingClientRect();
     const other = document.querySelector('#inventory .held:not(.selected)')!.getBoundingClientRect();
@@ -49,6 +54,7 @@ test('the minimal inventory shows held balls, switches available colors and foll
   await clickSocket(1); await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(0);
   await expect(selected).toHaveCount(2); await expect(selected.first()).toHaveAttribute('data-color', 'red');
   await page.keyboard.press('Digit2'); await expect(selected.first()).toHaveAttribute('data-color', 'red');
+  await page.mouse.wheel(0, 100); await expect(selected.first()).toHaveAttribute('data-color', 'red');
   await clickSocket(0); await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(1);
   await expect(selected).toHaveCount(1); await expect(selected.first()).toHaveAttribute('data-color', 'blue');
   await page.keyboard.press('KeyZ'); await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(0);
