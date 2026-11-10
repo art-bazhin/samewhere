@@ -49,7 +49,10 @@ function updateHUD() {
     element.setAttribute('aria-label', `${ball.color === 'red' ? 'Красный' : 'Синий'} шар${world.selected === ball.color ? ', выбран' : ''}`);
   }
 }
-function sync() { space.sync(); space.pick(); updateHUD(); }
+function sync() {
+  space.sync(); space.pick(); updateHUD();
+  if (started) sound.music.update(game.player.room, game.world.passageProgress);
+}
 function stopSweep() {
   if (!sweep) return;
   game.player.yaw = sweep.yaw; game.player.pitch = sweep.pitch; sweep = null;
@@ -61,7 +64,7 @@ function toggleSweep() {
 }
 function reset() {
   stopSweep(); mouseLook.reset(); debugRoomIndex = 0;
-  game.reset(); sync();
+  game.reset(); sound.music.reset(); sync();
 }
 function nextDebugRoom() {
   stopSweep(); keys.clear(); mouseLook.reset();
@@ -216,6 +219,7 @@ function frame(time: number) {
     }
     const socket = space.pick();
     crosshair.classList.toggle('available', !!socket && (!!ballAt(game.world, socket) || inventoryCount(game.world, game.world.selected) > 0));
+    sound.music.update(game.player.room, game.world.passageProgress);
   }
   space.render(); timing.record(frameStart, performance.now() - frameStart);
   if (time - hudTime > 500) {
@@ -234,14 +238,14 @@ try {
   updateHUD(); requestAnimationFrame(frame);
   const playButton = $<HTMLButtonElement>('play-button'), playLabel = playButton.querySelector('span')!;
   playButton.disabled = true; playLabel.textContent = 'Подготовка пространства…';
-  void space.ready.then(() => { playButton.disabled = false; playLabel.textContent = 'Войти в пространство'; }).catch(error => {
-    console.error(error); $('error').hidden = false; $('error').textContent = 'Не удалось подготовить пространство. Обновите страницу.';
+  void Promise.all([space.ready, sound.ready]).then(() => { playButton.disabled = false; playLabel.textContent = 'Войти в пространство'; }).catch(error => {
+    console.error(error); $('error').hidden = false; $('error').textContent = 'Не удалось подготовить игру. Обновите страницу.';
   });
   // Development-only inspection surface for reproducible browser acceptance checks.
-  if (import.meta.env.DEV) Object.assign(window, { __samewhere: { game, space, sync, reset, undo, pause, timing, mouseLook, mouseEvent, get fps() { return fps; }, get mouseInput() { return mouseInput; } } });
+  if (import.meta.env.DEV) Object.assign(window, { __samewhere: { game, space, sound, sync, reset, undo, pause, timing, mouseLook, mouseEvent, get fps() { return fps; }, get mouseInput() { return mouseInput; } } });
 } catch (error) {
   console.error(error); $('error').hidden = false;
   $('error').textContent = 'Не удалось запустить 3D. Нужен настольный браузер с WebGL 2 и аппаратным ускорением.';
   $<HTMLButtonElement>('play-button').disabled = true;
 }
-window.addEventListener('pagehide', event => { if (event.persisted) { pause(); return; } disposed = true; space?.dispose(); void sound.context?.close(); });
+window.addEventListener('pagehide', event => { if (event.persisted) { pause(); return; } disposed = true; space?.dispose(); sound.dispose(); });
