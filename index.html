@@ -7,8 +7,9 @@
     <meta name="description" content="Samewhere — a spatial puzzle about rooms you connect." />
     <title>Samewhere</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body>
+  <body class="paused loading">
     <canvas id="game" aria-label="Samewhere game world"></canvas>
     <div id="hud">
       <div class="crosshair" id="crosshair"><span></span></div>
@@ -17,13 +18,16 @@
       <pre id="debug" hidden></pre>
     </div>
     <div id="overlay" class="overlay">
-      <div class="menu-brand wordmark">samewhere<span class="wordmark-dot">.</span></div>
-      <section class="menu-actions wordmark" aria-label="Game menu">
-        <button id="resume-button" class="menu-item" hidden>RESUME GAME</button>
-        <button id="play-button" class="menu-item" disabled aria-busy="true">NEW GAME</button>
-        <button id="controls-button" class="menu-item">CONTROLS</button>
-        <p id="error" role="alert" hidden></p>
-      </section>
+      <div id="loading-screen" class="loading-screen" role="status" aria-label="Loading"><span class="loading-label wordmark">LOADING<span class="loading-dots" aria-hidden="true">...</span></span></div>
+      <div id="menu-content" hidden inert>
+        <div class="menu-brand wordmark">samewhere<span class="wordmark-dot">.</span></div>
+        <section class="menu-actions wordmark" aria-label="Game menu">
+          <button id="resume-button" class="menu-item" hidden>RESUME GAME</button>
+          <button id="play-button" class="menu-item" disabled aria-busy="true">NEW GAME</button>
+          <button id="controls-button" class="menu-item">CONTROLS</button>
+          <p id="error" role="alert" hidden></p>
+        </section>
+      </div>
     </div>
     <dialog id="controls-dialog" aria-labelledby="controls-title">
       <h2 id="controls-title" class="wordmark">CONTROLS</h2>

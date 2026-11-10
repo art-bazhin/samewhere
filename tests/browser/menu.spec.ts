@@ -1,11 +1,75 @@
 import { test, expect } from '@playwright/test';
 
+test('initial loading hides preparation behind black and fades into the menu after graphics and music are ready', async ({ page }, info) => {
+  let releaseMain!: () => void, releaseMusic!: () => void;
+  const mainGate = new Promise<void>(resolve => { releaseMain = resolve; });
+  const musicGate = new Promise<void>(resolve => { releaseMusic = resolve; });
+  await page.route('**/src/main.ts', async route => { await mainGate; await route.continue(); });
+  await page.route('**/music/SAMEWHERE-006.mp3', async route => { await musicGate; await route.continue(); });
+  try {
+    await page.goto('/?dev=1', { waitUntil: 'commit' });
+    const loading = page.getByRole('status', { name: 'Loading' });
+    await expect(loading).toBeVisible();
+    for (const selector of ['#menu-content', '.menu-brand', '#hud']) await expect(page.locator(selector)).toBeHidden();
+    expect(await loading.evaluate(screen => ({ background: getComputedStyle(screen).backgroundColor, opacity: getComputedStyle(screen).opacity })))
+      .toEqual({ background: 'rgb(0, 0, 0)', opacity: '1' });
+    expect(await page.locator('#game').evaluate(canvas => getComputedStyle(canvas).filter)).toBe('blur(3px)');
+    const cover = await loading.boundingBox(), bounds = await page.locator('.loading-label').boundingBox(), viewport = page.viewportSize()!;
+    expect(cover).toEqual({ x: 0, y: 0, width: viewport.width, height: viewport.height });
+    expect(bounds!.x + bounds!.width / 2).toBeCloseTo(viewport.width / 2, 0);
+    expect(bounds!.y + bounds!.height / 2).toBeCloseTo(viewport.height / 2, 0);
+    const animation = await page.locator('.loading-dots').evaluate(dots => {
+      const animation = dots.getAnimations()[0]; animation.pause();
+      const duration = animation.effect!.getTiming().duration;
+      const hidden = [1, 1001, 2001, 3001, 4001].map(time => {
+        animation.currentTime = time;
+        return Number(getComputedStyle(dots).clipPath.match(/([\d.]+)%/)?.[1] ?? 0);
+      });
+      animation.play(); return { duration, hidden };
+    });
+    expect(animation.duration).toBe(4000);
+    [100, 200 / 3, 100 / 3, 0, 100].forEach((value, index) => expect(animation.hidden[index]).toBeCloseTo(value, 3));
+    releaseMain();
+    await page.waitForFunction(() => !!window.__samewhere?.space);
+    await page.evaluate(() => window.__samewhere.space.ready);
+    await expect(loading).toBeVisible(); await expect(page.locator('#menu-content')).toBeHidden();
+    expect(await loading.evaluate(screen => getComputedStyle(screen).opacity)).toBe('1');
+    await page.screenshot({ path: info.outputPath('loading.png') });
+    const fading = page.waitForFunction(() => {
+      const screen = document.getElementById('loading-screen')!, animation = screen.getAnimations()[0];
+      if (!animation) return false;
+      animation.pause(); return true;
+    });
+    releaseMusic();
+    await fading;
+    await expect(page.locator('#play-button')).toBeEnabled();
+    await expect(page.locator('#menu-content')).toHaveJSProperty('inert', true);
+    const fade = await loading.evaluate(screen => {
+      const animation = screen.getAnimations()[0];
+      animation.currentTime = 0; const start = Number(getComputedStyle(screen).opacity);
+      animation.currentTime = 300;
+      return { duration: animation.effect!.getTiming().duration, start, middle: Number(getComputedStyle(screen).opacity) };
+    });
+    expect(fade.duration).toBe(600); expect(fade.start).toBe(1);
+    expect(fade.middle).toBeGreaterThan(0); expect(fade.middle).toBeLessThan(1);
+    await page.screenshot({ path: info.outputPath('loading-fade.png') });
+    await loading.evaluate(screen => screen.getAnimations()[0].play());
+    await expect(loading).toBeHidden(); await expect(page.locator('.menu-brand')).toBeVisible();
+    await expect(page.locator('#menu-content')).toHaveJSProperty('inert', false);
+    await expect(page.locator('#fps-counter')).toBeVisible();
+    await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+    await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
+    await expect(loading).toBeHidden(); await expect(page.locator('#resume-button')).toBeVisible();
+  } finally { releaseMain(); releaseMusic(); }
+});
+
 test('the English menu offers controls, resumes progress and starts a fresh game without dev mode', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
   const overlay = page.locator('#overlay'), dialog = page.getByRole('dialog', { name: 'CONTROLS' });
   await expect(page.locator('#play-button')).toBeEnabled();
+  await expect(page.locator('#loading-screen')).toBeHidden();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page.locator('.menu-brand')).toHaveText('samewhere.');
   await expect(page.locator('.menu-actions button:visible')).toHaveText(['NEW GAME', 'CONTROLS']);

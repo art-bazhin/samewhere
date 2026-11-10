@@ -1,4 +1,3 @@
-import './style.css';
 import { ballAt, connections, FINAL_PASSAGE_GOALS, Game, inventoryCount, PASSAGE_GOALS, wallNormal } from './world';
 import { galleryRoute } from './gallery';
 import { SpaceRenderer } from './scene';
@@ -34,7 +33,16 @@ let locked = false, started = false, debug = false, disposed = false;
 let fullscreenPending = false;
 let sweep: { yaw: number; pitch: number; start: number } | null = null;
 const keys = new Set<string>();
-document.body.classList.add('paused');
+
+function finishLoading() {
+  const loading = $('loading-screen'), menu = $('menu-content');
+  menu.hidden = false;
+  loading.addEventListener('animationend', () => {
+    loading.hidden = true; menu.inert = false;
+    document.body.classList.remove('loading');
+  }, { once: true });
+  loading.classList.add('revealing');
+}
 
 function applyLook(delta: { x: number; y: number }) {
   game.player.yaw -= delta.x * 0.002;
@@ -236,8 +244,9 @@ try {
   surfaceTextures = new SurfaceTextures(Object.values(space.rooms).map(room => room.scene), space.assets.textures);
   updateHUD(); requestAnimationFrame(frame);
   const playButton = $<HTMLButtonElement>('play-button');
-  void Promise.all([space.ready, sound.ready]).then(() => { playButton.disabled = false; playButton.removeAttribute('aria-busy'); }).catch(error => {
+  void Promise.all([space.ready, sound.ready]).then(() => { playButton.disabled = false; playButton.removeAttribute('aria-busy'); finishLoading(); }).catch(error => {
     console.error(error); $('error').hidden = false; $('error').textContent = 'Could not prepare the game. Reload the page to try again.';
+    finishLoading();
   });
   // Development-only inspection surface for reproducible browser acceptance checks.
   if (import.meta.env.DEV) Object.assign(window, { __samewhere: { game, space, sound, sync, reset, undo, pause, timing, mouseLook, mouseEvent, get fps() { return fps; }, get mouseInput() { return mouseInput; } } });
@@ -245,5 +254,6 @@ try {
   console.error(error); $('error').hidden = false;
   $('error').textContent = 'Could not start 3D. Use a desktop browser with WebGL 2 and hardware acceleration.';
   $<HTMLButtonElement>('play-button').disabled = true;
+  finishLoading();
 }
 window.addEventListener('pagehide', event => { if (event.persisted) { pause(); return; } disposed = true; space?.dispose(); sound.dispose(); });

@@ -238,6 +238,8 @@ for (const status of [503, 200]) test(`lighting download failure (${status}) rep
   await page.goto('/');
   await expect(page.locator('#error')).toBeVisible();
   await expect(page.locator('#error')).toContainText('Could not prepare the game');
+  await expect(page.locator('#loading-screen')).toBeHidden();
+  await expect(page.locator('#menu-content')).toBeVisible();
   await expect(page.locator('#play-button')).toBeDisabled();
   const result = await page.evaluate(() => {
     const light = window.__samewhere.space.lightTransfer; return { jobs: light.jobs, fields: light.cacheSize };
