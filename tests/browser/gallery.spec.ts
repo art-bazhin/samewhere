@@ -2,7 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 
 test('0 shortcuts prepare the square gallery with four balls in hand and can be undone', async ({ page }) => {
-  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+  await page.goto('/?dev=1'); await page.waitForFunction(() => !!window.__samewhere?.space);
   await page.evaluate(() => window.__samewhere.space.ready);
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   const initial = await page.evaluate(() => window.__samewhere.game.snapshot());

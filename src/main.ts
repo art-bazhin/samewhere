@@ -8,6 +8,8 @@ import { MouseLook } from './mouse-look';
 import { SurfaceTextures } from './surface-textures';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const devMode = new URLSearchParams(location.search).get('dev') === '1';
+$('fps-counter').hidden = !devMode;
 const canvas = $<HTMLCanvasElement>('game');
 const game = new Game();
 const sound = new Sound();
@@ -161,9 +163,9 @@ document.addEventListener('keydown', event => {
   if (event.code === 'F3') { event.preventDefault(); debug = !debug; $('debug').hidden = !debug; return; }
   if (event.code === 'F4') { event.preventDefault(); if (locked && !event.repeat) toggleSweep(); return; }
   if (!locked) return;
-  if (event.code === 'Tab') { event.preventDefault(); if (!event.repeat) nextDebugRoom(); return; }
-  if (event.code === 'Digit0' || event.code === 'Numpad0') { event.preventDefault(); if (!event.repeat) prepareGalleryTest(); return; }
-  if (event.code === 'Digit9' || event.code === 'Numpad9') { event.preventDefault(); if (!event.repeat) prepareGalleryTest(true); return; }
+  if (event.code === 'Tab') { event.preventDefault(); if (devMode && !event.repeat) nextDebugRoom(); return; }
+  if (event.code === 'Digit0' || event.code === 'Numpad0') { event.preventDefault(); if (devMode && !event.repeat) prepareGalleryTest(); return; }
+  if (event.code === 'Digit9' || event.code === 'Numpad9') { event.preventDefault(); if (devMode && !event.repeat) prepareGalleryTest(true); return; }
   if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(event.code)) event.preventDefault();
   keys.add(event.code);
   if (event.repeat) return;
@@ -225,6 +227,7 @@ function frame(time: number) {
     const stats = timing.summary();
     const gpu = space.gpuTiming.summary();
     fps = Math.round(stats.fps); hudTime = time;
+    if (devMode) $('fps-counter').textContent = `${fps} FPS`;
     if (debug) {
       const p = game.player;
       $('debug').textContent = `SAMEWHERE / DEBUG\nКомната ${p.room}\nПозиция ${p.x.toFixed(2)}, ${p.z.toFixed(2)}\nYaw ${p.yaw.toFixed(2)} · Pitch ${p.pitch.toFixed(2)}\n${fps} FPS · ${space.passes}/${space.maxPasses} проходов · дальность ${space.visibilityDistance} м\nКадр: p95 ${stats.p95Ms.toFixed(1)} / max ${stats.maxMs.toFixed(1)} мс\nCPU p95 ${stats.cpuP95Ms.toFixed(1)} мс · долгих ${stats.slowFrames}/120\nGPU p95 ${gpu.p95Ms?.toFixed(1) ?? '—'} / max ${gpu.maxMs?.toFixed(1) ?? '—'} мс · очередь ${gpu.pending}\nМышь: ${mouseInput === 'raw' ? 'raw input' : 'обычный ввод'}\nGPU: ${space.renderer.info.memory.geometries} геометрий / ${space.renderer.info.memory.textures} текстур\n${space.drawCalls} draw calls · пул ${space.targets.length}/${space.maxPasses - 1}\nПорталы: ${(space.portalPixels / 1e6).toFixed(2)} Мпикс / кадр\nПереходов ${game.transitions} · история ${game.history.length}/256\n\n${game.world.balls.map(b => `${b.id}: ${b.socket ? b.socket.room + b.socket.side : 'инвентарь'}`).join('\n')}\n\n${connections(game.world).map(c => `${c.color}: ${c.ends.map(e => e.room + e.side).join(' ↔ ')}`).join('\n')}`;

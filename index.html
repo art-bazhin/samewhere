@@ -13,6 +13,7 @@
     <div id="hud">
       <div class="crosshair" id="crosshair"><span></span></div>
       <div id="inventory" class="inventory" role="group" aria-label="Шары в руках"></div>
+      <span id="fps-counter" aria-label="Частота кадров" hidden>— FPS</span>
       <pre id="debug" hidden></pre>
     </div>
     <div id="overlay" class="overlay">
@@ -20,12 +21,10 @@
       <section class="menu-card" aria-labelledby="menu-title">
         <div class="menu-meta"><span class="eyebrow">Комнаты и связи</span><span class="edition">Прототип 0.1</span></div>
         <h1 id="menu-title">Одно место.<br>Бесконечно <em>другое.</em></h1>
-        <p class="menu-intro">Семь комнат. Четыре шара.<br>Вы решаете, куда ведёт каждый проход.</p>
         <div class="connection-sketch" aria-hidden="true"><span class="sketch-room">□</span><i class="sketch-line"></i><span class="sketch-room pentagon-glyph">⬠</span><i class="sketch-line"></i><span class="sketch-room">⬡</span><i class="sketch-line"></i><span class="sketch-room">△</span><i class="sketch-line"></i><span class="sketch-room">…</span></div>
         <button id="play-button" class="play-button"><span>Войти в пространство</span><span>↗</span></button>
         <button class="fullscreen-menu-button" data-fullscreen aria-pressed="false"><span data-fullscreen-label>На весь экран</span><kbd>F</kbd></button>
         <p class="menu-note">WASD — движение · Мышь — обзор · Esc — пауза</p>
-        <details id="help"><summary>Как устроены связи <span>+</span></summary><div class="help-content"><p>Каждый пьедестал — пульт комнаты той же формы. Лунка соответствует стене.</p><p>Два шара одного цвета соединяют два прохода. Заберите шар — связь исчезнет. Положите его на другой пьедестал — пространство изменится.</p><p><b>ЛКМ</b> — взять или положить · <b>1 / 2</b> — цвет<br><b>Z</b> — отмена, включая переходы · <b>R</b> — сначала<br><b>F3</b> — отладка · <b>F4</b> — тест плавности без мыши<br><b>T</b> — текстуры (проверка теней)<br><b>F</b> — полный экран · <b>M</b> — звук</p></div></details>
         <p id="error" role="alert" hidden></p>
       </section>
       <div class="overlay-caption"><span>Пространство меняется.<br>Правила остаются.</span><span>△<br>SAMEWHERE / 2026</span></div>

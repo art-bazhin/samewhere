@@ -4,14 +4,14 @@ test('the minimal inventory shows held balls, switches available colors and foll
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+  await page.goto('/?dev=1'); await page.waitForFunction(() => !!window.__samewhere?.space);
   await page.evaluate(() => window.__samewhere.space.ready);
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   const held = page.locator('#inventory .held');
   const selected = page.locator('#inventory .held.selected');
   await expect(held).toHaveCount(0);
   await expect(page.locator('#room-name, #room-shape, #red-count, #blue-count, #interaction, #toast, #hud button, #hud kbd, .topbar, .bottom-bar')).toHaveCount(0);
-  expect((await page.locator('#hud').innerText()).trim()).toBe('');
+  await expect(page.locator('#fps-counter')).toHaveText(/^\d+ FPS$/);
   await page.screenshot({ path: info.outputPath('empty-hands.png') });
   await page.keyboard.press('F3'); await expect(page.locator('#debug')).toBeVisible();
   await page.keyboard.press('F3'); await expect(page.locator('#debug')).toBeHidden();

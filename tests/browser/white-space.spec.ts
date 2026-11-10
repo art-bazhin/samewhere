@@ -5,7 +5,7 @@ test('the white EXIT fades in over the normal visibility range through successiv
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+  await page.goto('/?dev=1'); await page.waitForFunction(() => !!window.__samewhere?.space);
   await page.evaluate(() => window.__samewhere.space.ready);
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   await page.keyboard.press('Digit9');
@@ -45,7 +45,7 @@ test('9 prepares the final EXIT into unlit white space, with a continuous crossi
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+  await page.goto('/?dev=1'); await page.waitForFunction(() => !!window.__samewhere?.space);
   await page.evaluate(() => window.__samewhere.space.ready);
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   const initial = await page.evaluate(() => window.__samewhere.game.snapshot());
@@ -99,7 +99,7 @@ test('approaching the final EXIT washes the entire view into white over seven me
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.goto('/'); await page.waitForFunction(() => !!window.__samewhere?.space);
+  await page.goto('/?dev=1'); await page.waitForFunction(() => !!window.__samewhere?.space);
   await page.evaluate(() => window.__samewhere.space.ready);
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   await page.keyboard.press('Digit9');
