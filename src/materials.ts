@@ -5,6 +5,7 @@ import { materialDetail } from './material-detail';
 import { createRoomEnvironment } from './room-environment';
 import { CEILING_GRID_WIDTH, CEILING_LIGHT, CEILING_PANEL_SIZE } from './lighting';
 import { withPortalSurfacePadding } from './portal-surfaces';
+import { withCarpetTiling } from './carpet-tiling';
 import { boundaryContactDistance, PEDESTAL_CONTACT_STRENGTH, withWallContacts, withPedestalContacts, withContactShading } from './contact-shading';
 
 export const PEDESTAL_TEXTURE_SIZE = .8;
@@ -240,6 +241,7 @@ export function floorWithContacts(base: THREE.MeshStandardMaterial, pedestals: P
     // plane even though some covered samples are inside, leaving a dotted seam.
     shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', '');
   };
+  withCarpetTiling(material);
   withContactShading(material, `${contacts}\n${boundaryContactDistance(room, true, PEDESTAL_CONTACT_STRENGTH)}`, PEDESTAL_CONTACT_STRENGTH,
     { boundedContacts: enabled, contactOpenings: openings },
     `uniform bool boundedContacts; uniform int contactOpenings[${ROOMS[room].sides}];`);
