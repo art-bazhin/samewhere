@@ -38,6 +38,7 @@ test('crossing the white EXIT freezes play, reveals the ending and leaves only s
   const finished = await page.evaluate(() => window.__samewhere.game.snapshot());
   expect(finished.world.gallery.outside).toBe(true);
   await expect(page.locator('#crosshair')).toBeHidden(); await expect(page.locator('#overlay')).toBeHidden();
+  await expect(page.locator('#crosshair')).toHaveCSS('opacity', '0');
   const appearance = await page.evaluate(() => {
     const title = document.getElementById('ending-title')!, button = document.getElementById('play-again')!;
     const animation = title.getAnimations()[0], current = animation.currentTime;

@@ -1,6 +1,27 @@
 import { writeFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 
+test('the crosshair fades by the exact EXIT whitening amount and returns when retreating', async ({ page }) => {
+  await page.goto('/?dev=1'); await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  await page.keyboard.press('Digit9');
+  for (const [distance, white] of [[7.1, 0], [5.25, .15625], [3.5, .5], [1.75, .84375], [0, 1], [3.5, .5], [7, 0]]) {
+    await page.evaluate(async distance => {
+      const path = '/src/world.ts', { portalPosition, wallNormal } = await import(path);
+      const { game, mouseLook } = window.__samewhere, side = game.world.gallery.signs.at(-1).side;
+      const p = portalPosition('A', side), n = wallNormal('A', side);
+      Object.assign(game.player, { x: p.x - n.x * distance, z: p.z - n.z * distance }); mouseLook.reset();
+    }, distance);
+    await expect.poll(() => page.evaluate(() => window.__samewhere.space.whiteSpace.glow.material.uniforms.amount.value)).toBeCloseTo(white, 6);
+    const opacity = await page.locator('#crosshair').evaluate(crosshair => {
+      const idle = Number(getComputedStyle(crosshair).opacity);
+      crosshair.classList.add('available'); const available = Number(getComputedStyle(crosshair).opacity);
+      crosshair.classList.remove('available'); return { idle, available, animations: crosshair.getAnimations().length };
+    });
+    expect(opacity.idle).toBeCloseTo(.55 * (1 - white), 6);
+    expect(opacity.available).toBeCloseTo(1 - white, 6); expect(opacity.animations).toBe(0);
+  }
+});
+
 test('the white EXIT fades in over the normal visibility range through successive gallery rooms', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));

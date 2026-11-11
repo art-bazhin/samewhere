@@ -313,7 +313,9 @@ function frame(time: number) {
     if (game.transitions !== transitions) autosave();
   }
   if (locked && !ended && game.world.gallery?.outside) finishGame();
-  space.render(); timing.record(frameStart, performance.now() - frameStart);
+  space.render();
+  crosshair.style.setProperty('--exit-visibility', String(1 - space.whiteSpace.glow.material.uniforms.amount.value));
+  timing.record(frameStart, performance.now() - frameStart);
   if (time - hudTime > 500) {
     const stats = timing.summary();
     const gpu = space.gpuTiming.summary();
