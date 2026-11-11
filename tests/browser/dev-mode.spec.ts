@@ -40,6 +40,11 @@ for (const url of ['/', '/?dev=0', '/?dev=1']) {
       expect(await page.evaluate(() => window.__samewhere.game.world.gallery.signs.length)).toBe(42);
       await page.keyboard.press('KeyR');
       expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
+      await page.evaluate(() => {
+        const { game, sync } = window.__samewhere; game.interact({ room: 'B', side: 0 }); sync();
+      });
+      await page.keyboard.press('KeyZ');
+      expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
     } else {
       await expect(page.locator('#fps-counter')).toBeHidden();
       for (const key of ['Tab', 'Digit0', 'Numpad0', 'Digit9', 'Numpad9']) {
@@ -53,6 +58,8 @@ for (const url of ['/', '/?dev=0', '/?dev=1']) {
       });
       expect(changed).not.toEqual(initial);
       await page.keyboard.press('KeyR');
+      expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(changed);
+      await page.keyboard.press('KeyZ');
       expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(changed);
       expect((await page.locator('#hud').innerText()).trim()).toBe('');
     }

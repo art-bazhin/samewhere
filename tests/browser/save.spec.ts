@@ -34,7 +34,7 @@ test('reload resumes the full autosaved game and undo history; NEW GAME replaces
   expect(await page.evaluate(savedGame)).toEqual(expected);
   expect(await page.evaluate(() => window.__samewhere.sound.music.layers.map(({ gain }: any) => gain.gain.value)))
     .toEqual([expect.closeTo(10 ** (-10 / 20), 6), 1, 1, 1, 0, 0]);
-  await page.keyboard.press('KeyZ');
+  await page.evaluate(() => window.__samewhere.undo());
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(expected.history.at(-1));
   await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();

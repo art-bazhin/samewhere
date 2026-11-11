@@ -121,11 +121,28 @@ test('the English menu offers controls, resumes progress and starts a fresh game
   expect(await page.locator('#game').evaluate(canvas => getComputedStyle(canvas).filter)).toBe('blur(3px)');
   await page.screenshot({ path: info.outputPath('start-menu.png') });
   await page.locator('#controls-button').click(); await expect(dialog).toBeVisible();
-  await expect(dialog.locator('dd')).toHaveText(['Move', 'Look around', 'Take or place a ball', 'Select red / blue', 'Switch ball color', 'Undo last action', 'Pause; resume in fullscreen', 'Toggle fullscreen', 'Toggle sound']);
+  await expect(dialog.locator('h2')).toHaveCount(0);
+  await expect(dialog.locator('dt')).toHaveText(['WASD / ARROWS', 'MOUSE', 'LEFT CLICK', '1 / 2 / MOUSE WHEEL', 'ESC', 'F', 'M']);
+  await expect(dialog.locator('dd')).toHaveText(['Move', 'Look around', 'Take or place a ball', 'Select ball color', 'Pause', 'Toggle fullscreen', 'Toggle sound']);
+  const layout = await dialog.evaluate(dialog => {
+    const center = (element: Element) => { const bounds = element.getBoundingClientRect(); return bounds.x + bounds.width / 2; };
+    return { dialog: center(dialog), table: center(dialog.querySelector('dl')!), back: center(dialog.querySelector('button')!) };
+  });
+  expect(layout.table).toBeCloseTo(layout.dialog, 1); expect(layout.back).toBeCloseTo(layout.dialog, 1);
   expect(await page.evaluate(() => /[А-Яа-яЁё]/.test(document.body.innerText + [...document.querySelectorAll('[aria-label]')].map(element => element.getAttribute('aria-label')).join('')))).toBe(false);
   await page.screenshot({ path: info.outputPath('controls.png') });
   await page.locator('#controls-close').click(); await expect(dialog).not.toBeVisible();
   await page.locator('#controls-button').click(); await page.keyboard.press('Escape'); await expect(dialog).not.toBeVisible();
+  await expect(page.locator('#controls-button')).toHaveCSS('outline-style', 'none');
+  await page.keyboard.press('Shift+Tab'); await expect(page.locator('#play-button')).toBeFocused();
+  await expect(page.locator('#play-button')).toHaveCSS('outline-style', 'solid');
+  await page.keyboard.press('Tab'); await page.keyboard.press('Enter'); await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape'); await expect(dialog).toBeHidden();
+  await expect(page.locator('#controls-button')).toHaveCSS('outline-style', 'none');
+  await page.locator('#controls-button').click();
+  const panel = (await dialog.boundingBox())!;
+  await page.mouse.click(panel.x + 8, panel.y + 8); await expect(dialog).toBeVisible();
+  await page.mouse.click(5, 5); await expect(dialog).toBeHidden();
   await expect(overlay).toBeVisible(); await expect(page.locator('#resume-button')).toBeHidden();
 
   await page.locator('#play-button').click(); await expect(overlay).toBeHidden();

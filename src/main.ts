@@ -194,6 +194,12 @@ playAgain.addEventListener('animationend', () => { playAgain.disabled = false; }
 $('resume-button').addEventListener('click', () => void play());
 $('controls-button').addEventListener('click', () => controlsDialog.showModal());
 $('controls-close').addEventListener('click', () => controlsDialog.close());
+controlsDialog.addEventListener('click', event => {
+  if (event.target !== controlsDialog) return;
+  const bounds = controlsDialog.getBoundingClientRect();
+  if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) controlsDialog.close();
+});
+document.addEventListener('pointerdown', () => document.body.classList.remove('tab-navigation'));
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas; keys.clear();
   sound.setPaused(!locked && !ended);
@@ -222,6 +228,8 @@ document.addEventListener('wheel', event => {
   if (inventoryCount(game.world, color)) { game.selectColor(color); updateHUD(); autosave(); }
 }, { passive: false });
 document.addEventListener('keydown', event => {
+  if (event.code === 'Tab' && !locked) document.body.classList.add('tab-navigation');
+  if (event.code === 'Escape') document.body.classList.remove('tab-navigation');
   if (ended) { if (event.code === 'Escape') event.preventDefault(); return; }
   if (event.code === 'Escape') {
     event.preventDefault();
@@ -242,7 +250,7 @@ document.addEventListener('keydown', event => {
   keys.add(event.code);
   if (event.repeat) return;
   if (event.code === 'Digit1' || event.code === 'Digit2') { game.selectColor(event.code === 'Digit1' ? 'red' : 'blue'); updateHUD(); autosave(); }
-  if (event.code === 'KeyZ') undo();
+  if (event.code === 'KeyZ' && devMode) undo();
   if (event.code === 'KeyR' && devMode) reset();
   if (event.code === 'KeyM') { sound.enabled = !sound.enabled; autosave(); }
   if (event.code === 'KeyT' && devMode) surfaceTextures.toggle();
