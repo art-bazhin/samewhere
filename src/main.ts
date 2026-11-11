@@ -200,6 +200,7 @@ document.addEventListener('pointerlockchange', () => {
   if (!locked) stopSweep();
   timing.reset();
   $('overlay').hidden = locked || ended; document.body.classList.toggle('paused', !locked && !ended);
+  $('menu-content').inert = locked || ended || document.body.classList.contains('loading');
   if (locked && !started) started = true;
   $('resume-button').hidden = !started;
   autosave();

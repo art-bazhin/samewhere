@@ -1,5 +1,39 @@
 import { test, expect } from '@playwright/test';
 
+test('opening and closing the menu fades its opacity and background blur over half a second', async ({ page }) => {
+  await page.goto('/'); await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  const state = await page.evaluate(() => window.__samewhere.game.snapshot());
+  for (const opening of [true, false]) {
+    if (opening) await page.keyboard.press('Escape'); else await page.locator('#resume-button').click();
+    await page.waitForFunction(() => {
+      const elements = [document.getElementById('overlay')!, document.getElementById('game')!];
+      if (!elements[0].getAnimations().some(animation => animation instanceof CSSTransition && animation.transitionProperty === 'opacity')) return false;
+      elements.forEach(element => element.getAnimations().forEach(animation => animation.pause()));
+      return true;
+    });
+    const fade = await page.evaluate(() => {
+      const overlay = document.getElementById('overlay')!, game = document.getElementById('game')!;
+      const animations = [...overlay.getAnimations(), ...game.getAnimations()];
+      const durations = animations.filter(animation => animation instanceof CSSTransition && ['opacity', 'filter'].includes(animation.transitionProperty))
+        .map(animation => animation.effect!.getTiming().duration);
+      const samples = [0, 250, 500].map(time => {
+        animations.forEach(animation => { animation.currentTime = time; });
+        return { opacity: Number(getComputedStyle(overlay).opacity), blur: Number(getComputedStyle(game).filter.match(/[\d.]+/)?.[0] ?? 0) };
+      });
+      animations.forEach(animation => animation.finish());
+      return { durations, samples, inert: document.getElementById('menu-content')!.inert };
+    });
+    expect(fade.durations).toEqual([500, 500]);
+    expect(fade.samples[0]).toEqual({ opacity: opening ? 0 : 1, blur: opening ? 0 : 3 });
+    expect(fade.samples[1].opacity).toBeGreaterThan(0); expect(fade.samples[1].opacity).toBeLessThan(1);
+    expect(fade.samples[1].blur).toBeGreaterThan(0); expect(fade.samples[1].blur).toBeLessThan(3);
+    expect(fade.samples[2]).toEqual({ opacity: opening ? 1 : 0, blur: opening ? 3 : 0 });
+    expect(fade.inert).toBe(!opening);
+    expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(state);
+  }
+  await expect(page.locator('#overlay')).toBeHidden();
+});
+
 test('initial loading hides preparation behind black and fades into the menu after graphics and music are ready', async ({ page }, info) => {
   let releaseMain!: () => void, releaseMusic!: () => void;
   const mainGate = new Promise<void>(resolve => { releaseMain = resolve; });
@@ -104,6 +138,7 @@ test('the English menu offers controls, resumes progress and starts a fresh game
   });
   await page.keyboard.press('Escape'); await expect(overlay).toBeVisible();
   await expect(page.locator('.menu-actions button:visible')).toHaveText(['RESUME GAME', 'NEW GAME', 'CONTROLS']);
+  await expect(overlay).toHaveCSS('opacity', '1');
   await page.screenshot({ path: info.outputPath('pause-menu.png') });
   await page.locator('#controls-button').click(); await page.locator('#controls-close').click();
   await page.locator('#resume-button').click(); await expect(overlay).toBeHidden();
