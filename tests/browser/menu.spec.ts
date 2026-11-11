@@ -87,7 +87,7 @@ test('the English menu offers controls, resumes progress and starts a fresh game
   expect(await page.locator('#game').evaluate(canvas => getComputedStyle(canvas).filter)).toBe('blur(3px)');
   await page.screenshot({ path: info.outputPath('start-menu.png') });
   await page.locator('#controls-button').click(); await expect(dialog).toBeVisible();
-  await expect(dialog.locator('dd')).toHaveText(['Move', 'Look around', 'Take or place a ball', 'Select red / blue', 'Switch ball color', 'Undo last action', 'Pause', 'Toggle fullscreen', 'Toggle sound']);
+  await expect(dialog.locator('dd')).toHaveText(['Move', 'Look around', 'Take or place a ball', 'Select red / blue', 'Switch ball color', 'Undo last action', 'Pause; resume in fullscreen', 'Toggle fullscreen', 'Toggle sound']);
   expect(await page.evaluate(() => /[А-Яа-яЁё]/.test(document.body.innerText + [...document.querySelectorAll('[aria-label]')].map(element => element.getAttribute('aria-label')).join('')))).toBe(false);
   await page.screenshot({ path: info.outputPath('controls.png') });
   await page.locator('#controls-close').click(); await expect(dialog).not.toBeVisible();

@@ -9,6 +9,9 @@ import { loadSave, saveGame } from './save';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const devMode = new URLSearchParams(location.search).get('dev') === '1';
+const keyboard = (navigator as Navigator & {
+  keyboard?: { lock(keys: string[]): Promise<void>; unlock(): void };
+}).keyboard;
 $('fps-counter').hidden = !devMode;
 const canvas = $<HTMLCanvasElement>('game');
 const controlsDialog = $<HTMLDialogElement>('controls-dialog');
@@ -146,6 +149,12 @@ async function toggleFullscreen() {
     pause(); $('error').hidden = false; $('error').textContent = message;
   } finally { fullscreenPending = false; }
 }
+document.addEventListener('fullscreenchange', () => {
+  if (!keyboard?.lock) return;
+  if (document.fullscreenElement) {
+    void keyboard.lock(['Escape']).catch(error => { if (devMode) console.warn('Keyboard lock failed:', error); });
+  } else keyboard.unlock();
+});
 async function captureMouse() {
   try { await canvas.requestPointerLock({ unadjustedMovement: true }); mouseInput = 'raw'; }
   catch (error) {
@@ -213,7 +222,11 @@ document.addEventListener('wheel', event => {
 document.addEventListener('keydown', event => {
   if (ended) { if (event.code === 'Escape') event.preventDefault(); return; }
   if (event.code === 'Escape') {
-    if (controlsDialog.open) { event.preventDefault(); controlsDialog.close(); } else pause();
+    event.preventDefault();
+    if (event.repeat) return;
+    if (controlsDialog.open) controlsDialog.close();
+    else if (locked || playPending) pause();
+    else if (document.fullscreenElement && started && !$('menu-content').inert) void play();
     return;
   }
   if (event.code === 'KeyF') { event.preventDefault(); if (!event.repeat) void toggleFullscreen(); return; }
