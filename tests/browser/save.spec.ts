@@ -5,6 +5,38 @@ const savedGame = () => {
   return { state: game.snapshot(), history: game.history, transitions: game.transitions, music: [...sound.music.active], soundEnabled: sound.enabled };
 };
 
+for (const paused of [false, true]) {
+  test(`leaving the page does not recreate a manually deleted save: ${paused ? 'paused' : 'playing'}`, async ({ page }) => {
+    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.goto('/'); await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+    const initial = await page.evaluate(() => window.__samewhere.game.snapshot());
+    await page.evaluate(() => { const { game, sync } = window.__samewhere; game.interact({ room: 'B', side: 0 }); sync(); });
+    expect(await page.evaluate(() => localStorage.getItem('samewhere.save'))).not.toBeNull();
+    if (paused) { await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible(); }
+    await Promise.all([
+      page.waitForEvent('domcontentloaded'),
+      page.evaluate(() => { localStorage.removeItem('samewhere.save'); location.reload(); }),
+    ]);
+    await expect(page.locator('#loading-screen')).toBeHidden(); await expect(page.locator('#resume-button')).toBeHidden();
+    expect(await page.evaluate(() => localStorage.getItem('samewhere.save'))).toBeNull();
+    expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
+    await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+    await expect(page.locator('#new-game-dialog')).toBeHidden();
+    expect(await page.evaluate(() => localStorage.getItem('samewhere.save'))).not.toBeNull();
+    expect(errors).toEqual([]);
+  });
+}
+
+test('leaving the page still updates an existing save with the latest position', async ({ page }) => {
+  await page.goto('/'); await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  const player = await page.evaluate(() => {
+    const { game } = window.__samewhere; game.player.x += .125; return { ...game.player };
+  });
+  await page.reload(); await expect(page.locator('#loading-screen')).toBeHidden();
+  await expect(page.locator('#resume-button')).toBeVisible();
+  expect(await page.evaluate(() => window.__samewhere.game.player)).toEqual(player);
+});
+
 test('reload resumes the full autosaved game and undo history; NEW GAME replaces it', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/'); await expect(page.locator('#loading-screen')).toBeHidden();

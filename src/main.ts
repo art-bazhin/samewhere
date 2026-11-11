@@ -5,7 +5,7 @@ import { Sound } from './audio';
 import { FrameTiming } from './timing';
 import { MouseLook } from './mouse-look';
 import { SurfaceTextures } from './surface-textures';
-import { loadSave, saveGame } from './save';
+import { hasSave, loadSave, saveGame } from './save';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const devMode = new URLSearchParams(location.search).get('dev') === '1';
@@ -49,10 +49,10 @@ let sweep: { yaw: number; pitch: number; start: number } | null = null;
 const keys = new Set<string>();
 $('resume-button').hidden = !started;
 
-function autosave() {
-  if (started && !sweep) saveGame(game, sound.music.active, sound.enabled);
+function autosave(existingOnly = false) {
+  if (started && !sweep && (!existingOnly || hasSave())) saveGame(game, sound.music.active, sound.enabled);
 }
-const saveTimer = window.setInterval(() => { if (locked && !ended) autosave(); }, 1000);
+const saveTimer = window.setInterval(() => { if (locked && !ended && !document.hidden) autosave(); }, 1000);
 
 function finishLoading() {
   const loading = $('loading-screen'), menu = $('menu-content');
@@ -217,7 +217,7 @@ document.addEventListener('pointerlockchange', () => {
   $('menu-content').inert = locked || ended || document.body.classList.contains('loading');
   if (locked && !started) started = true;
   $('resume-button').hidden = !started;
-  autosave();
+  autosave(!locked);
 });
 document.addEventListener(mouseEvent, event => {
   if (!locked || sweep || ended) return;
@@ -267,7 +267,7 @@ document.addEventListener('keyup', event => keys.delete(event.code));
 window.addEventListener('blur', () => { keys.clear(); pause(); });
 document.addEventListener('visibilitychange', () => {
   hudTime = performance.now(); timing.reset();
-  if (document.hidden) { keys.clear(); autosave(); pause(); }
+  if (document.hidden) { keys.clear(); autosave(true); pause(); }
 });
 canvas.addEventListener('click', () => {
   if (!locked || sweep || ended) return;
@@ -343,7 +343,7 @@ try {
   finishLoading();
 }
 window.addEventListener('pagehide', event => {
-  stopSweep(); autosave();
+  stopSweep(); autosave(true);
   if (event.persisted) { pause(); return; }
   clearInterval(saveTimer); disposed = true; space?.dispose(); sound.dispose();
 });

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, FINAL_PASSAGE_GOALS, PASSAGE_GOALS } from '../src/world';
-import { loadSave, saveGame, SAVE_KEY } from '../src/save';
+import { hasSave, loadSave, saveGame, SAVE_KEY } from '../src/save';
 
 function memoryStorage() {
   const entries = new Map<string, string>();
@@ -59,6 +59,7 @@ test('missing, damaged, incompatible and invalid saves fall back to a new game',
 
 test('blocked storage and quota errors do not interrupt play', () => {
   const storage = { getItem(): string | null { throw new Error('Blocked'); }, setItem() { throw new Error('Quota exceeded'); } };
+  assert.equal(hasSave(storage), false);
   assert.equal(loadSave(storage), null);
   assert.doesNotThrow(() => saveGame(new Game(), [0], true, storage));
 });

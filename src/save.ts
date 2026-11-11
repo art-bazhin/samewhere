@@ -2,6 +2,11 @@ import { FINAL_PASSAGE_GOALS, Game, initialState, PASSAGE_GOALS, ROOM_IDS, valid
 import { galleryRoute } from './gallery';
 
 export const SAVE_KEY = 'samewhere.save';
+export function hasSave(storage?: Pick<Storage, 'getItem'>): boolean {
+  try { return (storage ?? localStorage).getItem(SAVE_KEY) !== null; }
+  catch { return false; }
+}
+
 interface SavedGame {
   version: 1;
   state: Snapshot;
