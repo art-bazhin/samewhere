@@ -23,7 +23,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer, progress?: (loade
     textures.add(detail.normal); textures.add(detail.roughness);
     let result!: THREE.Texture;
     pending.push(new Promise((resolve, reject) => {
-      result = loader.load(`/materials/${file}`, loaded => {
+      result = loader.load(`${import.meta.env.BASE_URL}materials/${file}`, loaded => {
         const image = prepare ? prepare(loaded.image as HTMLImageElement) : loaded.image as HTMLImageElement;
         loaded.image = image; loaded.needsUpdate = true;
         detail.update(image, prepareHeight); progress?.(++loadedTextures, pending.length); resolve(loaded);
