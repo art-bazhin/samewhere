@@ -29,15 +29,19 @@ test('six music stems share a seamless clock and unlock only at the specified mi
     return { starts: (window as any).musicStarts.filter((event: any) => event.context === sound.context).map(({ context, ...event }: any) => event),
       gains: sound.music.layers.map((layer: any) => layer.gain.gain.value), output: sound.output.gain.value,
       edges: sound.music.layers.map(({ source }: any) => Array.from({ length: source.buffer.numberOfChannels }, (_, channel) => {
-        const data = source.buffer.getChannelData(channel); return [data[0], data[data.length - 1]];
+        const data = source.buffer.getChannelData(channel), end = Math.round(source.loopEnd * source.buffer.sampleRate);
+        return [data[0], data[end]];
       })) };
   });
   expect(initial.starts).toHaveLength(6); expect(new Set(initial.starts.map((event: any) => event.when)).size).toBe(1);
   expect(new Set(initial.starts.map((event: any) => event.end)).size).toBe(1);
   expect(initial.starts.every((event: any) => event.offset === 0 && event.rate === 44100 && event.channels === 2)).toBe(true);
-  expect(initial.starts[0].end).toBeCloseTo(219.428571, 4); expect(initial.gains).toEqual([expect.closeTo(10 ** (-10 / 20), 6), 0, 0, 0, 0, 0]);
+  expect(initial.starts[0].end).toBeCloseTo(164.571429, 4);
+  expect(initial.starts.every((event: any) => event.end === Math.floor(event.length * .75) / event.rate)).toBe(true);
+  expect(initial.gains).toEqual([expect.closeTo(10 ** (-10 / 20), 6), 0, 0, 0, 0, 0]);
   expect(initial.output).toBeCloseTo(10 ** (-5 / 20), 6);
-  expect(initial.edges.flat(2).every((value: number) => value === 0)).toBe(true);
+  for (const stem of initial.edges) for (const [start, continuation] of stem) expect(start).toBe(continuation);
+  expect(initial.edges.flat(2).some((value: number) => value !== 0)).toBe(true);
 
   async function enter(from: string, to: string, progress?: number) {
     await page.evaluate(async ({ from, to, progress }) => {
@@ -62,6 +66,8 @@ test('six music stems share a seamless clock and unlock only at the specified mi
   expect(pauseRamp.value).toBe(0); expect(pauseRamp.endTime - pauseRamp.now).toBeCloseTo(.5, 2);
   await expect.poll(() => page.evaluate(() => window.__samewhere.sound.context.state)).toBe('suspended');
   expect(await page.evaluate(() => window.__samewhere.sound.pauseGain.gain.value)).toBe(0);
+  await page.keyboard.press('Digit8');
+  expect(await page.evaluate(() => (window as any).musicStarts.filter((event: any) => event.context === window.__samewhere.sound.context).length)).toBe(6);
   const paused = await page.evaluate(() => ({ time: window.__samewhere.sound.context.currentTime,
     gains: window.__samewhere.sound.music.layers.map(({ gain }: any) => gain.gain.value) }));
   await page.locator('#controls-button').click(); await page.waitForTimeout(250);
@@ -98,6 +104,28 @@ test('six music stems share a seamless clock and unlock only at the specified mi
   await page.keyboard.press('KeyM');
   await expect.poll(() => page.evaluate(() => window.__samewhere.sound.output.gain.value)).toBeCloseTo(10 ** (-5 / 20), 6);
 
+  for (const key of ['Digit8', 'Numpad8']) {
+    await page.evaluate(() => {
+      const state = window as any; state.musicEnded = 0;
+      state.musicBeforeSeek = window.__samewhere.sound.music.layers.map(({ source, gain }: any) => {
+        source.addEventListener('ended', () => state.musicEnded++, { once: true });
+        return { source, gain, buffer: source.buffer };
+      });
+    });
+    await page.keyboard.press(key);
+    await expect.poll(() => page.evaluate(() => (window as any).musicEnded)).toBe(6);
+    const seek = await page.evaluate(() => {
+      const state = window as any, { sound } = window.__samewhere;
+      return { starts: state.musicStarts.filter((event: any) => event.context === sound.context).slice(-6)
+        .map(({ context, ...event }: any) => event),
+        retained: sound.music.layers.every(({ source, gain }: any, i: number) =>
+          source !== state.musicBeforeSeek[i].source && source.buffer === state.musicBeforeSeek[i].buffer && gain === state.musicBeforeSeek[i].gain) };
+    });
+    expect(seek.retained).toBe(true); expect(new Set(seek.starts.map((event: any) => event.when)).size).toBe(1);
+    expect(seek.starts.every((event: any) => event.offset === event.end - 10)).toBe(true);
+    expect(await active()).toEqual([1, 2, 3, 4, 5, 6]);
+  }
+
   // Check rendered signal after a minute of silence, not just the ramp's end timestamp.
   const envelope = await page.evaluate(async () => {
     const path = '/src/music.ts', { fadeGain } = await import(path);
@@ -111,27 +139,79 @@ test('six music stems share a seamless clock and unlock only at the specified mi
   const expectedEnvelope = [0, .1 / 15, .25, .5, .75, 1];
   envelope.forEach((gain, index) => expect(gain).toBeCloseTo(expectedEnvelope[index], 4));
 
-  // Render only 20 ms around an actual MP3 loop seam, using the prepared buffer.
-  const seam = await page.evaluate(async () => {
-    const buffer = window.__samewhere.sound.music.layers[0].source.buffer;
-    const edge = 441, context = new OfflineAudioContext(2, edge * 2, 44100), source = context.createBufferSource();
-    source.buffer = buffer; source.loop = true; source.loopEnd = buffer.duration;
-    source.connect(context.destination); source.start(0, (buffer.length - edge) / buffer.sampleRate);
-    const rendered = await context.startRendering(), data = rendered.getChannelData(0);
-    return { left: data[edge - 1], right: data[edge], energy: data.reduce((sum, value) => sum + Math.abs(value), 0) };
+  // Compare every MP3 seam with its natural, uninterrupted continuation.
+  const seams = await page.evaluate(async () => {
+    const result = [];
+    for (const { source: live } of window.__samewhere.sound.music.layers) {
+      const buffer = live.buffer, end = Math.round(live.loopEnd * buffer.sampleRate), edge = 441;
+      const context = new OfflineAudioContext(2, edge * 2, buffer.sampleRate), source = context.createBufferSource();
+      source.buffer = buffer; source.loop = true; source.loopEnd = live.loopEnd;
+      source.connect(context.destination); source.start(0, (end - edge) / buffer.sampleRate);
+      const rendered = await context.startRendering();
+      for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+        const data = rendered.getChannelData(channel), original = buffer.getChannelData(channel);
+        const difference = data.reduce((max, value, i) => Math.max(max, Math.abs(value - original[end - edge + i])), 0);
+        const head = buffer.sampleRate;
+        result.push({ step: data[edge] - data[edge - 1], naturalStep: original[end] - original[end - 1],
+          blendStep: original[head] - original[head - 1], naturalBlendStep: original[end + head] - original[end + head - 1],
+          difference, energy: data.reduce((sum, value) => sum + Math.abs(value), 0) });
+      }
+    }
+    return result;
   });
-  expect(Math.abs(seam.left)).toBeLessThan(.00001); expect(Math.abs(seam.right)).toBeLessThan(.00001); expect(seam.energy).toBeGreaterThan(.01);
+  for (const seam of seams) {
+    expect(seam.step).toBeCloseTo(seam.naturalStep, 6); expect(seam.difference).toBeLessThan(.000001);
+    expect(seam.blendStep).toBeCloseTo(seam.naturalBlendStep, 6);
+    expect(seam.energy).toBeGreaterThan(.01);
+  }
+
+  // Keep the copied second exact, blend for 200 ms, and preserve the remaining audio.
+  const loop = await page.evaluate(async () => {
+    const path = '/src/music.ts', { prepareMusicLoop } = await import(path);
+    const rate = 8000, end = rate * 6, blendEnd = Math.round(rate * 1.2), context = new OfflineAudioContext(2, end * 3, rate);
+    const buffer = context.createBuffer(2, rate * 8, rate);
+    for (let channel = 0; channel < 2; channel++) {
+      const data = buffer.getChannelData(channel), sign = channel ? -1 : 1;
+      for (let i = 0; i < data.length; i++) data[i] = sign * (.25 + .5 * i / data.length);
+    }
+    const original = buffer.getChannelData(0), unchanged = original.slice(blendEnd), continuation = original.slice(end, end + rate);
+    prepareMusicLoop(buffer);
+    const preserved = unchanged.every((value, i) => value === original[blendEnd + i]);
+    const copied = continuation.every((value, i) => value === original[i]);
+    // Independent channel contributions retain their combined power during the fade.
+    const power = context.createBuffer(2, rate * 8, rate), a = power.getChannelData(0), b = power.getChannelData(1);
+    a.fill(.25, 0, end); b.fill(.25, end); prepareMusicLoop(power);
+    let powerError = 0;
+    for (let i = rate; i < blendEnd; i++) powerError = Math.max(powerError, Math.abs(a[i] * a[i] + b[i] * b[i] - .25 ** 2));
+    const source = context.createBufferSource(); source.buffer = buffer; source.loop = true; source.loopEnd = end / rate;
+    source.connect(context.destination); source.start();
+    const rendered = await context.startRendering(), left = rendered.getChannelData(0), right = rendered.getChannelData(1);
+    let stereoError = 0, jump = 0;
+    for (let i = 0; i < left.length; i++) {
+      stereoError = Math.max(stereoError, Math.abs(left[i] + right[i]));
+      if (i) jump = Math.max(jump, Math.abs(left[i] - left[i - 1]));
+    }
+    return { preserved, copied, jump, stereoError, powerError, first: left[0], headEnd: left[rate - 1], fadeEnd: left[blendEnd - 1],
+      repeated: left[end] === left[0] && left[end * 2] === left[0] };
+  });
+  expect(loop.preserved).toBe(true); expect(loop.copied).toBe(true); expect(loop.repeated).toBe(true);
+  expect(loop.first).toBe(.625); expect(loop.headEnd).toBeCloseTo(.25 + .5 * (48000 + 8000 - 1) / 64000, 6);
+  expect(loop.fadeEnd).toBeCloseTo(.25 + .5 * (9600 - 1) / 64000, 6);
+  expect(loop.jump).toBeLessThan(.001); expect(loop.stereoError).toBe(0); expect(loop.powerError).toBeLessThan(.0000001);
   await page.keyboard.press('KeyR'); await expect.poll(active).toEqual([1]);
   await expect.poll(() => page.evaluate(() => window.__samewhere.sound.music.layers.map((layer: any) => layer.gain.gain.value))).toEqual([expect.closeTo(10 ** (-10 / 20), 6), 0, 0, 0, 0, 0]);
-  expect(await page.evaluate(() => (window as any).musicStarts.filter((event: any) => event.context === window.__samewhere.sound.context).length)).toBe(6);
-  console.log('Music:', { stems: initial.starts.length, duration: initial.starts[0].end, seam, envelope, output: initial.output,
+  expect(await page.evaluate(() => (window as any).musicStarts.filter((event: any) => event.context === window.__samewhere.sound.context).length)).toBe(18);
+  console.log('Music:', { stems: initial.starts.length, duration: initial.starts[0].end, seams, loop, envelope, output: initial.output,
     fadeSeconds: fades.map((fade: any) => fade[0].seconds) });
   expect(errors).toEqual([]);
 });
 
-test('resuming during the menu fade cancels the pending audio pause', async ({ page }) => {
+test('music seeking stays dev-only and resuming during the menu fade cancels the pending audio pause', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/'); await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  await page.evaluate(() => { (window as any).musicBeforeSeek = window.__samewhere.sound.music.layers.map(({ source }: any) => source); });
+  for (const key of ['Digit8', 'Numpad8']) await page.keyboard.press(key);
+  expect(await page.evaluate(() => window.__samewhere.sound.music.layers.every(({ source }: any, i: number) => source === (window as any).musicBeforeSeek[i]))).toBe(true);
   await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
   await page.locator('#resume-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   await expect.poll(() => page.evaluate(() => window.__samewhere.sound.pauseGain.gain.value)).toBe(1);

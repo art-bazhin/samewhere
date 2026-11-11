@@ -257,6 +257,7 @@ document.addEventListener('keydown', event => {
   if (event.code === 'Tab') { event.preventDefault(); if (devMode && !event.repeat) nextDebugRoom(); return; }
   if (event.code === 'Digit0' || event.code === 'Numpad0') { event.preventDefault(); if (devMode && !event.repeat) prepareGalleryTest(); return; }
   if (event.code === 'Digit9' || event.code === 'Numpad9') { event.preventDefault(); if (devMode && !event.repeat) prepareGalleryTest(true); return; }
+  if (event.code === 'Digit8' || event.code === 'Numpad8') { event.preventDefault(); if (devMode && !event.repeat) sound.music.seekToLoopEnd(); return; }
   if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(event.code)) event.preventDefault();
   keys.add(event.code);
   if (event.repeat) return;

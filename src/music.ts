@@ -3,7 +3,8 @@ import { fetchLoadingBuffer, type LoadingProgress } from './loading-progress';
 
 const files = import.meta.glob<string>('../music/SAMEWHERE-*.mp3', { eager: true, query: '?url', import: 'default' });
 const urls = Array.from({ length: 6 }, (_, i) => files[`../music/SAMEWHERE-${String(i + 1).padStart(3, '0')}.mp3`]);
-const LOOP_FADE = .005, LAYER_FADE = 15, ENDING_FADE = 12;
+const LOOP_FRACTION = .75, LOOP_HEAD_SECONDS = 1, LOOP_CROSSFADE = .2;
+const SHORT_FADE = .005, LAYER_FADE = 15, ENDING_FADE = 12;
 const BASE_GAIN = 10 ** (-10 / 20);
 
 export function fadeGain(gain: AudioParam, target: number, time: number, duration: number) {
@@ -12,6 +13,22 @@ export function fadeGain(gain: AudioParam, target: number, time: number, duratio
   // An explicit starting point prevents a first ramp from starting at context time zero.
   gain.setValueAtTime(value, time);
   gain.linearRampToValueAtTime(target, time + duration);
+}
+
+/** Copy the first second from past the loop boundary, then blend back to the original. */
+export function prepareMusicLoop(buffer: AudioBuffer) {
+  const end = Math.floor(buffer.length * LOOP_FRACTION);
+  const count = Math.min(Math.round(buffer.sampleRate * LOOP_HEAD_SECONDS), end, buffer.length - end);
+  const fade = Math.min(Math.round(buffer.sampleRate * LOOP_CROSSFADE), end - count, buffer.length - end - count);
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    const samples = buffer.getChannelData(channel);
+    samples.copyWithin(0, end, end + count);
+    for (let i = 0; i < fade; i++) {
+      const index = count + i, mix = fade > 1 ? i / (fade - 1) : 1;
+      const angle = mix * Math.PI / 2;
+      samples[index] = samples[end + index] * Math.cos(angle) + samples[index] * Math.sin(angle);
+    }
+  }
 }
 
 /** One sample clock and loop length for all stems, including inaudible ones. */
@@ -30,14 +47,7 @@ export class Music {
       const downloaded = loading?.task(), decoded = loading?.task();
       if (!url) throw new Error('Missing music stem');
       const buffer = await decoder.decodeAudioData(await fetchLoadingBuffer(url, this.download.signal, downloaded));
-      const fade = Math.min(Math.round(buffer.sampleRate * LOOP_FADE), Math.floor(buffer.length / 2));
-      for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-        const samples = buffer.getChannelData(channel);
-        for (let i = 0; i < fade; i++) {
-          const gain = i / fade;
-          samples[i] *= gain; samples[samples.length - 1 - i] *= gain;
-        }
-      }
+      prepareMusicLoop(buffer);
       decoded?.(); return buffer;
     }));
     if (this.buffers.some(buffer => buffer.length !== this.buffers[0].length)) throw new Error('Music stems must have matching lengths');
@@ -45,13 +55,24 @@ export class Music {
   start(context: AudioContext, output: AudioNode) {
     if (this.layers.length) return;
     this.context = context;
-    const when = context.currentTime + .03, duration = this.buffers[0].duration;
+    const first = this.buffers[0], when = context.currentTime + .03, duration = Math.floor(first.length * LOOP_FRACTION) / first.sampleRate;
     for (const [index, buffer] of this.buffers.entries()) {
       const source = context.createBufferSource(), gain = context.createGain();
       source.buffer = buffer; source.loop = true; source.loopEnd = duration;
       gain.gain.value = index === 0 ? BASE_GAIN : this.active.has(index) ? 1 : 0;
       source.connect(gain).connect(output); source.start(when);
       this.layers.push({ source, gain });
+    }
+  }
+  seekToLoopEnd(secondsBefore = 10) {
+    if (!this.context || !this.layers.length) return;
+    const context = this.context, when = context.currentTime + .03;
+    for (const layer of this.layers) {
+      const source = layer.source, next = context.createBufferSource();
+      next.buffer = source.buffer; next.loop = true; next.loopEnd = source.loopEnd;
+      next.connect(layer.gain); next.start(when, Math.max(0, source.loopEnd - secondsBefore));
+      source.onended = () => source.disconnect(); source.stop(when);
+      layer.source = next;
     }
   }
   update(room: RoomId, passageProgress: number) {
@@ -82,7 +103,7 @@ export class Music {
     if (!this.context) return;
     const now = this.context.currentTime;
     for (const [index, { gain }] of this.layers.entries()) {
-      fadeGain(gain.gain, index === 0 ? BASE_GAIN : 0, now, LOOP_FADE);
+      fadeGain(gain.gain, index === 0 ? BASE_GAIN : 0, now, SHORT_FADE);
     }
   }
   dispose() {
