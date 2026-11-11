@@ -238,7 +238,8 @@ export class Game {
         if (to && d1 > -PLAYER_RADIUS && Math.abs(lateral) > clearance) {
           // Keep the existing conservative jamb clearance. Once inside the
           // doorway, stop sideways motion without snapping back into the room.
-          if (d0 <= -PLAYER_RADIUS + 1e-9) {
+          const oldLateral = (old.x - frame.center.x) * -n.z + (old.z - frame.center.z) * n.x;
+          if (d0 <= -PLAYER_RADIUS + 1e-9 || Math.abs(oldLateral) > clearance + 1e-9) {
             const push = d1 + PLAYER_RADIUS;
             next.x -= n.x * push; next.z -= n.z * push;
           } else {

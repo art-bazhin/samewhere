@@ -344,6 +344,21 @@ test('the room diagonal can be crossed freely in both directions', () => {
   game.move({ x: 1.5, z: -1.5 }); close(game.player.x, .5); close(game.player.z, -.5);
   game.move({ x: -1.5, z: 1.5 }); close(game.player.x, -1); close(game.player.z, 1);
 });
+test('pushing into either corner of a connected triangle wall never snaps to its doorway', () => {
+  for (let side = 0; side < 3; side++) for (let target = 0; target < 4; target++) for (const corner of [side, (side + 1) % 3]) {
+    const game = new Game(), vertex = roomOutline('D')[corner];
+    game.world.balls.forEach(ball => { ball.socket = null; });
+    game.world.balls[0].socket = { room: 'D', side }; game.world.balls[1].socket = { room: 'A', side: target };
+    Object.assign(game.player, { room: 'D', x: vertex.x * .6, z: vertex.z * .6 });
+    const length = Math.hypot(vertex.x, vertex.z), movement = { x: vertex.x / length * .05, z: vertex.z / length * .05 };
+    for (let step = 0; step < 250; step++) {
+      const { x, z } = game.player; game.move(movement);
+      assert.equal(game.player.room, 'D'); assert.equal(game.transitions, 0);
+      assert.ok(Math.hypot(game.player.x - x, game.player.z - z) < .1, `Position jumped at D${side} corner ${corner}, step ${step}`);
+    }
+    assert.ok(Math.hypot(game.player.x - vertex.x, game.player.z - vertex.z) < .6, 'The player should remain against the corner');
+  }
+});
 test('a link reaches B, returns and can undo both legs', () => {
   const game = new Game();
   game.interact({ room: 'B', side: 2 });
