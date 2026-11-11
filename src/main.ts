@@ -5,6 +5,7 @@ import { Sound } from './audio';
 import { FrameTiming } from './timing';
 import { MouseLook } from './mouse-look';
 import { SurfaceTextures } from './surface-textures';
+import { loadSave, saveGame } from './save';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const devMode = new URLSearchParams(location.search).get('dev') === '1';
@@ -14,6 +15,12 @@ const controlsDialog = $<HTMLDialogElement>('controls-dialog');
 const endingScreen = $('ending-screen'), playAgain = $<HTMLButtonElement>('play-again');
 const game = new Game();
 const sound = new Sound();
+const saved = loadSave();
+if (saved) {
+  game.restore(saved.state); game.history = saved.history; game.transitions = saved.transitions;
+  sound.music.active.clear(); saved.music.forEach(index => sound.music.active.add(index));
+  sound.enabled = saved.soundEnabled;
+}
 const timing = new FrameTiming();
 const mouseLook = new MouseLook();
 const mouseEvent = 'onpointerrawupdate' in window ? 'pointerrawupdate' : 'mousemove';
@@ -30,10 +37,16 @@ const DEBUG_ROOMS = ['G', 'A', 'B', 'C', 'D', 'E', 'F'] as const;
 let debugRoomIndex = 0;
 let space: SpaceRenderer;
 let surfaceTextures: SurfaceTextures;
-let locked = false, started = false, ended = false, debug = false, disposed = false;
+let locked = false, started = !!saved, ended = false, debug = false, disposed = false;
 let fullscreenPending = false;
 let sweep: { yaw: number; pitch: number; start: number } | null = null;
 const keys = new Set<string>();
+$('resume-button').hidden = !started;
+
+function autosave() {
+  if (started && !sweep) saveGame(game, sound.music.active, sound.enabled);
+}
+const saveTimer = window.setInterval(() => { if (locked && !ended) autosave(); }, 1000);
 
 function finishLoading() {
   const loading = $('loading-screen'), menu = $('menu-content');
@@ -64,6 +77,7 @@ function updateHUD() {
 function sync() {
   space.sync(); space.pick(); updateHUD();
   if (started) sound.music.update(game.player.room, game.world.passageProgress);
+  autosave();
 }
 function stopSweep() {
   if (!sweep) return;
@@ -88,6 +102,7 @@ function finishGame() {
   endingScreen.classList.remove('interactive');
   playAgain.disabled = true; endingScreen.hidden = false;
   sound.music.finish();
+  autosave();
 }
 function nextDebugRoom() {
   stopSweep(); keys.clear(); mouseLook.reset();
@@ -160,6 +175,7 @@ document.addEventListener('pointerlockchange', () => {
   $('overlay').hidden = locked || ended; document.body.classList.toggle('paused', !locked && !ended);
   if (locked && !started) started = true;
   $('resume-button').hidden = !started;
+  autosave();
 });
 document.addEventListener(mouseEvent, event => {
   if (!locked || sweep || ended) return;
@@ -174,7 +190,7 @@ document.addEventListener('wheel', event => {
   if (!locked || sweep || ended || !event.deltaY) return;
   event.preventDefault();
   const color = game.world.selected === 'red' ? 'blue' : 'red';
-  if (inventoryCount(game.world, color)) { game.selectColor(color); updateHUD(); }
+  if (inventoryCount(game.world, color)) { game.selectColor(color); updateHUD(); autosave(); }
 }, { passive: false });
 document.addEventListener('keydown', event => {
   if (ended) { if (event.code === 'Escape') event.preventDefault(); return; }
@@ -192,17 +208,17 @@ document.addEventListener('keydown', event => {
   if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(event.code)) event.preventDefault();
   keys.add(event.code);
   if (event.repeat) return;
-  if (event.code === 'Digit1' || event.code === 'Digit2') { game.selectColor(event.code === 'Digit1' ? 'red' : 'blue'); updateHUD(); }
+  if (event.code === 'Digit1' || event.code === 'Digit2') { game.selectColor(event.code === 'Digit1' ? 'red' : 'blue'); updateHUD(); autosave(); }
   if (event.code === 'KeyZ') undo();
   if (event.code === 'KeyR' && devMode) reset();
-  if (event.code === 'KeyM') sound.enabled = !sound.enabled;
+  if (event.code === 'KeyM') { sound.enabled = !sound.enabled; autosave(); }
   if (event.code === 'KeyT' && devMode) surfaceTextures.toggle();
 });
 document.addEventListener('keyup', event => keys.delete(event.code));
 window.addEventListener('blur', () => { keys.clear(); pause(); });
 document.addEventListener('visibilitychange', () => {
   hudTime = performance.now(); timing.reset();
-  if (document.hidden) { keys.clear(); pause(); }
+  if (document.hidden) { keys.clear(); autosave(); pause(); }
 });
 canvas.addEventListener('click', () => {
   if (!locked || sweep || ended) return;
@@ -221,6 +237,7 @@ function frame(time: number) {
   if (document.hidden) return;
   const frameStart = performance.now();
   if (locked && !ended) {
+    const transitions = game.transitions;
     if (!sweep) {
       applyLook(mouseLook.consume());
     }
@@ -244,8 +261,9 @@ function frame(time: number) {
     const socket = space.pick();
     crosshair.classList.toggle('available', !!socket && (!!ballAt(game.world, socket) || inventoryCount(game.world, game.world.selected) > 0));
     sound.music.update(game.player.room, game.world.passageProgress);
+    if (game.transitions !== transitions) autosave();
   }
-  if (!ended && game.world.gallery?.outside) finishGame();
+  if (locked && !ended && game.world.gallery?.outside) finishGame();
   space.render(); timing.record(frameStart, performance.now() - frameStart);
   if (time - hudTime > 500) {
     const stats = timing.summary();
@@ -275,4 +293,8 @@ try {
   $<HTMLButtonElement>('play-button').disabled = true;
   finishLoading();
 }
-window.addEventListener('pagehide', event => { if (event.persisted) { pause(); return; } disposed = true; space?.dispose(); sound.dispose(); });
+window.addEventListener('pagehide', event => {
+  stopSweep(); autosave();
+  if (event.persisted) { pause(); return; }
+  clearInterval(saveTimer); disposed = true; space?.dispose(); sound.dispose();
+});
