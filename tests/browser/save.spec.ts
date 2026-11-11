@@ -37,7 +37,8 @@ test('reload resumes the full autosaved game and undo history; NEW GAME replaces
   await page.evaluate(() => window.__samewhere.undo());
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(expected.history.at(-1));
   await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
-  await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  await page.locator('#play-button').click(); await page.locator('#new-game-confirm').click();
+  await expect(page.locator('#overlay')).toBeHidden();
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
   await page.reload(); await expect(page.locator('#loading-screen')).toBeHidden();
   expect(await page.evaluate(savedGame)).toMatchObject({ state: initial, history: [], transitions: 0, music: [0] });

@@ -162,7 +162,8 @@ test('the English menu offers controls, resumes progress and starts a fresh game
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(changed);
   expect(await page.evaluate(() => [...window.__samewhere.sound.music.active])).toEqual([0, 1]);
   await page.keyboard.press('Escape'); await expect(overlay).toBeVisible();
-  await page.locator('#play-button').click(); await expect(overlay).toBeHidden();
+  await page.locator('#play-button').click(); await expect(page.locator('#new-game-dialog')).toBeVisible();
+  await page.locator('#new-game-confirm').click(); await expect(overlay).toBeHidden();
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
   expect(await page.evaluate(() => window.__samewhere.game.history.length)).toBe(0);
   expect(await page.evaluate(() => [...window.__samewhere.sound.music.active])).toEqual([0]);

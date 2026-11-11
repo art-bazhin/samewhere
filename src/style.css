@@ -63,17 +63,20 @@ body.paused .inventory, body.paused #crosshair { opacity: 0; }
 }
 @keyframes ending-appear { from { opacity: 0; visibility: visible; } to { opacity: 1; visibility: visible; } }
 #error { position: absolute; top: calc(100% + 22px); left: 0; width: min(420px, calc(100vw - 48px)); margin: 0; font: 14px/1.6 Arial, sans-serif; letter-spacing: 0; }
-#controls-dialog { width: 480px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); padding: 36px; color: var(--paper); background: #17160f; border: 1px solid #eee6bf55; font-family: Arial, sans-serif; }
-#controls-dialog::backdrop { background: #0004; }
-#controls-dialog dl { display: grid; grid-template-columns: max-content minmax(0, max-content); gap: 20px 24px; align-items: baseline; width: fit-content; max-width: 100%; margin: 0 auto 32px; }
+.game-dialog { width: 480px; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); padding: 36px; color: var(--paper); background: #17160f; border: 1px solid #eee6bf55; font: 20px/1.5 Arial, sans-serif; }
+.game-dialog::backdrop { background: #0004; }
+#controls-dialog { width: max-content; }
+#controls-dialog dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; align-items: baseline; width: max-content; max-width: 100%; margin: 0 auto 32px; }
 #controls-dialog dl > div { display: contents; }
-#controls-dialog dt { font-size: 13px; font-weight: 650; text-align: right; }
-#controls-dialog dd { margin: 0; font-size: 16px; line-height: 1.5; }
+#controls-dialog dt { font-weight: 650; text-align: right; }
+#controls-dialog dd { margin: 0; }
 #controls-close { display: block; margin: 0 auto; text-align: center; }
+#new-game-warning { margin: 0 0 32px; text-align: center; }
+.dialog-actions { display: flex; justify-content: center; align-items: center; gap: 32px; }
 @media (max-width: 700px) {
   .wordmark { font-size: 23px; }
   .overlay { padding-left: 24px; padding-right: 24px; }
-  #controls-dialog { padding: 24px; }
+  .game-dialog { padding: 24px; }
   #debug { left: 15px; max-width: calc(100vw - 30px); font-size: 9px; }
 }
 @media (prefers-reduced-motion: reduce) {

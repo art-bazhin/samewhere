@@ -33,7 +33,7 @@
       <h1 id="ending-title" class="wordmark">samewhere.</h1>
       <button id="play-again" class="ending-replay menu-item wordmark" disabled>PLAY AGAIN</button>
     </section>
-    <dialog id="controls-dialog" aria-label="CONTROLS">
+    <dialog id="controls-dialog" class="game-dialog" aria-label="CONTROLS">
       <dl>
         <div><dt>WASD / ARROWS</dt><dd>Move</dd></div>
         <div><dt>MOUSE</dt><dd>Look around</dd></div>
@@ -44,6 +44,13 @@
         <div><dt>M</dt><dd>Toggle sound</dd></div>
       </dl>
       <button id="controls-close" class="menu-item wordmark">BACK</button>
+    </dialog>
+    <dialog id="new-game-dialog" class="game-dialog" aria-label="NEW GAME" aria-describedby="new-game-warning">
+      <p id="new-game-warning">Starting a new game will erase your current progress.</p>
+      <div class="dialog-actions">
+        <button id="new-game-cancel" class="menu-item wordmark" autofocus>CANCEL</button>
+        <button id="new-game-confirm" class="menu-item wordmark">CONTINUE</button>
+      </div>
     </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>

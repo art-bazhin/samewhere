@@ -15,6 +15,8 @@ const keyboard = (navigator as Navigator & {
 $('fps-counter').hidden = !devMode;
 const canvas = $<HTMLCanvasElement>('game');
 const controlsDialog = $<HTMLDialogElement>('controls-dialog');
+const newGameDialog = $<HTMLDialogElement>('new-game-dialog');
+const dialogs = [controlsDialog, newGameDialog];
 const endingScreen = $('ending-screen'), playAgain = $<HTMLButtonElement>('play-again');
 const game = new Game();
 const sound = new Sound();
@@ -100,7 +102,7 @@ function reset() {
 }
 function finishGame() {
   if (ended) return;
-  ended = true; keys.clear(); stopSweep(); mouseLook.reset(); controlsDialog.close();
+  ended = true; keys.clear(); stopSweep(); mouseLook.reset(); dialogs.forEach(dialog => dialog.close());
   $('hud').hidden = true; $('overlay').hidden = true;
   document.body.classList.remove('paused');
   endingScreen.classList.remove('interactive');
@@ -174,7 +176,7 @@ async function play(newGame = false) {
       if (!(error instanceof DOMException) || error.name !== 'SecurityError' || !error.message.includes('immediately after')) throw error;
       // Chromium imposes a 1.25 s cooldown after its Esc unlock gesture.
       await new Promise(resolve => setTimeout(resolve, 1300));
-      if (playCancelled || disposed || document.hidden || !document.hasFocus() || controlsDialog.open) return;
+      if (playCancelled || disposed || document.hidden || !document.hasFocus() || dialogs.some(dialog => dialog.open)) return;
       await captureMouse();
     }
     if (playCancelled) pause();
@@ -185,7 +187,12 @@ async function play(newGame = false) {
     $('error').textContent = 'Could not capture the mouse. Click again to retry. If this keeps happening, open the game in a separate browser tab.';
   } finally { playPending = false; }
 }
-$('play-button').addEventListener('click', () => void play(true));
+$('play-button').addEventListener('click', () => {
+  if (playPending || locked) return;
+  if (started) newGameDialog.showModal(); else void play(true);
+});
+$('new-game-cancel').addEventListener('click', () => newGameDialog.close());
+$('new-game-confirm').addEventListener('click', () => { newGameDialog.close(); void play(true); });
 playAgain.addEventListener('click', () => void play(true));
 playAgain.addEventListener('animationstart', () => {
   if (ended) { endingScreen.classList.add('interactive'); pause(); }
@@ -194,10 +201,10 @@ playAgain.addEventListener('animationend', () => { playAgain.disabled = false; }
 $('resume-button').addEventListener('click', () => void play());
 $('controls-button').addEventListener('click', () => controlsDialog.showModal());
 $('controls-close').addEventListener('click', () => controlsDialog.close());
-controlsDialog.addEventListener('click', event => {
-  if (event.target !== controlsDialog) return;
-  const bounds = controlsDialog.getBoundingClientRect();
-  if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) controlsDialog.close();
+for (const dialog of dialogs) dialog.addEventListener('click', event => {
+  if (event.target !== dialog) return;
+  const bounds = dialog.getBoundingClientRect();
+  if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close();
 });
 document.addEventListener('pointerdown', () => document.body.classList.remove('tab-navigation'));
 document.addEventListener('pointerlockchange', () => {
@@ -234,7 +241,8 @@ document.addEventListener('keydown', event => {
   if (event.code === 'Escape') {
     event.preventDefault();
     if (event.repeat) return;
-    if (controlsDialog.open) controlsDialog.close();
+    const dialog = dialogs.find(dialog => dialog.open);
+    if (dialog) dialog.close();
     else if (locked || playPending) pause();
     else if (document.fullscreenElement && started && !$('menu-content').inert) void play();
     return;
