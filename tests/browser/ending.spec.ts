@@ -22,14 +22,14 @@ test('crossing the white EXIT freezes play, reveals the ending and leaves only s
     // Model the fully developed mix reached after walking the gallery.
     for (const [index, { gain }] of music.layers.entries()) {
       gain.gain.cancelScheduledValues(sound.context.currentTime);
-      gain.gain.setValueAtTime(index === 0 ? 10 ** (-5 / 20) : 1, sound.context.currentTime);
+      gain.gain.setValueAtTime(index === 0 ? 10 ** (-10 / 20) : 1, sound.context.currentTime);
     }
     const last = game.world.gallery.signs.at(-1), p = portalPosition('A', last.side), n = wallNormal('A', last.side);
     Object.assign(game.player, { x: p.x - n.x * .08, z: p.z - n.z * .08 }); mouseLook.reset(); sync();
     (window as any).endingRamps = [];
   });
   await expect.poll(() => page.evaluate(() => window.__samewhere.sound.music.layers.map(({ gain }: any) => gain.gain.value)))
-    .toEqual([expect.closeTo(10 ** (-5 / 20), 6), 1, 1, 1, 1, 1]);
+    .toEqual([expect.closeTo(10 ** (-10 / 20), 6), 1, 1, 1, 1, 1]);
   await expect(page.locator('#ending-screen')).toBeHidden();
   await page.keyboard.down('KeyW');
   await expect(page.locator('#ending-screen')).toBeVisible(); await page.keyboard.up('KeyW');
@@ -97,7 +97,7 @@ test('crossing the white EXIT freezes play, reveals the ending and leaves only s
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
   expect(await page.evaluate(() => [...window.__samewhere.sound.music.active])).toEqual([0]);
   await expect.poll(() => page.evaluate(() => window.__samewhere.sound.music.layers.map(({ gain }: any) => gain.gain.value)))
-    .toEqual([expect.closeTo(10 ** (-5 / 20), 6), 0, 0, 0, 0, 0]);
+    .toEqual([expect.closeTo(10 ** (-10 / 20), 6), 0, 0, 0, 0, 0]);
   await expect(page.locator('#crosshair')).toBeVisible();
   await page.keyboard.down('KeyW'); await page.waitForTimeout(150); await page.keyboard.up('KeyW');
   expect(await page.evaluate(() => window.__samewhere.game.player.z)).toBeGreaterThan(initial.player.z + .1);

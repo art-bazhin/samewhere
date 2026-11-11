@@ -35,7 +35,7 @@ test('six music stems share a seamless clock and unlock only at the specified mi
   expect(initial.starts).toHaveLength(6); expect(new Set(initial.starts.map((event: any) => event.when)).size).toBe(1);
   expect(new Set(initial.starts.map((event: any) => event.end)).size).toBe(1);
   expect(initial.starts.every((event: any) => event.offset === 0 && event.rate === 44100 && event.channels === 2)).toBe(true);
-  expect(initial.starts[0].end).toBeCloseTo(219.428571, 4); expect(initial.gains).toEqual([expect.closeTo(10 ** (-5 / 20), 6), 0, 0, 0, 0, 0]);
+  expect(initial.starts[0].end).toBeCloseTo(219.428571, 4); expect(initial.gains).toEqual([expect.closeTo(10 ** (-10 / 20), 6), 0, 0, 0, 0, 0]);
   expect(initial.output).toBeCloseTo(10 ** (-5 / 20), 6);
   expect(initial.edges.flat(2).every((value: number) => value === 0)).toBe(true);
 
@@ -104,7 +104,7 @@ test('six music stems share a seamless clock and unlock only at the specified mi
   });
   expect(Math.abs(seam.left)).toBeLessThan(.00001); expect(Math.abs(seam.right)).toBeLessThan(.00001); expect(seam.energy).toBeGreaterThan(.01);
   await page.keyboard.press('KeyR'); await expect.poll(active).toEqual([1]);
-  await expect.poll(() => page.evaluate(() => window.__samewhere.sound.music.layers.map((layer: any) => layer.gain.gain.value))).toEqual([expect.closeTo(10 ** (-5 / 20), 6), 0, 0, 0, 0, 0]);
+  await expect.poll(() => page.evaluate(() => window.__samewhere.sound.music.layers.map((layer: any) => layer.gain.gain.value))).toEqual([expect.closeTo(10 ** (-10 / 20), 6), 0, 0, 0, 0, 0]);
   expect(await page.evaluate(() => (window as any).musicStarts.filter((event: any) => event.context === window.__samewhere.sound.context).length)).toBe(6);
   console.log('Music:', { stems: initial.starts.length, duration: initial.starts[0].end, seam, envelope, output: initial.output,
     fadeSeconds: fades.map((fade: any) => fade[0].seconds) });
