@@ -6,7 +6,10 @@ test('EXIT routes turn by 90 degrees, never reverse through the entrance, and ne
   const signs = galleryRoute(), gallery = { cell: { x: 0, z: 0 }, signs, outside: false };
   assert.equal(signs.length, 42);
   assert.equal(new Set(signs.map(sign => `${sign.x},${sign.z}`)).size, signs.length);
-  assert.deepEqual(new Set(signs.map(sign => sign.side)), new Set([0, 1, 2, 3]), 'The route must wind in all four directions');
+  assert.deepEqual(signs.map(sign => sign.side), [
+    ...Array(5).fill(2), ...Array(5).fill(1), ...Array(5).fill(2), ...Array(10).fill(1),
+    0, 1, 0, 1, 0, ...Array(12).fill(1),
+  ], 'The route must follow the approved turns and finish with twelve straight crossings');
   for (const [index, sign] of signs.entries()) {
     assert.equal(galleryExitAt(gallery, sign), sign.side);
     if (!index) continue;

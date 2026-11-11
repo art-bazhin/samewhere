@@ -193,10 +193,10 @@ test('the square gallery starts with the complete pattern and preserves its room
   game.undo(); assert.deepEqual(game.world.gallery, { cell: { x: 1, z: 0 }, signs: route, outside: false });
   game.reset(); assert.equal(game.world.gallery, null);
 });
-test('the long diagonal EXIT section crosses eight red-left/blue-right doors without changing direction', () => {
+test('the diagonal EXIT section crosses five red-left/blue-right doors without changing direction', () => {
   const route = galleryRoute();
   const start = route.findIndex((sign, index) => index > 0 && route[index - 1].side === 1 &&
-    Array.from({ length: 8 }, (_, step) => route[index + step]?.side === step % 2).every(Boolean));
+    Array.from({ length: 5 }, (_, step) => route[index + step]?.side === step % 2).every(Boolean));
   assert.ok(start >= 0, 'Missing diagonal section entered from the west');
   const game = loopGame(); game.world.passageProgress = PASSAGE_GOALS.length;
   game.interact({ room: 'A', side: 3 }); game.interact({ room: 'A', side: 3 });
@@ -204,7 +204,7 @@ test('the long diagonal EXIT section crosses eight red-left/blue-right doors wit
   gallery.cell = { x: route[start].x, z: route[start].z };
   Object.assign(game.player, { x: -portalDistance('A') + .4, z: -.4, yaw: -Math.PI / 4, pitch: 0 });
   let crossed = 0;
-  for (let step = 0; step < 2000 && crossed < 8; step++) {
+  for (let step = 0; step < 2000 && crossed < 5; step++) {
     const before = game.transitions;
     game.move({ x: .04, z: -.04 });
     if (game.transitions === before) continue;
@@ -215,7 +215,7 @@ test('the long diagonal EXIT section crosses eight red-left/blue-right doors wit
     assert.deepEqual(gallery.cell, { x: route[start + crossed + 1].x, z: route[start + crossed + 1].z });
     crossed++;
   }
-  assert.equal(crossed, 8, 'A wall or pedestal blocked the continuous diagonal walk');
+  assert.equal(crossed, 5, 'A wall or pedestal blocked the continuous diagonal walk');
   close(Math.sin(game.player.yaw), Math.sin(-Math.PI / 4));
   close(Math.cos(game.player.yaw), Math.cos(-Math.PI / 4));
 });
