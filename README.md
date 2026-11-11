@@ -1,6 +1,8 @@
 # Samewhere
 
-An initial browser prototype of a spatial puzzle game. Seven logical rooms, four balls, and doorways that can be connected to one another. Built with Three.js, TypeScript, and Vite; geometry and sound are generated procedurally, and textures are loaded from local files. No external models or fonts are used.
+A spatial puzzle. Find the way out.
+
+Built with Three.js, TypeScript, and Vite; geometry and sound are generated procedurally, and textures are loaded from local files. No external models or fonts are used.
 
 The visual style follows the supplied Backrooms references: yellow wallpaper with a small repeating pattern, beige carpet, a suspended ceiling with a 65 × 65 cm grid, and rectangular fluorescent panels. Geometry stays simple, without guide lines on walls or pedestals. Nearby rooms have no fog or color filter. Distant rooms gradually darken between 48 and 68 m, retaining their hues until they disappear. Lighting creates contrast and draws warmth from the environment itself; the menu slightly blurs the scene.
 
