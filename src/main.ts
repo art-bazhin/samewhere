@@ -39,6 +39,7 @@ let space: SpaceRenderer;
 let surfaceTextures: SurfaceTextures;
 let locked = false, started = !!saved, ended = false, debug = false, disposed = false;
 let fullscreenPending = false;
+let playPending = false, playCancelled = false;
 let sweep: { yaw: number; pitch: number; start: number } | null = null;
 const keys = new Set<string>();
 $('resume-button').hidden = !started;
@@ -133,7 +134,7 @@ function undo() {
   stopSweep(); mouseLook.reset();
   if (game.undo()) { sync(); sound.play('undo'); }
 }
-function pause() { if (document.pointerLockElement) document.exitPointerLock(); }
+function pause() { playCancelled = true; if (document.pointerLockElement) document.exitPointerLock(); }
 async function toggleFullscreen() {
   if (fullscreenPending) return;
   fullscreenPending = true;
@@ -145,21 +146,38 @@ async function toggleFullscreen() {
     pause(); $('error').hidden = false; $('error').textContent = message;
   } finally { fullscreenPending = false; }
 }
-async function play() {
-  if (!space) return;
-  $('error').hidden = true;
-  sound.unlock();
-  try {
-    try { await canvas.requestPointerLock({ unadjustedMovement: true }); mouseInput = 'raw'; }
-    catch (error) {
-      if (!(error instanceof DOMException) || error.name !== 'NotSupportedError') throw error;
-      await canvas.requestPointerLock(); mouseInput = 'standard';
-    }
+async function captureMouse() {
+  try { await canvas.requestPointerLock({ unadjustedMovement: true }); mouseInput = 'raw'; }
+  catch (error) {
+    if (!(error instanceof DOMException) || error.name !== 'NotSupportedError') throw error;
+    await canvas.requestPointerLock(); mouseInput = 'standard';
   }
-  catch { $('error').hidden = false; $('error').textContent = 'Mouse capture was blocked. Open the game in a separate browser tab and try again.'; }
 }
-$('play-button').addEventListener('click', () => { reset(); void play(); });
-playAgain.addEventListener('click', () => { reset(); void play(); });
+async function play(newGame = false) {
+  if (!space || playPending || locked) return;
+  playPending = true; playCancelled = false;
+  if (newGame) reset();
+  $('error').hidden = true;
+  try {
+    sound.unlock();
+    try { await captureMouse(); }
+    catch (error) {
+      if (!(error instanceof DOMException) || error.name !== 'SecurityError' || !error.message.includes('immediately after')) throw error;
+      // Chromium imposes a 1.25 s cooldown after its Esc unlock gesture.
+      await new Promise(resolve => setTimeout(resolve, 1300));
+      if (playCancelled || disposed || document.hidden || !document.hasFocus() || controlsDialog.open) return;
+      await captureMouse();
+    }
+    if (playCancelled) pause();
+  } catch (error) {
+    if (playCancelled || disposed) return;
+    if (devMode) console.warn('Mouse capture failed:', error);
+    $('error').hidden = false;
+    $('error').textContent = 'Could not capture the mouse. Click again to retry. If this keeps happening, open the game in a separate browser tab.';
+  } finally { playPending = false; }
+}
+$('play-button').addEventListener('click', () => void play(true));
+playAgain.addEventListener('click', () => void play(true));
 playAgain.addEventListener('animationstart', () => {
   if (ended) { endingScreen.classList.add('interactive'); pause(); }
 });
