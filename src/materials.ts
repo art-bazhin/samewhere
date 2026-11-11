@@ -11,10 +11,11 @@ export const PEDESTAL_TEXTURE_SIZE = .8;
 const CEILING_RELIEF = .0012;
 
 /** Local material artwork; generation prompts are in public/materials/sources.json. */
-export function createMaterials(renderer: THREE.WebGLRenderer) {
+export function createMaterials(renderer: THREE.WebGLRenderer, progress?: (loaded: number, total: number) => void) {
   const optimizations = { value: true };
   const loader = new THREE.TextureLoader(), textures = new Set<THREE.Texture>(), pending: Promise<unknown>[] = [];
   const anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
+  let loadedTextures = 0;
   function texture(file: string, metersPerTile: number, relief: number, roughness: [number, number], prepare?: (image: HTMLImageElement) => HTMLCanvasElement,
     prepareHeight?: (height: Float32Array, size: number) => void) {
     const detail = materialDetail(metersPerTile, relief, roughness, anisotropy);
@@ -24,7 +25,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer) {
       result = loader.load(`/materials/${file}`, loaded => {
         const image = prepare ? prepare(loaded.image as HTMLImageElement) : loaded.image as HTMLImageElement;
         loaded.image = image; loaded.needsUpdate = true;
-        detail.update(image, prepareHeight); resolve(loaded);
+        detail.update(image, prepareHeight); progress?.(++loadedTextures, pending.length); resolve(loaded);
       }, undefined, reject);
     }));
     result.wrapS = result.wrapT = THREE.RepeatWrapping; result.anisotropy = anisotropy;

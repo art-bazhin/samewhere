@@ -1,4 +1,5 @@
 import { PASSAGE_GOALS, type RoomId } from './world';
+import { fetchLoadingBuffer, type LoadingProgress } from './loading-progress';
 
 const files = import.meta.glob<string>('../music/SAMEWHERE-*.mp3', { eager: true, query: '?url', import: 'default' });
 const urls = Array.from({ length: 6 }, (_, i) => files[`../music/SAMEWHERE-${String(i + 1).padStart(3, '0')}.mp3`]);
@@ -22,14 +23,13 @@ export class Music {
   private context: AudioContext | null = null;
   private ending = false;
   private readonly download = new AbortController();
-  constructor() { this.ready = this.load(); }
-  private async load() {
+  constructor(loading?: LoadingProgress) { this.ready = this.load(loading); }
+  private async load(loading?: LoadingProgress) {
     const decoder = new OfflineAudioContext(2, 1, 44100);
     this.buffers = await Promise.all(urls.map(async url => {
+      const downloaded = loading?.task(), decoded = loading?.task();
       if (!url) throw new Error('Missing music stem');
-      const response = await fetch(url, { signal: this.download.signal });
-      if (!response.ok) throw new Error(`Music download failed: ${response.status}`);
-      const buffer = await decoder.decodeAudioData(await response.arrayBuffer());
+      const buffer = await decoder.decodeAudioData(await fetchLoadingBuffer(url, this.download.signal, downloaded));
       const fade = Math.min(Math.round(buffer.sampleRate * LOOP_FADE), Math.floor(buffer.length / 2));
       for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
         const samples = buffer.getChannelData(channel);
@@ -38,7 +38,7 @@ export class Music {
           samples[i] *= gain; samples[samples.length - 1 - i] *= gain;
         }
       }
-      return buffer;
+      decoded?.(); return buffer;
     }));
     if (this.buffers.some(buffer => buffer.length !== this.buffers[0].length)) throw new Error('Music stems must have matching lengths');
   }

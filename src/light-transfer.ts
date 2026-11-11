@@ -8,6 +8,7 @@ import { decodeLighting } from './lighting-data';
 import { SURFACE_LIGHTMAP_FILTER } from './lightmap-filter';
 import { DirectLight } from './direct-light';
 import { DIRECTIONAL_LIGHTMAP_SHADER, LIGHTMAP_CHANNELS, PANEL_LIGHTMAP_CHANNELS } from './directional-lightmap';
+import { fetchLoadingBuffer, type LoadingProgress } from './loading-progress';
 
 interface FieldBuffer { texture: THREE.DataTexture; key: string }
 interface RoomField extends FieldBuffer {
@@ -45,7 +46,7 @@ export class LightTransfer {
   private state = '';
   private initialized = false;
 
-  constructor(rooms: Record<RoomId, { scene: THREE.Scene }>, renderer: THREE.WebGLRenderer) {
+  constructor(rooms: Record<RoomId, { scene: THREE.Scene }>, renderer: THREE.WebGLRenderer, loading?: LoadingProgress) {
     this.direct = new DirectLight(renderer, rooms);
     this.fields = Object.fromEntries(ROOM_IDS.map(room => {
       const layout = prepareSurfaceLayout(rooms[room].scene, room), { width, height } = layout;
@@ -71,12 +72,11 @@ export class LightTransfer {
     this.uniforms.transferredLight.value = this.fields.A.texture;
     this.uniforms.panelLight.value = this.fields.A.panel;
     this.uniforms.lightmapSize.value.set(this.fields.A.texture.image.width, this.fields.A.texture.image.height / 2);
-    this.ready = this.load();
+    this.ready = this.load(loading);
   }
-  private async load() {
-    const start = performance.now(), response = await fetch(lightingUrl, { signal: this.download.signal });
-    if (!response.ok) throw new Error(`Lighting download failed: ${response.status}`);
-    const data = decodeLighting(await response.arrayBuffer(), lightingRevision);
+  private async load(loading?: LoadingProgress) {
+    const downloaded = loading?.task(), prepared = loading?.task(), start = performance.now();
+    const data = decodeLighting(await fetchLoadingBuffer(lightingUrl, this.download.signal, downloaded), lightingRevision);
     for (const room of ROOM_IDS) {
       const image = this.fields[room].texture.image;
       if (image.width !== data.atlases[room][0] || image.height !== data.atlases[room][1] * 2) throw new Error(`Lighting layout mismatch in room ${room}`);
@@ -87,6 +87,7 @@ export class LightTransfer {
       this.prepared.set(field.key, field); this.preparedBytes += field.values.byteLength + field.runs.byteLength;
     }
     this.initialized = true; this.apply(); this.loadMs = performance.now() - start;
+    prepared?.();
   }
   sync(world: WorldState) {
     this.direct.sync(world);

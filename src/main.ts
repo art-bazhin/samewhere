@@ -6,6 +6,7 @@ import { FrameTiming } from './timing';
 import { MouseLook } from './mouse-look';
 import { SurfaceTextures } from './surface-textures';
 import { hasSave, loadSave, saveGame } from './save';
+import { LoadingProgress } from './loading-progress';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const devMode = new URLSearchParams(location.search).get('dev') === '1';
@@ -19,7 +20,9 @@ const newGameDialog = $<HTMLDialogElement>('new-game-dialog');
 const dialogs = [controlsDialog, newGameDialog];
 const endingScreen = $('ending-screen'), playAgain = $<HTMLButtonElement>('play-again');
 const game = new Game();
-const sound = new Sound();
+const loading = new LoadingProgress(value => { $<HTMLProgressElement>('loading-progress').value = value; });
+const gameReady = loading.task();
+const sound = new Sound(loading);
 const saved = loadSave();
 if (saved) {
   game.restore(saved.state); game.history = saved.history; game.transitions = saved.transitions;
@@ -328,11 +331,12 @@ function frame(time: number) {
   }
 }
 try {
-  space = new SpaceRenderer(canvas, game);
+  space = new SpaceRenderer(canvas, game, loading);
+  loading.seal();
   surfaceTextures = new SurfaceTextures(Object.values(space.rooms).map(room => room.scene), space.assets.textures);
   updateHUD(); requestAnimationFrame(frame);
   const playButton = $<HTMLButtonElement>('play-button');
-  void Promise.all([space.ready, sound.ready]).then(() => { playButton.disabled = false; playButton.removeAttribute('aria-busy'); finishLoading(); }).catch(error => {
+  void Promise.all([space.ready, sound.ready]).then(() => { gameReady(); playButton.disabled = false; playButton.removeAttribute('aria-busy'); finishLoading(); }).catch(error => {
     console.error(error); $('error').hidden = false; $('error').textContent = 'Could not prepare the game. Reload the page to try again.';
     finishLoading();
   });

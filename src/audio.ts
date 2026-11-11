@@ -1,4 +1,5 @@
 import { fadeGain, Music } from './music';
+import type { LoadingProgress } from './loading-progress';
 
 const OUTPUT_GAIN = 10 ** (-5 / 20);
 const PAUSE_FADE = .5;
@@ -6,8 +7,9 @@ const PAUSE_FADE = .5;
 /** Interaction tones and synchronized music share one context and mute control. */
 export class Sound {
   context: AudioContext | null = null;
-  readonly music = new Music();
-  readonly ready = this.music.ready;
+  readonly music: Music;
+  readonly ready: Promise<void>;
+  constructor(loading?: LoadingProgress) { this.music = new Music(loading); this.ready = this.music.ready; }
   private output: GainNode | null = null;
   private pauseGain: GainNode | null = null;
   private pauseTimer: ReturnType<typeof setTimeout> | undefined;

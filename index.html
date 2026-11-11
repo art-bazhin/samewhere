@@ -18,7 +18,9 @@
       <pre id="debug" hidden></pre>
     </div>
     <div id="overlay" class="overlay">
-      <div id="loading-screen" class="loading-screen" role="status" aria-label="Loading"><span class="loading-label wordmark">LOADING<span class="loading-dots" aria-hidden="true">...</span></span></div>
+      <div id="loading-screen" class="loading-screen" role="status" aria-label="Loading">
+        <div class="loading-content"><span class="loading-label wordmark">LOADING</span><progress id="loading-progress" max="1" value="0" aria-label="Loading progress"></progress></div>
+      </div>
       <div id="menu-content" hidden inert>
         <div class="menu-brand wordmark">samewhere<span class="wordmark-dot">.</span></div>
         <section class="menu-actions wordmark" aria-label="Game menu">

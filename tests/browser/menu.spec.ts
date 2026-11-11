@@ -57,7 +57,7 @@ test('initial loading hides preparation behind black and fades into the menu aft
   let releaseMain!: () => void, releaseMusic!: () => void;
   const mainGate = new Promise<void>(resolve => { releaseMain = resolve; });
   const musicGate = new Promise<void>(resolve => { releaseMusic = resolve; });
-  await page.route('**/src/main.ts', async route => { await mainGate; await route.continue(); });
+  await page.route('**/src/main.ts*', async route => { await mainGate; await route.continue(); });
   await page.route('**/music/SAMEWHERE-006.mp3', async route => { await musicGate; await route.continue(); });
   try {
     await page.goto('/?dev=1', { waitUntil: 'commit' });
@@ -71,20 +71,14 @@ test('initial loading hides preparation behind black and fades into the menu aft
     expect(cover).toEqual({ x: 0, y: 0, width: viewport.width, height: viewport.height });
     expect(bounds!.x + bounds!.width / 2).toBeCloseTo(viewport.width / 2, 0);
     expect(bounds!.y + bounds!.height / 2).toBeCloseTo(viewport.height / 2, 0);
-    const animation = await page.locator('.loading-dots').evaluate(dots => {
-      const animation = dots.getAnimations()[0]; animation.pause();
-      const duration = animation.effect!.getTiming().duration;
-      const hidden = [1, 1001, 2001, 3001, 4001].map(time => {
-        animation.currentTime = time;
-        return Number(getComputedStyle(dots).clipPath.match(/([\d.]+)%/)?.[1] ?? 0);
-      });
-      animation.play(); return { duration, hidden };
-    });
-    expect(animation.duration).toBe(4000);
-    [100, 200 / 3, 100 / 3, 0, 100].forEach((value, index) => expect(animation.hidden[index]).toBeCloseTo(value, 3));
+    const progress = page.getByRole('progressbar', { name: 'Loading progress' });
+    await expect(progress).toHaveJSProperty('value', 0);
+    await expect(page.locator('.loading-label')).toHaveText('LOADING');
     releaseMain();
     await page.waitForFunction(() => !!window.__samewhere?.space);
     await page.evaluate(() => window.__samewhere.space.ready);
+    await expect.poll(() => progress.evaluate((bar: HTMLProgressElement) => bar.value)).toBeGreaterThan(0);
+    expect(await progress.evaluate((bar: HTMLProgressElement) => bar.value)).toBeLessThan(1);
     await expect(loading).toBeVisible(); await expect(page.locator('#menu-content')).toBeHidden();
     expect(await loading.evaluate(screen => getComputedStyle(screen).opacity)).toBe('1');
     await page.screenshot({ path: info.outputPath('loading.png') });
@@ -95,6 +89,7 @@ test('initial loading hides preparation behind black and fades into the menu aft
     });
     releaseMusic();
     await fading;
+    await expect(progress).toHaveJSProperty('value', 1);
     await expect(page.locator('#play-button')).toBeEnabled();
     await expect(page.locator('#menu-content')).toHaveJSProperty('inert', true);
     const fade = await loading.evaluate(screen => {

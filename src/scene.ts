@@ -10,6 +10,7 @@ import { withReceiverPlaneShadows } from './shadow-receiver';
 import { galleryExitAt, galleryNeighbor, isGalleryExit, type GalleryCell } from './gallery';
 import { createExitSigns } from './exit-sign';
 import { createWhiteSpace } from './white-space';
+import type { LoadingProgress } from './loading-progress';
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number };
 const FULL: Rect = { minX: -1, minY: -1, maxX: 1, maxY: 1 };
@@ -78,7 +79,9 @@ export class SpaceRenderer {
   private preparationRoom: RoomVisual | null = null;
   private compiling = false;
   private ballEnvironment: THREE.WebGLRenderTarget | null = null;
-  constructor(public canvas: HTMLCanvasElement, public game: Game) {
+  constructor(public canvas: HTMLCanvasElement, public game: Game, loading?: LoadingProgress) {
+    const textures = loading?.task(4), geometry = loading?.task(), reflections = loading?.task();
+    const compiled = loading?.task(ROOM_IDS.length * 2 + 1), prepared = loading?.task(ROOM_IDS.length + 2), finalFrame = loading?.task();
     // Create the context explicitly: this Three.js release requests alpha:true
     // internally even with renderer alpha:false. The game is always opaque.
     const context = canvas.getContext('webgl2', { alpha: false, antialias: true, depth: true, stencil: false, powerPreference: 'high-performance' });
@@ -94,11 +97,11 @@ export class SpaceRenderer {
     this.renderer.clippingPlanes = [this.clipPlane];
     this.renderer.info.autoReset = false;
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.assets = createMaterials(this.renderer);
+    this.assets = createMaterials(this.renderer, (loaded, total) => textures?.(loaded / total));
     this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations, this.assets.environment.texture)])) as Record<RoomId, RoomVisual>;
     this.exitSigns = createExitSigns(this.rooms.A);
     this.whiteSpace = createWhiteSpace(this.rooms.A);
-    this.lightTransfer = new LightTransfer(this.rooms, this.renderer);
+    this.lightTransfer = new LightTransfer(this.rooms, this.renderer, loading);
     for (const room of Object.values(this.rooms)) preparePortalSurfaces(room);
     const litMaterials = new Set<THREE.Material>(Object.values(this.assets.materials));
     for (const room of Object.values(this.rooms)) room.scene.traverse(object => {
@@ -122,24 +125,29 @@ export class SpaceRenderer {
     this.preparationLight.castShadow = true;
     this.preparationScene.add(this.preparationLight, this.preparationLight.target);
     this.resize(); this.sync();
+    geometry?.();
     this.ready = Promise.all([this.assets.ready, this.lightTransfer.ready]).then(async () => {
       // Initialize clipping/shadows, then compile each room's light count while
       // the menu is loading. Shared materials must not be rebound by rendering
       // another scene while compileAsync waits for its programs to finish.
       this.render(); this.prepareBallReflections(); this.compiling = true;
+      reflections?.(); let programs = 0;
       const previousTarget = this.renderer.getRenderTarget();
       try {
         // Main views use sRGB output; portal buffers use linear output.
         for (const target of [null, this.targets[0]]) {
           this.renderer.setRenderTarget(target);
-          for (const id of ROOM_IDS) await this.renderer.compileAsync(this.rooms[id].scene, this.camera);
+          for (const id of ROOM_IDS) {
+            await this.renderer.compileAsync(this.rooms[id].scene, this.camera);
+            compiled?.(++programs / (ROOM_IDS.length * 2 + 1));
+          }
         }
         this.renderer.setRenderTarget(null);
         await this.renderer.compileAsync(this.whiteSpace.glow.scene, this.whiteSpace.glow.camera);
-        await this.prepareRooms();
+        compiled?.(); await this.prepareRooms(prepared);
       } finally { this.renderer.setRenderTarget(previousTarget); this.compiling = false; }
       // Entry becomes available only after a complete, final-lit main view.
-      this.render();
+      this.render(); finalFrame?.();
     });
   }
   private prepareBallReflections() {
@@ -182,8 +190,9 @@ export class SpaceRenderer {
       this.lightTransfer.bind(this.game.player.room); generator.dispose();
     }
   }
-  private async prepareRooms() {
+  private async prepareRooms(progress?: (value?: number) => void) {
     this.lightTransfer.direct.prepare();
+    let completed = 1; progress?.(completed / (ROOM_IDS.length + 2));
     // Match the portal framebuffer's actual sample count. A single-sample
     // texture does not warm the driver's multisampled linear-light pipeline.
     const target = new THREE.WebGLRenderTarget(64, 64, { samples: this.portalSamples, resolveDepthBuffer: false }), camera = this.camera.clone();
@@ -228,6 +237,7 @@ export class SpaceRenderer {
         // 64x64 warmup is presented. Restore the complete normal view in this
         // same task, before yielding to the compositor or the loading UI.
         this.renderFrame();
+        progress?.(++completed / (ROOM_IDS.length + 2));
         // Let the loading UI paint and the GPU consume the previous room's work.
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
       }
@@ -245,6 +255,7 @@ export class SpaceRenderer {
           if (status === gl.WAIT_FAILED) throw new Error('GPU preparation failed');
         } finally { gl.deleteSync(fence); }
       }
+      progress?.();
     } finally { target.dispose(); }
   }
   resize() {
