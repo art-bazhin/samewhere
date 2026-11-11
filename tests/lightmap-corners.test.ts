@@ -1,11 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DataUtils, Vector3 } from 'three';
+import { DataUtils, Vector3, type Scene } from 'three';
 import { insideOutline, outlineWalls } from '../src/geometry';
 import { LIGHT_RAY_OFFSET, SURFACE_SAMPLE_OFFSET } from '../src/light-path';
-import { bakingLayout, surfaceSamples } from '../src/lightmap-layout';
+import { bakingLayout, prepareSurfaceLayout, surfaceSamples } from '../src/lightmap-layout';
 import { bakePanelLight, createBounceSampler, panelLightSampler } from '../src/panel-light-bake';
-import { PEDESTAL_HEIGHT, pedestalOutline, ROOM_IDS, ROOMS, roomOutline, roomWalls } from '../src/world';
+import { PEDESTAL_HEIGHT, pedestalOutline, ROOM_IDS, ROOMS, roomOutline, roomWalls, WALL_THICKNESS } from '../src/world';
+
+test('jambs keep separate narrow lightmaps instead of merging opposing doorway charts', () => {
+  for (const room of ROOM_IDS) {
+    const baked = bakingLayout(room);
+    let scene = baked.charts.find(chart => chart.triangles.length)!.triangles[0].mesh.parent!;
+    while (scene.parent) scene = scene.parent;
+    const direct = prepareSurfaceLayout(scene as Scene, room, true);
+    const charts = direct.charts.filter(chart => chart.reveal !== undefined && !chart.revealLocal);
+    assert.equal(charts.length, ROOMS[room].sides * 2);
+    assert.equal(direct.charts.filter(chart => chart.revealLocal).length, charts.length);
+    for (const chart of charts) {
+      assert.equal(chart.step.x, .025); assert.equal(chart.step.y, .025);
+      assert.ok(chart.max.x - chart.min.x <= WALL_THICKNESS / 2 + .02501);
+      assert.ok(chart.width <= 10, 'A narrow jamb must not allocate the gap to a coplanar doorway');
+    }
+  }
+});
 
 test('pedestal side receivers and biased rays stay outside their solid footprints', () => {
   for (const room of ROOM_IDS) {

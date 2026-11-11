@@ -141,12 +141,13 @@ export class LightTransfer {
     const before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
     material.onBeforeCompile = (shader, renderer) => {
       before(shader, renderer); Object.assign(shader.uniforms, this.uniforms, { directSurfaceLight: this.direct.surfaces.uniform });
-      shader.vertexShader = 'attribute vec2 transferUv; varying vec2 vTransferUv; attribute vec2 directUv; varying vec2 vDirectUv;\n' + shader.vertexShader;
+      shader.vertexShader = 'attribute vec2 transferUv; varying vec2 vTransferUv; attribute vec4 directUv; varying vec2 vDirectUv; varying vec2 vDirectLocalUv;\n' + shader.vertexShader;
       shader.vertexShader = shader.vertexShader.replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
-        vDirectUv = directUv;
+        vDirectUv = directUv.xy; vDirectLocalUv = directUv.zw;
         vTransferUv = transferUv;
         #ifdef PORTAL_SURFACE_PADDING
           vTransferUv += portalLightUvOffset;
+          vDirectUv += portalDirectUvOffset.xy; vDirectLocalUv += portalDirectUvOffset.zw;
         #endif`);
       shader.fragmentShader = `${SURFACE_LIGHTMAP_FILTER.replaceAll('sampleSurfaceLightmap', 'sampleLightmapPlane')}
         uniform vec2 lightmapSize;
@@ -154,7 +155,7 @@ export class LightTransfer {
         vec4 sampleSurfaceDirection(sampler2D lightmap, vec2 uv) { return sampleSurfaceLightmap(lightmap, uv + vec2(0., 1.)); }
         ${DIRECTIONAL_LIGHTMAP_SHADER}
         varying vec2 vTransferUv;
-        varying vec2 vDirectUv; uniform sampler2D directSurfaceLight;
+        varying vec2 vDirectUv; varying vec2 vDirectLocalUv; uniform sampler2D directSurfaceLight;
         uniform sampler2D transferredLight; uniform vec3 transferColor; uniform float transferGain; uniform float bounceGain;
         uniform sampler2D panelLight;
         uniform int passageCount; uniform vec4 passageFrames[4]; uniform vec4 passageAtlases[4]; uniform vec4 passageDirectAtlases[4]; uniform vec4 passageLocalAtlases[4];\n` + shader.fragmentShader;
@@ -171,6 +172,11 @@ export class LightTransfer {
           vec4 directField = texture2D(directSurfaceLight, vDirectUv);
           vec3 neighborDirect = directionalDirect(directField.r * transferColor, vec4(directField.gba, directField.r), normal, nonPerturbedNormal);
           reflectedLight.directDiffuse += neighborDirect * BRDF_Lambert(material.diffuseColor);
+          if (vDirectLocalUv.x > 0.) {
+            vec4 localField = texture2D(directSurfaceLight, vDirectLocalUv);
+            vec3 localDirect = directionalDirect(localField.r * transferColor, vec4(localField.gba, localField.r), normal, nonPerturbedNormal);
+            reflectedLight.directDiffuse = (localDirect + neighborDirect) * BRDF_Lambert(material.diffuseColor);
+          }
         }
         if (transferGain > 0.) {
           vec4 transported = sampleSurfaceLightmap(transferredLight, vTransferUv);

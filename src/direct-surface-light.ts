@@ -52,6 +52,12 @@ export class DirectSurfaceLight {
           for (const indices of [[0, 1, 2], [0, 2, 3]]) this.triangle(layout, chart, indices.map(i => corners[i]), indices.map(i => vertex(corners[i])),
             indices.map(() => new THREE.Vector3(0, 1, 0)), passPositions, passNormals, passUvs, passBounds);
           const mesh = this.mesh(passPositions, passNormals, passUvs, passBounds); mesh.userData.passage = chart.passage; mesh.userData.local = !!chart.passageLocal; scene.add(mesh);
+        } else if (chart.reveal !== undefined) {
+          const points: number[] = [], directions: number[] = [], coordinates: number[] = [], limits: number[] = [];
+          for (const triangle of chartTriangles(chart))
+            this.triangle(layout, chart, triangle.uv, triangle.positions, triangle.normals, points, directions, coordinates, limits);
+          const mesh = this.mesh(points, directions, coordinates, limits);
+          mesh.userData.passage = chart.reveal; mesh.userData.local = !!chart.revealLocal; scene.add(mesh);
         } else if (chart.curvedMesh) {
           // These charts contain only 8×6 useful samples. Rasterizing every
           // triangle of each shared 64×48 sphere would duplicate megabytes of

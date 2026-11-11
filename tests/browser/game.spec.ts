@@ -671,7 +671,11 @@ test('upper doorway joins remain opaque at oblique and subpixel angles', async (
     // Keep the real material shader hooks. A lost wall sample shows the blue
     // ceiling or green lamp behind the red reveal, independent of lighting.
     const { wall, ceiling, lamp } = space.assets.materials;
-    for (const [material, color] of [[wall, 0xff0000], [ceiling, 0x0000ff]]) {
+    const walls = new Set<any>([wall]);
+    for (const room of Object.values(space.rooms) as any[]) room.scene.traverse((object: any) => {
+      if (object.name === 'room-wall' || object.name === 'boundary-wall') walls.add(object.material);
+    });
+    for (const [material, color] of [...[...walls].map(material => [material, 0xff0000]), [ceiling, 0x0000ff]]) {
       material.color.set(0); material.emissive.set(color);
       material.map = material.emissiveMap = material.normalMap = material.roughnessMap = null; material.needsUpdate = true;
     }

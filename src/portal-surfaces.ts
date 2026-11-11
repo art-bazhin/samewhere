@@ -10,10 +10,10 @@ export function preparePortalSurfaces(room: RoomVisual) {
   const shells = new Set(room.walls.map(wall => wall.open.getObjectByName('room-wall')));
   room.scene.traverse(object => {
     if (!(object instanceof THREE.Mesh) || !['room-wall', 'boundary-wall'].includes(object.name)) return;
-    const geometry = object.geometry, position = geometry.getAttribute('position'), uv = geometry.getAttribute('uv'), lightUv = geometry.getAttribute('transferUv');
+    const geometry = object.geometry, position = geometry.getAttribute('position'), uv = geometry.getAttribute('uv'), lightUv = geometry.getAttribute('transferUv'), directUv = geometry.getAttribute('directUv');
     const offset = new THREE.Float32BufferAttribute(position.count * 3, 3);
-    const uvOffset = new THREE.Float32BufferAttribute(position.count * 2, 2), lightOffset = new THREE.Float32BufferAttribute(position.count * 2, 2);
-    geometry.setAttribute('portalOffset', offset); geometry.setAttribute('portalUvOffset', uvOffset); geometry.setAttribute('portalLightUvOffset', lightOffset);
+    const uvOffset = new THREE.Float32BufferAttribute(position.count * 2, 2), lightOffset = new THREE.Float32BufferAttribute(position.count * 2, 2), directOffset = new THREE.Float32BufferAttribute(position.count * 4, 4);
+    geometry.setAttribute('portalOffset', offset); geometry.setAttribute('portalUvOffset', uvOffset); geometry.setAttribute('portalLightUvOffset', lightOffset); geometry.setAttribute('portalDirectUvOffset', directOffset);
     if (!shells.has(object)) return;
     const index = geometry.index, count = index?.count ?? position.count;
     for (let i = 0; i < count; i += 3) {
@@ -23,13 +23,14 @@ export function preparePortalSurfaces(room: RoomVisual) {
       for (const [k, vertex] of vertices.entries()) {
         if (Math.abs(points[k].z + WALL_THICKNESS / 2) > .00001) continue;
         offset.setXYZ(vertex, 0, 0, -PADDING);
-        // Extrapolate both UV sets, so the padding does not stretch the visible
+        // Extrapolate all UV sets, so the padding does not stretch the visible
         // wallpaper or change the illumination of the original 15 cm reveal.
         triangle.getBarycoord(points[k].clone().add(new THREE.Vector3(0, 0, -PADDING)), weights);
-        for (const [attribute, result] of [[uv, uvOffset], [lightUv, lightOffset]]) {
-          const value = new THREE.Vector2();
-          vertices.forEach((v, j) => value.addScaledVector(new THREE.Vector2().fromBufferAttribute(attribute, v), weights.getComponent(j)));
-          result.setXY(vertex, value.x - attribute.getX(vertex), value.y - attribute.getY(vertex));
+        for (const [attribute, result] of [[uv, uvOffset], [lightUv, lightOffset], [directUv, directOffset]]) {
+          for (let component = 0; component < attribute.itemSize; component++) {
+            const value = vertices.reduce((sum, v, j) => sum + attribute.getComponent(v, component) * weights.getComponent(j), 0);
+            result.setComponent(vertex, component, value - attribute.getComponent(vertex, component));
+          }
         }
       }
     }
@@ -41,7 +42,7 @@ export function withPortalSurfacePadding(material: THREE.MeshStandardMaterial) {
   material.onBeforeCompile = (shader, renderer) => {
     before(shader, renderer);
     shader.vertexShader = `#define PORTAL_SURFACE_PADDING
-      attribute vec3 portalOffset; attribute vec2 portalUvOffset; attribute vec2 portalLightUvOffset;\n` + shader.vertexShader;
+      attribute vec3 portalOffset; attribute vec2 portalUvOffset; attribute vec2 portalLightUvOffset; attribute vec4 portalDirectUvOffset;\n` + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n transformed += portalOffset;');
     shader.vertexShader = shader.vertexShader.replace('#include <uv_vertex>', THREE.ShaderChunk.uv_vertex.replace(/vec3\( (\w+), 1 \)/g, 'vec3( $1 + portalUvOffset, 1 )'));
   };

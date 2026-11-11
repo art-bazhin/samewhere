@@ -11,6 +11,7 @@ interface Triangle { mesh: THREE.Mesh; vertices: number[]; positions: THREE.Vect
 export interface SurfaceChart {
   triangles: Triangle[]; curved: boolean; curvedMesh?: THREE.Mesh; min: THREE.Vector2; max: THREE.Vector2; step: THREE.Vector2;
   passage?: number; passageLocal?: boolean;
+  reveal?: number; revealLocal?: boolean;
   x: number; y: number; width: number; height: number;
 }
 export interface SurfaceLayout { room: RoomId; width: number; height: number; charts: SurfaceChart[] }
@@ -53,6 +54,7 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = 
         .multiplyScalar(mesh.material.side === THREE.BackSide ? -1 : 1));
       // Exterior faces and miter caps are hidden by the neighboring wall. They
       // must not occupy an atlas or contaminate visible corner padding.
+      let reveal: number | undefined;
       if (mesh.name === 'room-wall' || mesh.name === 'boundary-wall') {
         const p = positions[0], n = normals[0];
         const visible = roomWalls(room).some(wall => {
@@ -60,8 +62,10 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = 
           const facing = n.x * wall.normal.x + n.z * wall.normal.z;
           if (Math.abs(depth) < .0001 && facing < -.999) return true;
           const lateral = -(p.x - wall.center.x) * wall.normal.z + (p.z - wall.center.z) * wall.normal.x;
-          return wall.portal !== null && Math.abs(Math.abs(lateral) - DOOR_WIDTH / 2) < .0001 &&
+          const jamb = wall.portal !== null && Math.abs(Math.abs(lateral) - DOOR_WIDTH / 2) < .0001 &&
             depth >= -.0001 && depth <= WALL_THICKNESS / 2 + .0001 && Math.abs(facing) < .001 && Math.abs(n.y) < .001;
+          if (jamb) reveal = wall.portal!;
+          return jamb;
         });
         if (!visible) continue;
       }
@@ -76,10 +80,10 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = 
       const n = normals[0], u = Math.abs(n.y) > .999 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(n.z, 0, -n.x).normalize();
       const v = Math.abs(n.y) > .999 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
       const coordinates = positions.map(p => new THREE.Vector2(p.dot(u), p.dot(v)));
-      const key = `${rounded(n.x)},${rounded(n.y)},${rounded(n.z)},${rounded(n.dot(positions[0]))}`;
+      const key = `${rounded(n.x)},${rounded(n.y)},${rounded(n.z)},${rounded(n.dot(positions[0]))}:${direct ? reveal ?? '' : ''}`;
       let chart = charts.get(key);
       if (!chart) {
-        chart = { triangles: [], curved, min: new THREE.Vector2(Infinity, Infinity), max: new THREE.Vector2(-Infinity, -Infinity),
+        chart = { triangles: [], curved, reveal: direct ? reveal : undefined, min: new THREE.Vector2(Infinity, Infinity), max: new THREE.Vector2(-Infinity, -Infinity),
           step: new THREE.Vector2(), x: 0, y: 0, width: 0, height: 0 }; charts.set(key, chart);
       }
       for (const p of coordinates) { chart.min.min(p); chart.max.max(p); }
@@ -96,6 +100,8 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = 
   // has been evaluated. Only the small GPU passage charts need a second copy.
   if (direct) for (const chart of [...list]) if (chart.passage !== undefined)
     list.push({ ...chart, passageLocal: true, step: new THREE.Vector2() });
+  if (direct) for (const chart of [...list]) if (chart.reveal !== undefined)
+    list.push({ ...chart, revealLocal: true, step: new THREE.Vector2() });
   for (const chart of list) {
     if (chart.curved) {
       chart.width = 10; chart.height = 8;
@@ -123,13 +129,16 @@ export function prepareSurfaceLayout(scene: THREE.Scene, room: RoomId, direct = 
   }
   const height = powerOfTwo(y + row + 1);
   for (const mesh of meshes) {
-    const count = mesh.geometry.getAttribute('position').count, attribute = new THREE.Float32BufferAttribute(count * 2, 2);
+    const count = mesh.geometry.getAttribute('position').count, components = direct ? 4 : 2, attribute = new THREE.Float32BufferAttribute(count * components, components);
     for (let i = 0; i < count; i++) attribute.setXY(i, .5 / width, .5 / height); // Reserved black texel.
     mesh.geometry.setAttribute(direct ? 'directUv' : 'transferUv', attribute);
   }
-  const assign = (chart: SurfaceChart, attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, vertex: number, p: THREE.Vector2) => attribute.setXY(vertex,
-      (chart.x + PADDING + (p.x - chart.min.x) / chart.step.x + .5) / width,
-      (chart.y + PADDING + (p.y - chart.min.y) / chart.step.y + .5) / height);
+  const assign = (chart: SurfaceChart, attribute: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, vertex: number, p: THREE.Vector2) => {
+    const x = (chart.x + PADDING + (p.x - chart.min.x) / chart.step.x + .5) / width;
+    const y = (chart.y + PADDING + (p.y - chart.min.y) / chart.step.y + .5) / height;
+    if (chart.revealLocal) { attribute.setZ(vertex, x); attribute.setW(vertex, y); }
+    else attribute.setXY(vertex, x, y);
+  };
   for (const chart of list) {
     if (chart.curvedMesh) {
       const geometry = chart.curvedMesh.geometry, uv = geometry.getAttribute('uv'), attribute = geometry.getAttribute(direct ? 'directUv' : 'transferUv');
