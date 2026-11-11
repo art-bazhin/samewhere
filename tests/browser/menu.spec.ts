@@ -1,5 +1,24 @@
 import { test, expect } from '@playwright/test';
 
+test('the first NEW GAME fade keeps RESUME GAME hidden and preserves menu positions', async ({ page }) => {
+  await page.goto('/'); await expect(page.locator('#loading-screen')).toBeHidden();
+  const position = await page.locator('#play-button').boundingBox();
+  await page.locator('#play-button').click();
+  await page.waitForFunction(() => {
+    const animations = document.getElementById('overlay')!.getAnimations();
+    if (!animations.some(animation => animation instanceof CSSTransition && animation.transitionProperty === 'opacity')) return false;
+    animations.forEach(animation => { animation.pause(); animation.currentTime = 250; });
+    return true;
+  });
+  await expect(page.locator('#resume-button')).toHaveJSProperty('hidden', true);
+  expect(await page.locator('#play-button').boundingBox()).toEqual(position);
+  const opacity = await page.locator('#overlay').evaluate(menu => Number(getComputedStyle(menu).opacity));
+  expect(opacity).toBeGreaterThan(0); expect(opacity).toBeLessThan(1);
+  await page.locator('#overlay').evaluate(menu => menu.getAnimations().forEach(animation => animation.finish()));
+  await expect(page.locator('#overlay')).toBeHidden();
+  await page.keyboard.press('Escape'); await expect(page.locator('#resume-button')).toBeVisible();
+});
+
 test('opening and closing the menu fades its opacity and background blur over half a second', async ({ page }) => {
   await page.goto('/'); await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   const state = await page.evaluate(() => window.__samewhere.game.snapshot());

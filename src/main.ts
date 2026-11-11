@@ -216,7 +216,7 @@ document.addEventListener('pointerlockchange', () => {
   $('overlay').hidden = locked || ended; document.body.classList.toggle('paused', !locked && !ended);
   $('menu-content').inert = locked || ended || document.body.classList.contains('loading');
   if (locked && !started) started = true;
-  $('resume-button').hidden = !started;
+  if (!locked) $('resume-button').hidden = !started;
   autosave(!locked);
 });
 document.addEventListener(mouseEvent, event => {
