@@ -86,6 +86,7 @@ test('crossing the white EXIT freezes play, reveals the ending and leaves only s
   middle.forEach((gain: number, index: number) => { if (index === 4) expect(gain).toBe(1); else { expect(gain, `Stem ${index + 1}`).toBeGreaterThan(0); expect(gain).toBeLessThan(1); } });
   await expect(page.locator('#ending-screen')).toHaveClass(/interactive/, { timeout: 20_000 });
   await page.waitForFunction(() => document.pointerLockElement === null);
+  expect(await page.evaluate(() => window.__samewhere.sound.context.state)).toBe('running');
   expect(await page.locator('#ending-screen').evaluate(screen => getComputedStyle(screen).cursor)).toBe('auto');
   await expect(page.locator('#play-again')).toBeVisible();
   await expect(page.locator('#play-again')).toBeEnabled({ timeout: 20_000 });

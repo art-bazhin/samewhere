@@ -49,8 +49,7 @@ export class Music {
     for (const [index, buffer] of this.buffers.entries()) {
       const source = context.createBufferSource(), gain = context.createGain();
       source.buffer = buffer; source.loop = true; source.loopEnd = duration;
-      gain.gain.value = index === 0 ? BASE_GAIN : 0;
-      if (index && this.active.has(index)) fadeGain(gain.gain, 1, when, LAYER_FADE);
+      gain.gain.value = index === 0 ? BASE_GAIN : this.active.has(index) ? 1 : 0;
       source.connect(gain).connect(output); source.start(when);
       this.layers.push({ source, gain });
     }

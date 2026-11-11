@@ -96,7 +96,7 @@ function reset() {
   ended = false; endingScreen.hidden = true; $('hud').hidden = false;
   $('overlay').hidden = locked; document.body.classList.toggle('paused', !locked);
   stopSweep(); mouseLook.reset(); debugRoomIndex = 0;
-  game.reset(); sound.music.reset(); sync();
+  game.reset(); sound.music.reset(); sound.setPaused(!locked); sync();
 }
 function finishGame() {
   if (ended) return;
@@ -196,6 +196,7 @@ $('controls-button').addEventListener('click', () => controlsDialog.showModal())
 $('controls-close').addEventListener('click', () => controlsDialog.close());
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas; keys.clear();
+  sound.setPaused(!locked && !ended);
   mouseLook.reset();
   if (!locked) stopSweep();
   timing.reset();

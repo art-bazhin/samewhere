@@ -57,6 +57,24 @@ test('six music stems share a seamless clock and unlock only at the specified mi
   });
   expect(await active()).toEqual([1]);
   await enter('A', 'B'); await expect.poll(active).toEqual([1, 2]);
+  await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
+  const pauseRamp = await page.evaluate(() => (window as any).musicRamps.filter((event: any) => event.parameter === window.__samewhere.sound.pauseGain.gain).at(-1));
+  expect(pauseRamp.value).toBe(0); expect(pauseRamp.endTime - pauseRamp.now).toBeCloseTo(.5, 2);
+  await expect.poll(() => page.evaluate(() => window.__samewhere.sound.context.state)).toBe('suspended');
+  expect(await page.evaluate(() => window.__samewhere.sound.pauseGain.gain.value)).toBe(0);
+  const paused = await page.evaluate(() => ({ time: window.__samewhere.sound.context.currentTime,
+    gains: window.__samewhere.sound.music.layers.map(({ gain }: any) => gain.gain.value) }));
+  await page.locator('#controls-button').click(); await page.waitForTimeout(250);
+  expect(await page.evaluate(() => ({ time: window.__samewhere.sound.context.currentTime,
+    gains: window.__samewhere.sound.music.layers.map(({ gain }: any) => gain.gain.value) }))).toEqual(paused);
+  await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
+  await page.locator('#resume-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  const resumeRamp = await page.evaluate(() => (window as any).musicRamps.filter((event: any) => event.parameter === window.__samewhere.sound.pauseGain.gain).at(-1));
+  expect(resumeRamp.value).toBe(1); expect(resumeRamp.endTime - resumeRamp.now).toBeCloseTo(.5, 2);
+  await expect.poll(() => page.evaluate(() => window.__samewhere.sound.context.state)).toBe('running');
+  await expect.poll(() => page.evaluate(() => window.__samewhere.sound.pauseGain.gain.value)).toBe(1);
+  expect(await page.evaluate(() => window.__samewhere.sound.context.currentTime)).toBeGreaterThan(paused.time);
+  expect(await page.evaluate(() => window.__samewhere.sound.music.layers[1].gain.gain.value)).toBeGreaterThan(paused.gains[1]);
   await enter('B', 'D'); await expect.poll(active).toEqual([1, 2, 3]);
   await enter('D', 'G'); await expect.poll(active).toEqual([1, 2, 3, 4]);
   await enter('G', 'A', 2); expect(await active()).toEqual([1, 2, 3, 4]);
@@ -108,5 +126,18 @@ test('six music stems share a seamless clock and unlock only at the specified mi
   expect(await page.evaluate(() => (window as any).musicStarts.filter((event: any) => event.context === window.__samewhere.sound.context).length)).toBe(6);
   console.log('Music:', { stems: initial.starts.length, duration: initial.starts[0].end, seam, envelope, output: initial.output,
     fadeSeconds: fades.map((fade: any) => fade[0].seconds) });
+  expect(errors).toEqual([]);
+});
+
+test('resuming during the menu fade cancels the pending audio pause', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/'); await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
+  await page.locator('#resume-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.__samewhere.sound.pauseGain.gain.value)).toBe(1);
+  const time = await page.evaluate(() => window.__samewhere.sound.context.currentTime);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.__samewhere.sound.context.state)).toBe('running');
+  expect(await page.evaluate(() => window.__samewhere.sound.context.currentTime)).toBeGreaterThan(time);
   expect(errors).toEqual([]);
 });

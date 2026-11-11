@@ -16,7 +16,9 @@ test('NEW GAME retries an Esc cooldown once and ignores repeated clicks while ca
     const state = window as any, game = window.__samewhere.game, reset = game.reset.bind(game); state.resets = 0;
     game.reset = () => { state.resets++; reset(); };
   });
-  await page.locator('#play-button').dblclick(); await expect(page.locator('#overlay')).toBeHidden();
+  await page.locator('#play-button').dblclick();
+  await expect.poll(() => page.evaluate(() => window.__samewhere.sound.context.state)).toBe('suspended');
+  await expect(page.locator('#overlay')).toBeHidden();
   const calls = await page.evaluate(() => (window as any).captureCalls as number[]);
   expect(calls).toHaveLength(2); expect(calls[1] - calls[0]).toBeGreaterThanOrEqual(1250);
   expect(await page.evaluate(() => (window as any).resets)).toBe(1);
@@ -50,6 +52,7 @@ test('capture errors leave the logo and menu in place at both viewport sizes', a
     await page.locator('#error').evaluate(error => error.setAttribute('hidden', ''));
     const menu = await page.locator('.menu-actions').boundingBox(), brand = await page.locator('.menu-brand').boundingBox();
     await page.locator('#play-button').click(); await expect(page.locator('#error')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.__samewhere.sound.context.state)).toBe('suspended');
     expect(await page.locator('.menu-actions').boundingBox()).toEqual(menu);
     expect(await page.locator('.menu-brand').boundingBox()).toEqual(brand);
     const error = await page.locator('#error').boundingBox();
