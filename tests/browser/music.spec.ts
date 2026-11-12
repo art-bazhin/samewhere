@@ -36,8 +36,9 @@ test('six music stems share a seamless clock and unlock only at the specified mi
   expect(initial.starts).toHaveLength(6); expect(new Set(initial.starts.map((event: any) => event.when)).size).toBe(1);
   expect(new Set(initial.starts.map((event: any) => event.end)).size).toBe(1);
   expect(initial.starts.every((event: any) => event.offset === 0 && event.rate === 44100 && event.channels === 2)).toBe(true);
-  expect(initial.starts[0].end).toBeCloseTo(164.571429, 4);
-  expect(initial.starts.every((event: any) => event.end === Math.floor(event.length * .75) / event.rate)).toBe(true);
+  expect(initial.starts[0].end).toBeCloseTo(54.857143, 4);
+  expect(initial.starts.every((event: any) => event.end === 2419200 / event.rate)).toBe(true);
+  for (const event of initial.starts) expect(event.length / event.rate - event.end).toBeCloseTo(2, 1);
   expect(initial.gains).toEqual([expect.closeTo(10 ** (-10 / 20), 6), 0, 0, 0, 0, 0]);
   expect(initial.output).toBeCloseTo(10 ** (-5 / 20), 6);
   for (const stem of initial.edges) for (const [start, continuation] of stem) expect(start).toBe(continuation);
@@ -175,12 +176,12 @@ test('six music stems share a seamless clock and unlock only at the specified mi
       for (let i = 0; i < data.length; i++) data[i] = sign * (.25 + .5 * i / data.length);
     }
     const original = buffer.getChannelData(0), unchanged = original.slice(blendEnd), continuation = original.slice(end, end + rate);
-    prepareMusicLoop(buffer);
+    prepareMusicLoop(buffer, end / rate);
     const preserved = unchanged.every((value, i) => value === original[blendEnd + i]);
     const copied = continuation.every((value, i) => value === original[i]);
     // Independent channel contributions retain their combined power during the fade.
     const power = context.createBuffer(2, rate * 8, rate), a = power.getChannelData(0), b = power.getChannelData(1);
-    a.fill(.25, 0, end); b.fill(.25, end); prepareMusicLoop(power);
+    a.fill(.25, 0, end); b.fill(.25, end); prepareMusicLoop(power, end / rate);
     let powerError = 0;
     for (let i = rate; i < blendEnd; i++) powerError = Math.max(powerError, Math.abs(a[i] * a[i] + b[i] * b[i] - .25 ** 2));
     const source = context.createBufferSource(); source.buffer = buffer; source.loop = true; source.loopEnd = end / rate;

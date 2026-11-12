@@ -3,7 +3,8 @@ import { fetchLoadingBuffer, type LoadingProgress } from './loading-progress';
 
 const files = import.meta.glob<string>('../music/SAMEWHERE-*.mp3', { eager: true, query: '?url', import: 'default' });
 const urls = Array.from({ length: 6 }, (_, i) => files[`../music/SAMEWHERE-${String(i + 1).padStart(3, '0')}.mp3`]);
-const LOOP_FRACTION = .75, LOOP_HEAD_SECONDS = 1, LOOP_CROSSFADE = .2;
+// One square from the original three-square export; MP3 cuts are frame-rounded.
+const LOOP_SECONDS = 2419200 / 44100, LOOP_HEAD_SECONDS = 1, LOOP_CROSSFADE = .2;
 const SHORT_FADE = .005, LAYER_FADE = 15, ENDING_FADE = 12;
 const BASE_GAIN = 10 ** (-10 / 20);
 
@@ -16,10 +17,10 @@ export function fadeGain(gain: AudioParam, target: number, time: number, duratio
 }
 
 /** Copy the first second from past the loop boundary, then blend back to the original. */
-export function prepareMusicLoop(buffer: AudioBuffer) {
-  const end = Math.floor(buffer.length * LOOP_FRACTION);
-  const count = Math.min(Math.round(buffer.sampleRate * LOOP_HEAD_SECONDS), end, buffer.length - end);
-  const fade = Math.min(Math.round(buffer.sampleRate * LOOP_CROSSFADE), end - count, buffer.length - end - count);
+export function prepareMusicLoop(buffer: AudioBuffer, duration = LOOP_SECONDS) {
+  const end = Math.round(buffer.sampleRate * duration);
+  const count = Math.round(buffer.sampleRate * LOOP_HEAD_SECONDS), fade = Math.round(buffer.sampleRate * LOOP_CROSSFADE);
+  if (end < count + fade || end + count + fade > buffer.length) throw new Error('Music stem must include a complete loop and 1.2 seconds of continuation');
   for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
     const samples = buffer.getChannelData(channel);
     samples.copyWithin(0, end, end + count);
@@ -55,10 +56,10 @@ export class Music {
   start(context: AudioContext, output: AudioNode) {
     if (this.layers.length) return;
     this.context = context;
-    const first = this.buffers[0], when = context.currentTime + .03, duration = Math.floor(first.length * LOOP_FRACTION) / first.sampleRate;
+    const when = context.currentTime + .03;
     for (const [index, buffer] of this.buffers.entries()) {
       const source = context.createBufferSource(), gain = context.createGain();
-      source.buffer = buffer; source.loop = true; source.loopEnd = duration;
+      source.buffer = buffer; source.loop = true; source.loopEnd = LOOP_SECONDS;
       gain.gain.value = index === 0 ? BASE_GAIN : this.active.has(index) ? 1 : 0;
       source.connect(gain).connect(output); source.start(when);
       this.layers.push({ source, gain });
