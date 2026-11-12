@@ -33,7 +33,7 @@ export function createMaterials(renderer: THREE.WebGLRenderer, progress?: (loade
     result.repeat.setScalar(2 / metersPerTile); result.colorSpace = THREE.SRGBColorSpace;
     textures.add(result); return { color: result, ...detail };
   }
-  const wallpaper = texture('backrooms-wallpaper-color.png', 1.2, .00065, [.74, .96]), carpet = texture('backrooms-carpet-color.png', 1, .003, [.9, 1]);
+  const wallpaper = texture('wallpaper-color.jpg', 1.2, .00065, [.74, .96]), carpet = texture('carpet-color.jpg', 1, .003, [.9, 1]);
   const concrete = texture('pedestal-concrete-color.jpg', PEDESTAL_TEXTURE_SIZE, .0007, [.78, .97]);
   // Apply half of the original beige tint, retaining some of the neutral concrete.
   // A linear multiplier retains the concrete's pores and color variation.
