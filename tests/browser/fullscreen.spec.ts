@@ -45,8 +45,67 @@ test('fullscreen captures only Escape, keeps short presses in fullscreen and rel
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(state);
   await page.keyboard.press('KeyF'); await page.waitForFunction(() => !document.fullscreenElement);
   await expect.poll(() => page.evaluate(() => (window as any).keyboardUnlocks)).toBe(1);
+  await expect(page.locator('#overlay')).toBeHidden();
+  expect(await page.evaluate(() => document.pointerLockElement?.id)).toBe('game');
   expect(errors).toEqual([]);
 });
+
+for (const cancel of [null, 'escape', 'focus'] as const) {
+  const name = cancel === 'escape' ? 'Escape during fullscreen exit cancels automatic pointer recapture'
+    : cancel === 'focus' ? 'remaining unfocused during fullscreen exit keeps the game paused'
+    : 'F restores focus and pointer lock lost during fullscreen exit without showing the menu';
+  test(name, async ({ page }) => {
+    const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+    await page.addInitScript(() => {
+      const state = window as any; state.captureCalls = 0;
+      const capture = Element.prototype.requestPointerLock;
+      Element.prototype.requestPointerLock = function(options) { state.captureCalls++; return capture.call(this, options); };
+      const exit = Document.prototype.exitFullscreen;
+      Document.prototype.exitFullscreen = async function() {
+        await exit.call(this);
+        const released = new Promise<void>(resolve => document.addEventListener('pointerlockchange', () => resolve(), { once: true }));
+        document.exitPointerLock(); await released;
+        const focused = document.hasFocus.bind(document); state.transitionFocused = false;
+        Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => state.transitionFocused && focused() });
+        window.dispatchEvent(new Event('blur'));
+        state.fullscreenPointerDropped = true;
+        await new Promise<void>(resolve => { state.finishFullscreenExit = resolve; });
+      };
+    });
+    await page.goto('/'); await expect(page.locator('#loading-screen')).toBeHidden();
+    await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+    const initial = await page.evaluate(() => window.__samewhere.game.snapshot());
+    await page.keyboard.press('KeyF'); await page.waitForFunction(() => !!document.fullscreenElement);
+    await page.waitForTimeout(100);
+    await page.evaluate(() => {
+      const state = window as any, menu = document.getElementById('overlay')!; state.menuAppearances = 0;
+      new MutationObserver(() => { if (!menu.hidden) state.menuAppearances++; })
+        .observe(menu, { attributes: true, attributeFilter: ['hidden'] });
+    });
+    await page.keyboard.press('KeyF'); await page.waitForFunction(() => (window as any).fullscreenPointerDropped);
+    if (cancel === 'escape') await page.keyboard.press('Escape');
+    if (!cancel) await page.evaluate(() => setTimeout(() => { (window as any).transitionFocused = true; }, 200));
+    await page.evaluate(() => (window as any).finishFullscreenExit());
+    if (cancel) {
+      await expect(page.locator('#overlay')).toBeVisible();
+      await page.waitForTimeout(150);
+      expect(await page.evaluate(() => document.pointerLockElement)).toBeNull();
+      expect(await page.evaluate(() => (window as any).captureCalls)).toBe(1);
+    } else {
+      await page.waitForFunction(() => document.pointerLockElement?.id === 'game');
+      await expect(page.locator('#overlay')).toBeHidden();
+      expect(await page.evaluate(() => (window as any).captureCalls)).toBe(2);
+      expect(await page.evaluate(() => (window as any).menuAppearances)).toBe(0);
+      // Ordinary focus loss must still pause once the F transition has completed.
+      await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+      await expect(page.locator('#overlay')).toBeVisible();
+      expect(await page.evaluate(() => document.pointerLockElement)).toBeNull();
+    }
+    expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
+    await page.evaluate(() => { delete (document as any).hasFocus; });
+    expect(errors).toEqual([]);
+  });
+}
 
 for (const mode of ['unavailable', 'rejected']) {
   test(`fullscreen still works when Keyboard Lock is ${mode}`, async ({ page }) => {
@@ -59,6 +118,8 @@ for (const mode of ['unavailable', 'rejected']) {
     await page.goto('/'); await expect(page.locator('#loading-screen')).toBeHidden();
     await page.keyboard.press('KeyF'); await page.waitForFunction(() => !!document.fullscreenElement);
     await page.keyboard.press('KeyF'); await page.waitForFunction(() => !document.fullscreenElement);
+    await expect(page.locator('#overlay')).toBeVisible();
+    expect(await page.evaluate(() => document.pointerLockElement)).toBeNull();
     await expect(page.locator('#error')).toBeHidden(); expect(errors).toEqual([]);
   });
 }

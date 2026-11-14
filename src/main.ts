@@ -60,6 +60,7 @@ let space: SpaceRenderer;
 let surfaceTextures: SurfaceTextures;
 let locked = false, started = !!saved, ended = false, debug = false, disposed = false;
 let fullscreenPending = false;
+let fullscreenResume = false;
 let playPending = false, playCancelled = false;
 let sweep: { yaw: number; pitch: number; start: number } | null = null;
 const keys = new Set<string>();
@@ -156,17 +157,38 @@ function undo() {
   stopSweep(); mouseLook.reset();
   if (game.undo()) { sync(); sound.play('undo'); }
 }
-function pause() { playCancelled = true; if (document.pointerLockElement) document.exitPointerLock(); }
+function updatePauseMenu() {
+  const paused = document.pointerLockElement !== canvas && !ended && !fullscreenResume;
+  sound.setPaused(paused);
+  $('overlay').hidden = !paused; document.body.classList.toggle('paused', paused);
+  $('menu-content').inert = !paused || document.body.classList.contains('loading');
+}
+function pause() {
+  fullscreenResume = false; playCancelled = true;
+  if (document.pointerLockElement) document.exitPointerLock(); else updatePauseMenu();
+}
 async function toggleFullscreen() {
   if (fullscreenPending) return;
-  fullscreenPending = true;
+  fullscreenPending = true; fullscreenResume = locked;
   try {
     if (document.fullscreenElement) await document.exitFullscreen();
     else await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    // Let the mode change's focus/pointer-lock events settle before restoring play.
+    // Keep a real app/tab switch paused if focus does not return with the transition.
+    if (fullscreenResume) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const deadline = performance.now() + 1000;
+      while (fullscreenResume && (document.hidden || !document.hasFocus()) && performance.now() < deadline)
+        await new Promise(resolve => setTimeout(resolve, 50));
+      if (fullscreenResume) {
+        if (document.hidden || !document.hasFocus()) pause();
+        else if (document.pointerLockElement !== canvas) { locked = false; await play(); }
+      }
+    }
   } catch {
     const message = 'Could not enter fullscreen. Try opening the game in a separate browser tab.';
     pause(); $('error').hidden = false; $('error').textContent = message;
-  } finally { fullscreenPending = false; }
+  } finally { fullscreenResume = false; fullscreenPending = false; updatePauseMenu(); }
 }
 document.addEventListener('fullscreenchange', () => {
   if (!keyboard?.lock) return;
@@ -226,12 +248,10 @@ for (const dialog of dialogs) dialog.addEventListener('click', event => {
 document.addEventListener('pointerdown', () => document.body.classList.remove('tab-navigation'));
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas; keys.clear();
-  sound.setPaused(!locked && !ended);
   mouseLook.reset();
   if (!locked) stopSweep();
   timing.reset();
-  $('overlay').hidden = locked || ended; document.body.classList.toggle('paused', !locked && !ended);
-  $('menu-content').inert = locked || ended || document.body.classList.contains('loading');
+  updatePauseMenu();
   if (locked && !started) started = true;
   if (!locked) $('resume-button').hidden = !started;
   autosave(!locked);
@@ -260,7 +280,7 @@ document.addEventListener('keydown', event => {
     if (event.repeat) return;
     const dialog = dialogs.find(dialog => dialog.open);
     if (dialog) dialog.close();
-    else if (locked || playPending) pause();
+    else if (locked || playPending || fullscreenResume) pause();
     else if (document.fullscreenElement && started && !$('menu-content').inert) void play();
     return;
   }
@@ -282,10 +302,10 @@ document.addEventListener('keydown', event => {
   if (event.code === 'KeyT' && devMode) surfaceTextures.toggle();
 });
 document.addEventListener('keyup', event => keys.delete(event.code));
-window.addEventListener('blur', () => { keys.clear(); pause(); });
+window.addEventListener('blur', () => { keys.clear(); if (!fullscreenResume) pause(); });
 document.addEventListener('visibilitychange', () => {
   hudTime = performance.now(); timing.reset();
-  if (document.hidden) { keys.clear(); autosave(true); pause(); }
+  if (document.hidden) { keys.clear(); autosave(true); if (!fullscreenResume) pause(); }
 });
 canvas.addEventListener('click', () => {
   if (!locked || sweep || ended) return;
