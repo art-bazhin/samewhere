@@ -100,7 +100,7 @@ export class SpaceRenderer {
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.assets = createMaterials(this.renderer, (loaded, total) => textures?.(loaded / total));
     this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations, this.assets.environment.texture)])) as Record<RoomId, RoomVisual>;
-    this.assets.textures.add(createStartingMessage(this.rooms.A));
+    this.assets.textures.add(createStartingMessage(this.rooms.A, this.renderer.capabilities.maxTextureSize));
     this.exitSigns = createExitSigns(this.rooms.A);
     this.whiteSpace = createWhiteSpace(this.rooms.A);
     this.lightTransfer = new LightTransfer(this.rooms, this.renderer, loading);
