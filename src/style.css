@@ -13,8 +13,8 @@
 body { margin: 0; overflow: hidden; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { font: inherit; color: inherit; cursor: pointer; border: 0; }
-button:focus, a:focus { outline: none; }
-body.tab-navigation button:focus-visible, body.tab-navigation a:focus-visible { outline: 1px solid currentColor; outline-offset: 6px; }
+button:focus, a:focus, input[type="range"]:focus { outline: none; }
+body.tab-navigation button:focus-visible, body.tab-navigation a:focus-visible, body.tab-navigation input[type="range"]:focus-visible { outline: 1px solid currentColor; outline-offset: 6px; }
 button:disabled { opacity: .4; cursor: wait; }
 a { color: inherit; text-decoration: none; }
 [hidden] { display: none !important; }
@@ -69,6 +69,15 @@ body.paused .inventory, body.paused #crosshair { opacity: 0; }
 #controls-dialog dl > div { display: contents; }
 #controls-dialog dt { font-weight: 650; text-align: right; }
 #controls-dialog dd { margin: 0; }
+.look-setting { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: center; margin-bottom: 32px; }
+.look-setting label { font-weight: 650; text-align: right; }
+.look-setting-control { display: flex; align-items: center; gap: 12px; min-width: 0; }
+#look-sensitivity { appearance: none; flex: 1; min-width: 0; width: 100%; height: 28px; margin: 0; padding: 0; background: transparent; cursor: pointer; }
+#look-sensitivity::-webkit-slider-runnable-track { height: 2px; background: #eee6bf66; }
+#look-sensitivity::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; margin-top: -5px; border: 0; border-radius: 50%; background: var(--paper); }
+#look-sensitivity::-moz-range-track { height: 2px; background: #eee6bf66; }
+#look-sensitivity::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--paper); }
+#look-sensitivity-value { min-width: 3ch; text-align: right; font-size: 16px; font-variant-numeric: tabular-nums; }
 #controls-close { display: block; margin: 0 auto; text-align: center; }
 #new-game-warning { margin: 0 0 32px; text-align: center; }
 .dialog-actions { display: flex; justify-content: center; align-items: center; gap: 32px; }
@@ -80,4 +89,9 @@ body.paused .inventory, body.paused #crosshair { opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .inventory-ball { transition: none; }
+}
+@media (max-height: 700px) {
+  #controls-dialog { padding: 24px; font-size: 18px; }
+  #controls-dialog dl { gap: 12px 20px; margin-bottom: 24px; }
+  .look-setting { gap: 20px; margin-bottom: 24px; }
 }

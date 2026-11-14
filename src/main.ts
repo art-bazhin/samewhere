@@ -7,6 +7,7 @@ import { MouseLook } from './mouse-look';
 import { SurfaceTextures } from './surface-textures';
 import { hasSave, loadSave, saveGame } from './save';
 import { LoadingProgress } from './loading-progress';
+import { loadSettings, saveSettings } from './settings';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const devMode = new URLSearchParams(location.search).get('dev') === '1';
@@ -18,6 +19,18 @@ const canvas = $<HTMLCanvasElement>('game');
 const controlsDialog = $<HTMLDialogElement>('controls-dialog');
 const newGameDialog = $<HTMLDialogElement>('new-game-dialog');
 const dialogs = [controlsDialog, newGameDialog];
+const settings = loadSettings(), sensitivitySlider = $<HTMLInputElement>('look-sensitivity');
+function showSensitivity() {
+  const value = settings.lookSensitivity.toFixed(1);
+  $('look-sensitivity-value').textContent = value;
+  sensitivitySlider.setAttribute('aria-valuetext', value);
+}
+sensitivitySlider.value = String(settings.lookSensitivity);
+showSensitivity();
+sensitivitySlider.addEventListener('input', () => {
+  settings.lookSensitivity = sensitivitySlider.valueAsNumber;
+  showSensitivity(); saveSettings(settings);
+});
 const endingScreen = $('ending-screen'), playAgain = $<HTMLButtonElement>('play-again');
 const game = new Game();
 const loading = new LoadingProgress(value => { $<HTMLProgressElement>('loading-progress').value = value; });
@@ -68,8 +81,9 @@ function finishLoading() {
 }
 
 function applyLook(delta: { x: number; y: number }) {
-  game.player.yaw -= delta.x * 0.002;
-  game.player.pitch = Math.max(-1.35, Math.min(1.35, game.player.pitch - delta.y * 0.002));
+  const sensitivity = .002 * settings.lookSensitivity;
+  game.player.yaw -= delta.x * sensitivity;
+  game.player.pitch = Math.max(-1.35, Math.min(1.35, game.player.pitch - delta.y * sensitivity));
 }
 function updateHUD() {
   const world = game.world;
