@@ -10,6 +10,7 @@ import { withReceiverPlaneShadows } from './shadow-receiver';
 import { galleryExitAt, galleryNeighbor, isGalleryExit, type GalleryCell } from './gallery';
 import { createExitSigns } from './exit-sign';
 import { createWhiteSpace } from './white-space';
+import { createStartingMessage } from './starting-message';
 import type { LoadingProgress } from './loading-progress';
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number };
@@ -99,6 +100,7 @@ export class SpaceRenderer {
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.assets = createMaterials(this.renderer, (loaded, total) => textures?.(loaded / total));
     this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations, this.assets.environment.texture)])) as Record<RoomId, RoomVisual>;
+    this.assets.textures.add(createStartingMessage(this.rooms.A));
     this.exitSigns = createExitSigns(this.rooms.A);
     this.whiteSpace = createWhiteSpace(this.rooms.A);
     this.lightTransfer = new LightTransfer(this.rooms, this.renderer, loading);
