@@ -11,6 +11,8 @@ import { galleryExitAt, galleryNeighbor, isGalleryExit, type GalleryCell } from 
 import { createExitSigns } from './exit-sign';
 import { createWhiteSpace } from './white-space';
 import { createStartingMessage } from './starting-message';
+import { createMarkerInk } from './marker-ink';
+import squareMarkerSvg from './assets/square-marker.svg?raw';
 import type { LoadingProgress } from './loading-progress';
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number };
@@ -99,7 +101,9 @@ export class SpaceRenderer {
     this.renderer.info.autoReset = false;
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.assets = createMaterials(this.renderer, (loaded, total) => textures?.(loaded / total));
-    this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations, this.assets.environment.texture)])) as Record<RoomId, RoomVisual>;
+    const squareInk = createMarkerInk(squareMarkerSvg, this.renderer.capabilities.maxTextureSize, 2048);
+    this.assets.textures.add(squareInk.texture);
+    this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations, this.assets.environment.texture, squareInk)])) as Record<RoomId, RoomVisual>;
     this.assets.textures.add(createStartingMessage(this.rooms.A, this.renderer.capabilities.maxTextureSize));
     this.exitSigns = createExitSigns(this.rooms.A);
     this.whiteSpace = createWhiteSpace(this.rooms.A);
