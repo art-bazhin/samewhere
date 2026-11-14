@@ -50,7 +50,7 @@ body.loading #hud { visibility: hidden; }
 .menu-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 22px; color: var(--paper); text-shadow: 0 1px 3px #0008; }
 .menu-item { padding: 4px 0; background: transparent; text-align: left; text-shadow: inherit; letter-spacing: inherit; }
 .menu-item:hover { opacity: .7; }
-body.paused #game { filter: blur(3px); transform: scale(1.02); }
+body.paused #game { filter: blur(5px); transform: scale(1.02); }
 body.paused .inventory, body.paused #crosshair { opacity: 0; }
 #ending-screen { position: fixed; inset: 0; z-index: 3; background: #fff; color: #000; cursor: none; }
 #ending-screen.interactive { cursor: auto; }

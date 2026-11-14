@@ -416,7 +416,9 @@ test('reset restores inventory, pose and initial links and clears history', () =
   game.interact({ room: 'B', side: 0 }); game.interact({ room: 'A', side: 0 });
   game.interact({ room: 'C', side: 0 }); game.player.room = 'C'; game.world.selected = 'blue'; game.reset();
   assert.deepEqual(game.snapshot(), initial);
-  assert.equal(game.world.selected, 'red'); assert.equal(game.history.length, 0); assert.equal(connections(game.world).length, 2); close(game.player.x, -1.95); close(game.player.z, 3.65);
+  assert.equal(game.world.selected, 'red'); assert.equal(game.history.length, 0); assert.equal(connections(game.world).length, 2);
+  assert.equal(game.player.x, -1.093061759947122); assert.equal(game.player.z, 3.0899624822847964);
+  assert.equal(game.player.yaw, Math.PI); assert.equal(game.player.pitch, 0);
 });
 
 test('a doorway takes 30 cm to cross between inner wall faces and reverses continuously', () => {

@@ -132,7 +132,6 @@ export function inventoryCount(world: WorldState, color: BallColor) {
   return world.balls.filter(b => b.color === color && !b.socket).length;
 }
 export function initialState(): Snapshot {
-  const pedestal = ROOMS.A.pedestals.find(p => p.controls === 'A')!;
   return {
     world: { selected: 'red', passageProgress: 0, gallery: null, balls: [
       { id: 'R1', color: 'red', socket: { room: 'B', side: 0 } },
@@ -140,7 +139,7 @@ export function initialState(): Snapshot {
       { id: 'B1', color: 'blue', socket: { room: 'C', side: 0 } },
       { id: 'B2', color: 'blue', socket: { room: 'C', side: 3 } },
     ] },
-    player: { room: 'A', x: pedestal.x, z: pedestal.z + 1.7, yaw: Math.PI, pitch: 0 },
+    player: { room: 'A', x: -1.093061759947122, z: 3.0899624822847964, yaw: Math.PI, pitch: 0 },
   };
 }
 export function validateWorld(world: WorldState) {

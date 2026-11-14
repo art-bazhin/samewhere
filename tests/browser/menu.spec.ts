@@ -43,10 +43,10 @@ test('opening and closing the menu fades its opacity and background blur over ha
       return { durations, samples, inert: document.getElementById('menu-content')!.inert };
     });
     expect(fade.durations).toEqual([500, 500]);
-    expect(fade.samples[0]).toEqual({ opacity: opening ? 0 : 1, blur: opening ? 0 : 3 });
+    expect(fade.samples[0]).toEqual({ opacity: opening ? 0 : 1, blur: opening ? 0 : 5 });
     expect(fade.samples[1].opacity).toBeGreaterThan(0); expect(fade.samples[1].opacity).toBeLessThan(1);
-    expect(fade.samples[1].blur).toBeGreaterThan(0); expect(fade.samples[1].blur).toBeLessThan(3);
-    expect(fade.samples[2]).toEqual({ opacity: opening ? 1 : 0, blur: opening ? 3 : 0 });
+    expect(fade.samples[1].blur).toBeGreaterThan(0); expect(fade.samples[1].blur).toBeLessThan(5);
+    expect(fade.samples[2]).toEqual({ opacity: opening ? 1 : 0, blur: opening ? 5 : 0 });
     expect(fade.inert).toBe(!opening);
     expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(state);
   }
@@ -66,7 +66,7 @@ test('initial loading hides preparation behind black and fades into the menu aft
     for (const selector of ['#menu-content', '.menu-brand', '#hud']) await expect(page.locator(selector)).toBeHidden();
     expect(await loading.evaluate(screen => ({ background: getComputedStyle(screen).backgroundColor, opacity: getComputedStyle(screen).opacity })))
       .toEqual({ background: 'rgb(0, 0, 0)', opacity: '1' });
-    expect(await page.locator('#game').evaluate(canvas => getComputedStyle(canvas).filter)).toBe('blur(3px)');
+    expect(await page.locator('#game').evaluate(canvas => getComputedStyle(canvas).filter)).toBe('blur(5px)');
     const cover = await loading.boundingBox(), bounds = await page.locator('.loading-label').boundingBox(), viewport = page.viewportSize()!;
     expect(cover).toEqual({ x: 0, y: 0, width: viewport.width, height: viewport.height });
     expect(bounds!.x + bounds!.width / 2).toBeCloseTo(viewport.width / 2, 0);
@@ -123,16 +123,16 @@ test('the English menu offers controls, resumes progress and starts a fresh game
   await expect(page.locator('.menu-actions button:visible')).toHaveText(['NEW GAME', 'CONTROLS']);
   await expect(page.locator('.menu-card, .overlay-caption, .menu-note, .menu-meta, .connection-sketch')).toHaveCount(0);
   const initial = await page.evaluate(async () => {
-    const path = '/src/world.ts', { ROOMS, canStand } = await import(path);
-    const { game } = window.__samewhere, pedestal = ROOMS.A.pedestals.find((p: any) => p.controls === 'A');
-    if (game.player.x !== pedestal.x || game.player.z <= pedestal.z || game.player.yaw !== Math.PI || game.player.pitch !== 0 || !canStand('A', game.player)) {
-      throw new Error('The player must stand beyond the square pedestal, facing the wall straight ahead');
+    const path = '/src/world.ts', { canStand } = await import(path);
+    const { game } = window.__samewhere;
+    if (game.player.x !== -1.093061759947122 || game.player.z !== 3.0899624822847964 || game.player.yaw !== Math.PI || game.player.pitch !== 0 || !canStand('A', game.player)) {
+      throw new Error('The player must start at the approved position, facing the wall straight ahead');
     }
     const brand = getComputedStyle(document.querySelector('.menu-brand')!), item = getComputedStyle(document.querySelector('#play-button')!);
     if (brand.font !== item.font || brand.color !== item.color) throw new Error('Menu typography must match the wordmark');
     return game.snapshot();
   });
-  expect(await page.locator('#game').evaluate(canvas => getComputedStyle(canvas).filter)).toBe('blur(3px)');
+  expect(await page.locator('#game').evaluate(canvas => getComputedStyle(canvas).filter)).toBe('blur(5px)');
   await page.screenshot({ path: info.outputPath('start-menu.png') });
   await page.locator('#controls-button').click(); await expect(dialog).toBeVisible();
   await expect(dialog.locator('h2')).toHaveCount(0);

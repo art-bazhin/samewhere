@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { EYE_HEIGHT, initialState } from './world';
+import { EYE_HEIGHT, ROOMS } from './world';
 import type { RoomVisual } from './room-visual';
 import messageSvg from './assets/starting-message.svg?raw';
 
@@ -22,8 +22,9 @@ function messageTexture() {
 /** Black marker on the starting wall, under the same relief and light as its symbols. */
 export function createStartingMessage(room: RoomVisual) {
   const wall = room.walls[2], frame = wall.solid.parent!;
-  const start = initialState().player;
-  const center = frame.worldToLocal(new THREE.Vector3(start.x, EYE_HEIGHT, start.z));
+  // Keep the ink fixed above the square pedestal when the player's spawn changes.
+  const pedestal = ROOMS.A.pedestals.find(p => p.controls === 'A')!;
+  const center = frame.worldToLocal(new THREE.Vector3(pedestal.x, EYE_HEIGHT, frame.position.z));
   const material = (wall.solid.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>).material;
   const { texture, width, height } = messageTexture();
   const compile = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
