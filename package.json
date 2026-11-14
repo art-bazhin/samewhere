@@ -9,6 +9,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:browser": "playwright test",
+    "generate:markers": "node --import tsx scripts/generate-marker-symbols.ts",
     "profile": "node scripts/profile-turns.mjs",
     "profile:pacing": "node scripts/profile-pacing.mjs",
     "profile:interactions": "node scripts/profile-interactions.mjs",

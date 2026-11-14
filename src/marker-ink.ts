@@ -14,7 +14,7 @@ export function createMarkerInk(source: string, maxTextureSize: number, resoluti
   const context = canvas.getContext('2d')!;
   context.scale(canvas.width / width, canvas.height / height);
   context.fillStyle = '#fff';
-  context.fill(new Path2D(svg.querySelector('path')!.getAttribute('d')!), 'evenodd');
+  for (const path of svg.querySelectorAll('path')) context.fill(new Path2D(path.getAttribute('d')!), 'evenodd');
   const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
   const distances = inkDistanceField(pixels, canvas.width, canvas.height), data = new Uint8Array(distances.length * 2);
   for (let i = 0; i < distances.length; i++) { data[i * 2] = distances[i]; data[i * 2 + 1] = pixels[i * 4 + 3]; }

@@ -1,14 +1,16 @@
 import * as THREE from 'three';
-import { DOOR_WIDTH, roomOutline, type PassageGoal } from './world';
+import { DOOR_WIDTH, roomOutline, type PassageGoal, type RoomId } from './world';
 import { markerInkGLSL, type MarkerInk } from './marker-ink';
 
 // Enlarge the grid-calibrated drawing by the same factor as the starting note.
-const SQUARE_MARKER_SCALE = 4;
+const MARKER_SCALE = 4;
+
+export type PassageInk = Partial<Record<RoomId, MarkerInk>>;
 
 /** Marker ink is part of the wall's albedo, sharing its relief and baked light. */
-export function passageMarking(base: THREE.MeshStandardMaterial, goal: PassageGoal, squareInk?: MarkerInk) {
+export function passageMarking(base: THREE.MeshStandardMaterial, goal: PassageGoal, markingInk?: PassageInk) {
   const material = base.clone(), shown = { value: 0 };
-  const artwork = goal.to === 'A' ? squareInk : undefined;
+  const artwork = markingInk?.[goal.to];
   const quarterTurns = goal.from.room === 'A' ? goal.from.side : 0;
   // Rotate wall coordinates before applying the SVG's physical dimensions, without stretching the ink.
   const markerPoint = ['p', 'vec2(-p.y, p.x)', '-p', 'vec2(p.y, -p.x)'][quarterTurns];
@@ -30,7 +32,7 @@ export function passageMarking(base: THREE.MeshStandardMaterial, goal: PassageGo
   const compile = base.onBeforeCompile.bind(base), key = base.customProgramCacheKey();
   material.onBeforeCompile = (shader, renderer) => {
     compile(shader, renderer); shader.uniforms.passageMarkingShown = shown;
-    if (artwork) shader.uniforms.squareMarkerInk = { value: artwork.texture };
+    if (artwork) shader.uniforms.passageMarkerInk = { value: artwork.texture };
     shader.vertexShader = 'varying vec3 markingPosition;\n' + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n markingPosition = position;');
     shader.fragmentShader = `uniform float passageMarkingShown; varying vec3 markingPosition;
@@ -54,15 +56,15 @@ export function passageMarking(base: THREE.MeshStandardMaterial, goal: PassageGo
         float ends = clamp((strokeLength - cut) / cutAA + .5, 0., 1.) - clamp(-cut / cutAA + .5, 0., 1.);
         return mix(rounded, sides * ends, smoothstep(.5, 1., acrossAA / (2. * width)));
       }\n` + shader.fragmentShader;
-    if (artwork) shader.fragmentShader = 'uniform sampler2D squareMarkerInk;\n' + markerInkGLSL + shader.fragmentShader;
+    if (artwork) shader.fragmentShader = 'uniform sampler2D passageMarkerInk;\n' + markerInkGLSL + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
       vec2 p = markingPosition.xy - vec2(${(-DOOR_WIDTH / 2 - .4).toFixed(6)}, 1.65);
-      ${artwork ? `vec2 markerUV = ${markerPoint} / vec2(${(artwork.width * SQUARE_MARKER_SCALE).toFixed(6)}, ${(artwork.height * SQUARE_MARKER_SCALE).toFixed(6)}) + .5;
-      float inkCoverage = markerInk(squareMarkerInk, markerUV, vec2(${artwork.texture.image.width.toFixed(1)}, ${artwork.texture.image.height.toFixed(1)}));`
+      ${artwork ? `vec2 markerUV = ${markerPoint} / vec2(${(artwork.width * MARKER_SCALE).toFixed(6)}, ${(artwork.height * MARKER_SCALE).toFixed(6)}) + .5;
+      float inkCoverage = markerInk(passageMarkerInk, markerUV, vec2(${artwork.texture.image.width.toFixed(1)}, ${artwork.texture.image.height.toFixed(1)}));`
       : `float inkCoverage = 0.; ${strokes}`}
       float ink = passageMarkingShown * inkCoverage * step(-.0001, markingPosition.z);
       diffuseColor.rgb = mix(diffuseColor.rgb, ${inkColor}, ink);`);
   };
-  material.customProgramCacheKey = () => `${key}:passage-marking:${artwork ? 'hand-drawn-square' : 'coverage'}:${goal.to}:${goal.color}:${quarterTurns}`;
+  material.customProgramCacheKey = () => `${key}:passage-marking:${artwork ? 'hand-drawn' : 'coverage'}:${goal.to}:${goal.color}:${quarterTurns}`;
   return { material, shown };
 }

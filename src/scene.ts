@@ -13,6 +13,8 @@ import { createWhiteSpace } from './white-space';
 import { createStartingMessage } from './starting-message';
 import { createMarkerInk } from './marker-ink';
 import squareMarkerSvg from './assets/square-marker.svg?raw';
+import triangleMarkerSvg from './assets/triangle-marker.svg?raw';
+import pentagonMarkerSvg from './assets/pentagon-marker.svg?raw';
 import type { LoadingProgress } from './loading-progress';
 
 type Rect = { minX: number; minY: number; maxX: number; maxY: number };
@@ -101,9 +103,11 @@ export class SpaceRenderer {
     this.renderer.info.autoReset = false;
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.assets = createMaterials(this.renderer, (loaded, total) => textures?.(loaded / total));
-    const squareInk = createMarkerInk(squareMarkerSvg, this.renderer.capabilities.maxTextureSize, 2048);
-    this.assets.textures.add(squareInk.texture);
-    this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations, this.assets.environment.texture, squareInk)])) as Record<RoomId, RoomVisual>;
+    const markingInk = { A: createMarkerInk(squareMarkerSvg, this.renderer.capabilities.maxTextureSize, 2048),
+      B: createMarkerInk(pentagonMarkerSvg, this.renderer.capabilities.maxTextureSize, 2048),
+      D: createMarkerInk(triangleMarkerSvg, this.renderer.capabilities.maxTextureSize, 2048) };
+    Object.values(markingInk).forEach(ink => this.assets.textures.add(ink.texture));
+    this.rooms = Object.fromEntries(ROOM_IDS.map(id => [id, createRoom(id, this.assets.materials, this.assets.optimizations, this.assets.environment.texture, markingInk)])) as Record<RoomId, RoomVisual>;
     this.assets.textures.add(createStartingMessage(this.rooms.A, this.renderer.capabilities.maxTextureSize));
     this.exitSigns = createExitSigns(this.rooms.A);
     this.whiteSpace = createWhiteSpace(this.rooms.A);

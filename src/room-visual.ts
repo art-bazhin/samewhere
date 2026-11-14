@@ -4,8 +4,7 @@ import { CEILING_LIGHT, CEILING_PANEL_SIZE, ROOM_FILL_LIGHT, ROOM_LIGHTS, SPOT_L
 import { floorWithContacts, pedestalUV, surfaceUV, type MaterialSet } from './materials';
 import { ceilingWithContacts, pedestalEdgeDistances, wallCornerDistances } from './contact-shading';
 import { offsetOutline } from './geometry';
-import { passageMarking } from './passage-marking';
-import type { MarkerInk } from './marker-ink';
+import { passageMarking, type PassageInk } from './passage-marking';
 import { withDistanceFade } from './visibility';
 import { BALL_RADIUS, DOOR_HEIGHT, DOOR_WIDTH, FINAL_PASSAGE_GOALS, PASSAGE_GOALS, PEDESTAL_HEIGHT, pedestalOutline, portalDistance, portalPosition, ROOM_HEIGHT, ROOMS, roomOutline, roomWalls, SOCKET_DEPTH, SOCKET_OPENING, SOCKET_RECESS, socketPosition, WALL_THICKNESS, wallAngle, wallNormal, type RoomId, type SocketRef, type Vec2 } from './world';
 
@@ -132,7 +131,7 @@ function pedestal(parent: THREE.Scene, x: number, z: number, controls: RoomId, v
   }
 }
 
-export function createRoom(id: RoomId, materials: MaterialSet, optimizations: THREE.IUniform<boolean>, environment?: THREE.Texture, squareInk?: MarkerInk): RoomVisual {
+export function createRoom(id: RoomId, materials: MaterialSet, optimizations: THREE.IUniform<boolean>, environment?: THREE.Texture, markingInk?: PassageInk): RoomVisual {
   const definition = ROOMS[id], scene = new THREE.Scene();
   scene.background = new THREE.Color(PALETTE.background);
   scene.environment = environment ?? null; scene.environmentIntensity = ROOM_FILL_LIGHT.environment;
@@ -178,7 +177,7 @@ export function createRoom(id: RoomId, materials: MaterialSet, optimizations: TH
     const side = boundary.portal, n = wallNormal(id, side), wall = new THREE.Group();
     const stage = PASSAGE_GOALS.findIndex(goal => goal.from.room === id && goal.from.side === side);
     const goal = stage >= 0 ? PASSAGE_GOALS[stage] : FINAL_PASSAGE_GOALS.find(goal => goal.from.room === id && goal.from.side === side);
-    const marking = goal ? passageMarking(materials.wall, goal, squareInk) : null;
+    const marking = goal ? passageMarking(materials.wall, goal, markingInk) : null;
     if (marking) markings.push({ goal: stage >= 0 ? stage : PASSAGE_GOALS.length, shown: marking.shown });
     const wallMaterial = marking?.material ?? materials.wall;
     const wallWidth = boundary.width;
