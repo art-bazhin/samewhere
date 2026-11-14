@@ -47,10 +47,10 @@ export class Sound {
     };
     this.pauseTimer = setTimeout(suspend, PAUSE_FADE * 1000);
   }
-  play(action: 'take' | 'place' | 'undo') {
+  play(action: 'take' | 'place') {
     if (!this.enabled || this.paused || !this.context) return;
     const context = this.context, time = context.currentTime;
-    const notes = { take: [520, 390], place: [390, 620], undo: [350, 270] }[action];
+    const notes = { take: [520, 390], place: [390, 620] }[action];
     notes.forEach((frequency, i) => {
       const oscillator = context.createOscillator(), gain = context.createGain();
       oscillator.type = 'sine'; oscillator.frequency.value = frequency;

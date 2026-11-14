@@ -8,7 +8,7 @@ function memoryStorage() {
   return { getItem: (key: string) => entries.get(key) ?? null, setItem: (key: string, value: string) => { entries.set(key, value); } };
 }
 
-test('a save restores position, balls, selected color, progress, undo history and audio milestones', () => {
+test('a save restores position, balls, selected color, progress and audio milestones', () => {
   const game = new Game(), storage = memoryStorage();
   game.interact({ room: 'B', side: 0 }); game.interact({ room: 'C', side: 0 });
   game.world.passageProgress = 2;
@@ -16,12 +16,13 @@ test('a save restores position, balls, selected color, progress, undo history an
   game.transitions = 7;
   saveGame(game, [0, 1, 2, 3], false, storage);
   const saved = loadSave(storage)!;
-  assert.deepEqual(saved.state, game.snapshot()); assert.deepEqual(saved.history, game.history);
+  assert.deepEqual(saved.state, game.snapshot());
+  assert.equal('history' in JSON.parse(storage.getItem(SAVE_KEY)!), false);
   assert.equal(saved.transitions, 7); assert.deepEqual(saved.music, [0, 1, 2, 3]); assert.equal(saved.soundEnabled, false);
-  const resumed = new Game(); resumed.restore(saved.state); resumed.history = saved.history;
-  resumed.undo(); assert.deepEqual(resumed.snapshot(), game.history.at(-1));
+  const resumed = new Game(); resumed.restore(saved.state);
+  assert.deepEqual(resumed.snapshot(), game.snapshot());
   game.reset(); saveGame(game, [0], true, storage);
-  assert.deepEqual(loadSave(storage)!.state, new Game().snapshot()); assert.deepEqual(loadSave(storage)!.history, []);
+  assert.deepEqual(loadSave(storage)!.state, new Game().snapshot());
 });
 
 test('the EXIT gallery and completed ending survive serialization', () => {
@@ -32,6 +33,21 @@ test('the EXIT gallery and completed ending survive serialization', () => {
   for (const outside of [false, true]) {
     game.world.gallery!.outside = outside; saveGame(game, [0, 1, 2, 3, 4, 5], true, storage);
     assert.deepEqual(loadSave(storage)!.state, game.snapshot());
+  }
+});
+
+test('legacy history is discarded without rejecting the current saved state', () => {
+  const game = new Game(), storage = memoryStorage();
+  game.interact({ room: 'B', side: 0 }); saveGame(game, [0, 1], false, storage);
+  const current = storage.getItem(SAVE_KEY)!;
+  for (const history of [Array(256).fill(game.snapshot()), [null], 'obsolete']) {
+    storage.setItem(SAVE_KEY, JSON.stringify({ ...JSON.parse(current), history }));
+    const saved = loadSave(storage)!;
+    assert.deepEqual(saved.state, game.snapshot());
+    assert.equal('history' in saved, false);
+    const resumed = new Game(); resumed.restore(saved.state); resumed.transitions = saved.transitions;
+    saveGame(resumed, saved.music, saved.soundEnabled, storage);
+    assert.equal(storage.getItem(SAVE_KEY), current);
   }
 });
 
@@ -47,7 +63,6 @@ test('missing, damaged, incompatible and invalid saves fall back to a new game',
     (save: any) => { save.state.player.room = 'unknown'; },
     (save: any) => { save.state.world.passageProgress = 99; },
     (save: any) => { save.state.world.gallery = { cell: { x: 0, z: 0 }, signs: [], outside: false }; },
-    (save: any) => { save.history = [null]; },
     (save: any) => { save.music = [0, 99]; },
   ];
   for (const change of changes) {

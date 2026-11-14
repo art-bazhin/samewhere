@@ -40,11 +40,11 @@ for (const url of ['/', '/?dev=0', '/?dev=1']) {
       expect(await page.evaluate(() => window.__samewhere.game.world.gallery.signs.length)).toBe(42);
       await page.keyboard.press('KeyR');
       expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
-      await page.evaluate(() => {
-        const { game, sync } = window.__samewhere; game.interact({ room: 'B', side: 0 }); sync();
+      const changed = await page.evaluate(() => {
+        const { game, sync } = window.__samewhere; game.interact({ room: 'B', side: 0 }); sync(); return game.snapshot();
       });
       await page.keyboard.press('KeyZ');
-      expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
+      expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(changed);
     } else {
       await expect(page.locator('#fps-counter')).toBeHidden();
       for (const key of ['Tab', 'Digit0', 'Numpad0', 'Digit9', 'Numpad9']) {

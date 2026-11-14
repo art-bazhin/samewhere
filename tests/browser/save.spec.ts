@@ -1,9 +1,28 @@
 import { test, expect } from '@playwright/test';
+import { Game } from '../../src/world';
 
 const savedGame = () => {
   const { game, sound } = window.__samewhere;
-  return { state: game.snapshot(), history: game.history, transitions: game.transitions, music: [...sound.music.active], soundEnabled: sound.enabled };
+  return { state: game.snapshot(), transitions: game.transitions, music: [...sound.music.active], soundEnabled: sound.enabled };
 };
+
+test('loading a legacy save immediately removes its history without losing progress', async ({ page }) => {
+  const game = new Game(); game.interact({ room: 'B', side: 0 });
+  Object.assign(game.player, { x: 1.25, z: 3, yaw: .3, pitch: -.2 });
+  const current = { version: 1, state: game.snapshot(), transitions: 7, music: [0, 1], soundEnabled: false };
+  const legacy = { ...current, history: Array(256).fill(current.state) };
+  await page.addInitScript(save => localStorage.setItem('samewhere.save', JSON.stringify(save)), legacy);
+  await page.goto('/'); await expect(page.locator('#loading-screen')).toBeHidden();
+  await expect(page.locator('#resume-button')).toBeVisible();
+  expect(await page.evaluate(savedGame)).toEqual({ state: current.state, transitions: 7, music: [0, 1], soundEnabled: false });
+  const stored = await page.evaluate(() => localStorage.getItem('samewhere.save')!);
+  expect(JSON.parse(stored)).toEqual(current);
+  expect(stored.length).toBeLessThan(JSON.stringify(legacy).length / 100);
+  expect(await page.evaluate(() => {
+    const app = window.__samewhere;
+    return ['history', 'remember', 'undo'].some(key => key in app.game) || 'undo' in app;
+  })).toBe(false);
+});
 
 for (const paused of [false, true]) {
   test(`leaving the page does not recreate a manually deleted save: ${paused ? 'paused' : 'playing'}`, async ({ page }) => {
@@ -37,7 +56,7 @@ test('leaving the page still updates an existing save with the latest position',
   expect(await page.evaluate(() => window.__samewhere.game.player)).toEqual(player);
 });
 
-test('reload resumes the full autosaved game and undo history; NEW GAME replaces it', async ({ page }) => {
+test('reload resumes the full autosaved game; NEW GAME replaces it', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/'); await expect(page.locator('#loading-screen')).toBeHidden();
   await expect(page.locator('#resume-button')).toBeHidden();
@@ -66,14 +85,12 @@ test('reload resumes the full autosaved game and undo history; NEW GAME replaces
   expect(await page.evaluate(savedGame)).toEqual(expected);
   expect(await page.evaluate(() => window.__samewhere.sound.music.layers.map(({ gain }: any) => gain.gain.value)))
     .toEqual([expect.closeTo(10 ** (-10 / 20), 6), 1, 1, 1, 0, 0]);
-  await page.evaluate(() => window.__samewhere.undo());
-  expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(expected.history.at(-1));
   await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
   await page.locator('#play-button').click(); await page.locator('#new-game-confirm').click();
   await expect(page.locator('#overlay')).toBeHidden();
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
   await page.reload(); await expect(page.locator('#loading-screen')).toBeHidden();
-  expect(await page.evaluate(savedGame)).toMatchObject({ state: initial, history: [], transitions: 0, music: [0] });
+  expect(await page.evaluate(savedGame)).toMatchObject({ state: initial, transitions: 0, music: [0] });
   expect(errors).toEqual([]);
 });
 
@@ -102,6 +119,6 @@ test('gallery coordinates, EXIT signs and the ending survive reload; PLAY AGAIN 
   await expect(page.locator('#play-again')).toBeEnabled();
   await page.locator('#play-again').click(); await expect(page.locator('#overlay')).toBeHidden();
   await page.reload(); await expect(page.locator('#loading-screen')).toBeHidden();
-  expect(await page.evaluate(savedGame)).toMatchObject({ state: initial, history: [], transitions: 0, music: [0] });
+  expect(await page.evaluate(savedGame)).toMatchObject({ state: initial, transitions: 0, music: [0] });
   expect(errors).toEqual([]);
 });

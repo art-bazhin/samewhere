@@ -60,8 +60,6 @@ test('the complete drawing chain reveals in order and ends with four simultaneou
       check(game.world.passageProgress === stage, 'Wrong color advanced the chain');
       clear(); place(goal.color, goal.from); place(goal.color, { room: goal.to, side: 0 }); sync();
       check(game.world.passageProgress === stage + 1, 'Correct connection did not advance');
-      game.undo(); sync(); check(game.world.passageProgress === stage, 'Undo did not hide the next drawing');
-      place(goal.color, { room: goal.to, side: 0 }); sync();
       const next = stage + 1 < PASSAGE_GOALS.length ? [PASSAGE_GOALS[stage + 1]] : FINAL_PASSAGE_GOALS;
       for (const marking of next) {
         const image = capture(marking);
@@ -75,7 +73,6 @@ test('the complete drawing chain reveals in order and ends with four simultaneou
     game.player.room = 'A';
     game.interact({ room: 'A', side: 3 }); place('blue', { room: 'A', side: 3 }); sync();
     check(game.world.passageProgress === PASSAGE_GOALS.length + 1, 'The simultaneous pattern did not complete inside A');
-    game.undo(); sync(); check(game.world.passageProgress === PASSAGE_GOALS.length, 'Final completion was not undoable');
     game.reset(); sync();
     for (const goal of FINAL_PASSAGE_GOALS) check(capture(goal).colored === 0, 'A final drawing survived reset');
     check(space.rooms.G.markings[0].shown.value === 1, 'Reset removed the hub drawing');

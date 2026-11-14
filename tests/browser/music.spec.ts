@@ -99,7 +99,6 @@ test('six music stems share a seamless clock and unlock only at the specified mi
   const fades = await page.evaluate(() => window.__samewhere.sound.music.layers.slice(1).map(({ gain }: any) =>
     (window as any).musicRamps.filter((event: any) => event.parameter === gain.gain).map((event: any) => ({ value: event.value, seconds: event.endTime - event.now }))));
   for (const fade of fades) { expect(fade).toHaveLength(1); expect(fade[0].value).toBe(1); expect(fade[0].seconds).toBeCloseTo(15, 2); }
-  await page.keyboard.press('KeyZ'); expect(await active()).toEqual([1, 2, 3, 4, 5, 6]);
   await page.keyboard.press('KeyM');
   await expect.poll(() => page.evaluate(() => window.__samewhere.sound.output.gain.value)).toBe(0);
   await page.keyboard.press('KeyM');

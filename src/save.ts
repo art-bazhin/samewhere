@@ -10,7 +10,6 @@ export function hasSave(storage?: Pick<Storage, 'getItem'>): boolean {
 interface SavedGame {
   version: 1;
   state: Snapshot;
-  history: Snapshot[];
   transitions: number;
   music: number[];
   soundEnabled: boolean;
@@ -39,19 +38,19 @@ function validateSnapshot({ world, player }: Snapshot) {
 export function loadSave(storage?: Pick<Storage, 'getItem'>): SavedGame | null {
   try {
     const saved: SavedGame = JSON.parse((storage ?? localStorage).getItem(SAVE_KEY) ?? 'null');
-    if (!saved || saved.version !== 1 || !Array.isArray(saved.history) || saved.history.length > 256 ||
+    if (!saved || saved.version !== 1 ||
         !Number.isSafeInteger(saved.transitions) || saved.transitions < 0 || typeof saved.soundEnabled !== 'boolean' ||
         !Array.isArray(saved.music) || !saved.music.includes(0) || new Set(saved.music).size !== saved.music.length ||
         !saved.music.every(index => Number.isInteger(index) && index >= 0 && index < 6)) return null;
     validateSnapshot(saved.state);
-    saved.history.forEach(validateSnapshot);
-    return saved;
+    const { version, state, transitions, music, soundEnabled } = saved;
+    return { version, state, transitions, music, soundEnabled };
   } catch { return null; }
 }
 
 export function saveGame(game: Game, music: Iterable<number>, soundEnabled: boolean, storage?: Pick<Storage, 'setItem'>) {
   try {
-    const saved: SavedGame = { version: 1, state: { world: game.world, player: game.player }, history: game.history,
+    const saved: SavedGame = { version: 1, state: { world: game.world, player: game.player },
       transitions: game.transitions, music: [...music], soundEnabled };
     (storage ?? localStorage).setItem(SAVE_KEY, JSON.stringify(saved));
   } catch { /* Play can continue when storage is blocked or full. */ }

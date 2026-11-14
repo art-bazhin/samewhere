@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { createBounceSampler } from '../../src/panel-light-bake';
+import { ROOM_LIGHTS } from '../../src/lighting';
 import { roomWalls, type RoomId } from '../../src/world';
 
 test('baked diffuse bounce visibly lights the ceiling without extra render passes', async ({ page }) => {
@@ -280,14 +281,15 @@ test('neighbor light changes the receiving floor without extra render passes or 
     const unrelatedUnchanged = redVersions[0] === light.fields.A.texture.version && redVersions[1] === light.fields.G.texture.version;
     // Closing a passage disables its cached field immediately.
     app.game.interact({ room: 'G', side: 0 }); app.sync(); light.bind('A'); const closedGain = light.uniforms.transferGain.value;
-    await light.whenSettled(); app.undo(); await light.whenSettled(); light.bind('A');
+    await light.whenSettled(); app.game.interact({ room: 'G', side: 0 }); app.sync(); await light.whenSettled(); light.bind('A');
     return { meanAdded: sum / on.length, changed, max, offPasses, onPasses, offDraws, onDraws, unchanged, unrelatedUnchanged, unconnectedGain, closedGain,
       restoredGain: light.uniforms.transferGain.value, maps: Object.values(space.rooms).reduce((sum: number, room: any) => sum + room.shadowLights.length, 0),
       bakeMs: light.lastBakeMs, cache: light.cacheSize, error: gl.getError() };
   });
   console.log('Neighbor diffuse lighting:', result);
   expect(result.meanAdded).toBeGreaterThan(.05); expect(result.changed).toBeGreaterThan(1000); expect(result.max).toBeGreaterThan(4);
-  expect(result.onPasses).toBe(result.offPasses); expect(result.onDraws).toBe(result.offDraws); expect(result.maps).toBe(20);
+  expect(result.onPasses).toBe(result.offPasses); expect(result.onDraws).toBe(result.offDraws);
+  expect(result.maps).toBe(Object.values(ROOM_LIGHTS).reduce((count, lamps) => count + lamps.length, 0));
   expect(result.unchanged).toBe(true); expect(result.unrelatedUnchanged).toBe(true);
   expect(result.unconnectedGain).toBe(0); expect(result.closedGain).toBe(0); expect(result.restoredGain).toBe(1);
   expect(result.cache).toBe(812); expect(result.error).toBe(0); expect(errors).toEqual([]);

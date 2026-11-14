@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('the minimal inventory shows held balls, switches available colors and follows real take/place/undo actions', async ({ page }, info) => {
+test('the minimal inventory shows held balls, switches available colors and follows real take/place actions', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -57,9 +57,9 @@ test('the minimal inventory shows held balls, switches available colors and foll
   await page.mouse.wheel(0, 100); await expect(selected.first()).toHaveAttribute('data-color', 'red');
   await clickSocket(0); await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(1);
   await expect(selected).toHaveCount(1); await expect(selected.first()).toHaveAttribute('data-color', 'blue');
-  await page.keyboard.press('KeyZ'); await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(0);
+  await clickSocket(0); await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(0);
   await expect(selected.first()).toHaveAttribute('data-color', 'red');
-  await page.keyboard.press('KeyZ'); await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(1);
+  await clickSocket(1); await expect(page.locator('#inventory .held[data-color=blue]')).toHaveCount(1);
   await expect(selected.first()).toHaveAttribute('data-color', 'blue');
   await page.keyboard.press('KeyR'); await expect(held).toHaveCount(0);
   await expect.poll(() => page.locator('#inventory .inventory-ball').evaluateAll(elements => elements.every(element => Number(getComputedStyle(element).opacity) === 0))).toBe(true);

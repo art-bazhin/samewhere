@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 const progress = () => {
   const { game, sound } = window.__samewhere;
-  return { state: game.snapshot(), history: game.history, music: [...sound.music.active], save: localStorage.getItem('samewhere.save') };
+  return { state: game.snapshot(), music: [...sound.music.active], save: localStorage.getItem('samewhere.save') };
 };
 
 test('NEW GAME preserves active and saved progress until CONTINUE is confirmed', async ({ page }, info) => {
@@ -44,8 +44,8 @@ test('NEW GAME preserves active and saved progress until CONTINUE is confirmed',
   await page.locator('#new-game-confirm').click(); await expect(dialog).toBeHidden();
   await expect(page.locator('#overlay')).toBeHidden();
   const fresh = await page.evaluate(progress);
-  expect(fresh.state).toEqual(initial); expect(fresh.history).toEqual([]); expect(fresh.music).toEqual([0]);
-  expect(JSON.parse(fresh.save!)).toMatchObject({ state: initial, history: [], music: [0] });
+  expect(fresh.state).toEqual(initial); expect(fresh.music).toEqual([0]);
+  expect(JSON.parse(fresh.save!)).toMatchObject({ state: initial, music: [0] });
   expect(errors).toEqual([]);
 });
 

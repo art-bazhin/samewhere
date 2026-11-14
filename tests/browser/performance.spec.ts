@@ -134,8 +134,9 @@ test('batched and selectively cached shadows match a full redraw of the original
         compare(id, `${id}${side}:closed-wall`, id, (side + 2) % ROOMS[id].sides);
       }
     }
-    app.reset(); app.game.interact({ room: 'C', side: 3 }); app.sync(); app.undo();
-    for (const id of ROOM_IDS) compare(id, 'undo');
+    app.reset(); app.game.interact({ room: 'C', side: 3 }); app.sync();
+    app.game.interact({ room: 'C', side: 3 }); app.sync();
+    for (const id of ROOM_IDS) compare(id, 'reopened');
     app.reset(); for (const id of ROOM_IDS) compare(id, 'reset');
     return { mean: total / (comparisons * optimized.length), changed: changed / (comparisons * optimized.length), max, comparisons, differences, error: gl.getError() };
   });

@@ -53,7 +53,7 @@ test('occupied socket always picks up, selects its color and never silently swap
   assert.equal(game.world.selected, 'blue'); assert.equal(ballAt(game.world, { room: 'C', side: 0 }), undefined);
   assert.equal(inventoryCount(game.world, 'red'), 1); assert.equal(inventoryCount(game.world, 'blue'), 1);
 });
-test('using the last ball of a color selects an available color and undo restores the previous choice', () => {
+test('using the last ball of a color selects an available color', () => {
   for (const color of ['red', 'blue'] as const) {
     const game = new Game(), other = color === 'red' ? 'blue' : 'red';
     game.world.balls.forEach(ball => { ball.socket = null; }); game.selectColor(color);
@@ -62,9 +62,7 @@ test('using the last ball of a color selects an available color and undo restore
     game.interact({ room: 'A', side: 1 });
     assert.equal(game.world.selected, other); assert.equal(inventoryCount(game.world, other), 2);
     game.selectColor(color); assert.equal(game.world.selected, other);
-    assert.equal(game.history.length, 2, 'Changing color does not create an undo action');
-    game.undo(); assert.equal(game.world.selected, color); assert.equal(inventoryCount(game.world, color), 1);
-    game.interact({ room: 'A', side: 1 }); game.interact({ room: 'A', side: 2 }); game.interact({ room: 'A', side: 3 });
+    game.interact({ room: 'A', side: 2 }); game.interact({ room: 'A', side: 3 });
     assert.ok(game.world.balls.every(ball => ball.socket));
     game.interact({ room: 'A', side: 0 }); assert.equal(game.world.selected, color);
   }
@@ -78,8 +76,6 @@ test('unrelated hub connections and self-loops do not advance the first goal', (
   assert.equal(game.player.room, 'A'); assert.equal(game.world.passageProgress, 0);
   game.interact({ room: 'G', side: 0 });
   assert.equal(game.world.passageProgress, 0);
-  game.undo(); assert.equal(game.world.passageProgress, 0);
-  game.undo(); assert.equal(game.world.passageProgress, 0);
   game.reset(); assert.equal(game.world.passageProgress, 0);
   game.interact({ room: 'B', side: 0 }); game.interact({ room: 'B', side: 2 });
   game.interact({ room: 'G', side: 0 }); game.interact({ room: 'G', side: 1 });
@@ -94,7 +90,6 @@ test('each passage goal accepts every destination entrance and either order of p
     assert.equal(game.world.passageProgress, stage + 1); assert.equal(game.player.room, 'A');
     game.interact(goal.from);
     assert.equal(game.world.passageProgress, stage + 1);
-    game.undo(); game.undo(); assert.equal(game.world.passageProgress, stage);
     game.reset(); assert.equal(game.world.passageProgress, 0);
   }
 });
@@ -173,10 +168,9 @@ test('the full marked route and final square pattern are reachable using local c
   place('red', 'A', 0); assert.equal(game.world.passageProgress, PASSAGE_GOALS.length + 1);
   assert.ok(connections(game.world).every(link => link.ends.every(end => end.room === 'A')));
   interact('A', 0); assert.equal(game.world.passageProgress, PASSAGE_GOALS.length + 1);
-  game.undo(); game.undo(); assert.equal(game.world.passageProgress, PASSAGE_GOALS.length);
   game.reset(); assert.equal(game.world.passageProgress, 0);
 });
-test('the square gallery starts with the complete pattern and preserves its rooms and signs through undo', () => {
+test('the square gallery starts with the complete pattern and resets when the pattern is broken', () => {
   const game = new Game(); game.world.passageProgress = PASSAGE_GOALS.length;
   game.world.balls.forEach((ball, index) => { ball.socket = index === 3 ? null : { room: 'A', side: [0, 2, 1][index] }; });
   assert.equal(game.snapshot().world.gallery, null);
@@ -188,9 +182,9 @@ test('the square gallery starts with the complete pattern and preserves its room
     assert.equal(game.player.room, 'A');
   }
   assert.deepEqual(game.world.gallery, { cell: { x: 0, z: 0 }, signs: route, outside: false });
-  game.undo(); assert.deepEqual(game.world.gallery!.cell, { x: 1, z: 0 });
   game.interact({ room: 'A', side: 0 }); assert.equal(game.snapshot().world.gallery, null);
-  game.undo(); assert.deepEqual(game.world.gallery, { cell: { x: 1, z: 0 }, signs: route, outside: false });
+  game.interact({ room: 'A', side: 0 });
+  assert.deepEqual(game.world.gallery, { cell: { x: 0, z: 0 }, signs: route, outside: false });
   game.reset(); assert.equal(game.world.gallery, null);
 });
 test('the diagonal EXIT section crosses five red-left/blue-right doors without changing direction', () => {
@@ -219,7 +213,7 @@ test('the diagonal EXIT section crosses five red-left/blue-right doors without c
   close(Math.sin(game.player.yaw), Math.sin(-Math.PI / 4));
   close(Math.cos(game.player.yaw), Math.cos(-Math.PI / 4));
 });
-test('the last EXIT opens directly into free white space and allows returning and undo', () => {
+test('the last EXIT opens directly into free white space and allows returning', () => {
   const game = loopGame(); game.world.passageProgress = PASSAGE_GOALS.length;
   game.interact({ room: 'A', side: 3 }); game.interact({ room: 'A', side: 3 });
   const gallery = game.world.gallery!, last = gallery.signs.at(-1)!;
@@ -229,8 +223,6 @@ test('the last EXIT opens directly into free white space and allows returning an
   assert.equal(gallery.outside, true); close(game.player.yaw, yaw);
   close((game.player.x - p.x) * n.x + (game.player.z - p.z) * n.z, .15);
   assert.equal(game.interact({ room: 'A', side: 0 }), null);
-  game.undo(); assert.equal(game.world.gallery!.outside, false);
-  atWall(game, 'A', last.side); walkOut(game, last.side);
   const start = { x: game.player.x, z: game.player.z };
   game.move({ x: n.x * 20 - n.z * 10, z: n.z * 20 + n.x * 10 });
   close(game.player.x, start.x + n.x * 20 - n.z * 10);
@@ -243,21 +235,20 @@ test('the last EXIT opens directly into free white space and allows returning an
   game.move({ x: -n.x * .5, z: -n.z * .5 });
   assert.equal(game.world.gallery!.outside, false);
   assert.deepEqual(game.world.gallery!.cell, { x: last.x, z: last.z });
-  game.undo(); assert.equal(game.world.gallery!.outside, true);
   game.reset(); assert.equal(game.world.gallery, null);
 });
-test('an unavailable color and invalid socket do not create actions or overwrite history', () => {
+test('an unavailable color and invalid socket leave the current state unchanged', () => {
   const game = new Game();
-  assert.equal(game.interact({ room: 'B', side: 1 }), null); assert.equal(game.history.length, 0);
-  assert.equal(game.interact({ room: 'B', side: 5 }), null); assert.equal(game.history.length, 0);
+  const initial = game.snapshot();
+  assert.equal(game.interact({ room: 'B', side: 1 }), null); assert.deepEqual(game.snapshot(), initial);
+  assert.equal(game.interact({ room: 'B', side: 5 }), null); assert.deepEqual(game.snapshot(), initial);
 });
-test('four-ball conservation survives 2,000 arbitrary take/place/undo operations', () => {
+test('four-ball conservation survives 2,000 arbitrary take/place operations', () => {
   const game = new Game(); let seed = 71021;
   const random = () => { seed = (1664525 * seed + 1013904223) >>> 0; return seed / 2 ** 32; };
   for (let i = 0; i < 2000; i++) {
     const room = ROOM_IDS[Math.floor(random() * ROOM_IDS.length)]; game.world.selected = random() > 0.5 ? 'red' : 'blue';
     game.interact({ room, side: Math.floor(random() * ROOMS[room].sides) });
-    if (random() < 0.15) game.undo();
     validateWorld(game.world); assert.equal(game.world.balls.length, 4);
     assert.equal(game.world.balls.filter(b => b.socket).length + inventoryCount(game.world, 'red') + inventoryCount(game.world, 'blue'), 4);
   }
@@ -324,12 +315,11 @@ test('opposite portals preserve the camera and permit an immediate backward retu
   game.move({ x: 0, z: 0.6 });
   assert.equal(game.transitions, 2); close(game.player.x, 0.4); close(game.player.z, -4.7);
 });
-test('adjacent portals transform residual movement and undo restores a safe source pose', () => {
+test('adjacent portals transform residual movement and direction', () => {
   const game = loopGame(); game.world.balls[1].socket = { room: 'A', side: 1 }; game.world.balls[2].socket = null; game.world.balls[3].socket = null;
   atWall(game, 'A', 0, 0.4); walkOut(game, 0);
   assert.equal(game.transitions, 1); close(game.player.x, 4.7 + WALL_THICKNESS); close(game.player.z, -0.4);
   const forward = { x: -Math.sin(game.player.yaw), z: -Math.cos(game.player.yaw) }; close(forward.x, -1); close(forward.z, 0);
-  assert.ok(game.undo()); assert.equal(game.player.room, 'A'); assert.ok(game.player.z >= -5 + PLAYER_RADIUS); close(game.player.x, 0.4);
 });
 test('closed walls, door jambs and pedestals resist a large movement step', () => {
   const game = loopGame(); game.interact({ room: 'A', side: 0 });
@@ -359,14 +349,12 @@ test('pushing into either corner of a connected triangle wall never snaps to its
     assert.ok(Math.hypot(game.player.x - vertex.x, game.player.z - vertex.z) < .6, 'The player should remain against the corner');
   }
 });
-test('a link reaches B, returns and can undo both legs', () => {
+test('a link reaches B and returns through the same passage', () => {
   const game = new Game();
   game.interact({ room: 'B', side: 2 });
   game.interact({ room: 'A', side: 2 });
   atWall(game, 'A', 2); walkOut(game, 2); assert.equal(game.player.room, 'B');
   game.move({ x: 0, z: -0.6 }); assert.equal(game.player.room, 'A');
-  game.undo(); assert.equal(game.player.room, 'B');
-  game.undo(); assert.equal(game.player.room, 'A');
 });
 test('the complete A–D–G route uses only available pedestals and preserves all four balls', () => {
   const game = new Game(), route: RoomId[] = ['A'];
@@ -402,21 +390,19 @@ test('the complete A–D–G route uses only available pedestals and preserves a
   assert.deepEqual(destination(game.world, { room: 'E', side: 1 }), { room: 'G', side: 0 });
   assert.equal(game.transitions, 13); assert.equal(game.world.balls.length, 4);
   assert.ok(game.world.balls.every(ball => ball.socket));
-  assert.ok(game.undo()); assert.equal(game.player.room, 'E');
-  assert.ok(game.undo()); assert.equal(game.player.room, 'F');
 });
-test('100 continuous loops have bounded state/history and no position drift', () => {
+test('100 continuous loops preserve valid state without position drift', () => {
   const game = loopGame(); Object.assign(game.player, { x: 0.4, z: 0 });
   game.move({ x: 0, z: -100 * 2 * portalDistance('A') });
   assert.equal(game.transitions, 100); close(game.player.z, 0, 1e-6); close(game.player.x, 0.4, 1e-6);
-  assert.equal(game.history.length, 100); validateWorld(game.world);
+  validateWorld(game.world);
 });
-test('reset restores inventory, pose and initial links and clears history', () => {
+test('reset restores inventory, pose and initial links', () => {
   const game = new Game(), initial = game.snapshot();
   game.interact({ room: 'B', side: 0 }); game.interact({ room: 'A', side: 0 });
   game.interact({ room: 'C', side: 0 }); game.player.room = 'C'; game.world.selected = 'blue'; game.reset();
   assert.deepEqual(game.snapshot(), initial);
-  assert.equal(game.world.selected, 'red'); assert.equal(game.history.length, 0); assert.equal(connections(game.world).length, 2);
+  assert.equal(game.world.selected, 'red'); assert.equal(connections(game.world).length, 2);
   assert.equal(game.player.x, -1.093061759947122); assert.equal(game.player.z, 3.0899624822847964);
   assert.equal(game.player.yaw, Math.PI); assert.equal(game.player.pitch, 0);
 });

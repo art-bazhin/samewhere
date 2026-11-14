@@ -38,9 +38,11 @@ const gameReady = loading.task();
 const sound = new Sound(loading);
 const saved = loadSave();
 if (saved) {
-  game.restore(saved.state); game.history = saved.history; game.transitions = saved.transitions;
+  game.restore(saved.state); game.transitions = saved.transitions;
   sound.music.active.clear(); saved.music.forEach(index => sound.music.active.add(index));
   sound.enabled = saved.soundEnabled;
+  // Rewrite legacy saves without their accumulated action snapshots.
+  saveGame(game, sound.music.active, sound.enabled);
 }
 const timing = new FrameTiming();
 const mouseLook = new MouseLook();
@@ -138,7 +140,7 @@ function nextDebugRoom() {
   sync();
 }
 function prepareGalleryTest(atExit = false) {
-  stopSweep(); keys.clear(); mouseLook.reset(); game.remember();
+  stopSweep(); keys.clear(); mouseLook.reset();
   game.world.balls.forEach(ball => { ball.socket = null; });
   game.world.selected = 'red'; game.world.passageProgress = PASSAGE_GOALS.length; game.world.gallery = null;
   game.player = { room: 'A', x: -3, z: 3, yaw: -Math.PI / 4, pitch: -.3 };
@@ -152,10 +154,6 @@ function prepareGalleryTest(atExit = false) {
     game.player = { room: 'A', x: 0, z: 0, yaw: -Math.atan2(normal.x, -normal.z), pitch: 0 };
   }
   sync();
-}
-function undo() {
-  stopSweep(); mouseLook.reset();
-  if (game.undo()) { sync(); sound.play('undo'); }
 }
 function updatePauseMenu() {
   const paused = document.pointerLockElement !== canvas && !ended && !fullscreenResume;
@@ -296,7 +294,6 @@ document.addEventListener('keydown', event => {
   keys.add(event.code);
   if (event.repeat) return;
   if (event.code === 'Digit1' || event.code === 'Digit2') { game.selectColor(event.code === 'Digit1' ? 'red' : 'blue'); updateHUD(); autosave(); }
-  if (event.code === 'KeyZ' && devMode) undo();
   if (event.code === 'KeyR' && devMode) reset();
   if (event.code === 'KeyM') { sound.enabled = !sound.enabled; autosave(); }
   if (event.code === 'KeyT' && devMode) surfaceTextures.toggle();
@@ -361,7 +358,7 @@ function frame(time: number) {
     if (devMode) $('fps-counter').textContent = `${fps} FPS`;
     if (debug) {
       const p = game.player;
-      $('debug').textContent = `SAMEWHERE / DEBUG\nRoom ${p.room}\nPosition ${p.x.toFixed(2)}, ${p.z.toFixed(2)}\nYaw ${p.yaw.toFixed(2)} · Pitch ${p.pitch.toFixed(2)}\n${fps} FPS · ${space.passes}/${space.maxPasses} passes · visibility ${space.visibilityDistance} m\nFrame: p95 ${stats.p95Ms.toFixed(1)} / max ${stats.maxMs.toFixed(1)} ms\nCPU p95 ${stats.cpuP95Ms.toFixed(1)} ms · slow frames ${stats.slowFrames}/120\nGPU p95 ${gpu.p95Ms?.toFixed(1) ?? '—'} / max ${gpu.maxMs?.toFixed(1) ?? '—'} ms · pending ${gpu.pending}\nMouse: ${mouseInput === 'raw' ? 'raw input' : 'standard input'}\nGPU: ${space.renderer.info.memory.geometries} geometries / ${space.renderer.info.memory.textures} textures\n${space.drawCalls} draw calls · pool ${space.targets.length}/${space.maxPasses - 1}\nPortals: ${(space.portalPixels / 1e6).toFixed(2)} Mpixels / frame\nTransitions ${game.transitions} · history ${game.history.length}/256\n\n${game.world.balls.map(b => `${b.id}: ${b.socket ? b.socket.room + b.socket.side : 'inventory'}`).join('\n')}\n\n${connections(game.world).map(c => `${c.color}: ${c.ends.map(e => e.room + e.side).join(' ↔ ')}`).join('\n')}`;
+      $('debug').textContent = `SAMEWHERE / DEBUG\nRoom ${p.room}\nPosition ${p.x.toFixed(2)}, ${p.z.toFixed(2)}\nYaw ${p.yaw.toFixed(2)} · Pitch ${p.pitch.toFixed(2)}\n${fps} FPS · ${space.passes}/${space.maxPasses} passes · visibility ${space.visibilityDistance} m\nFrame: p95 ${stats.p95Ms.toFixed(1)} / max ${stats.maxMs.toFixed(1)} ms\nCPU p95 ${stats.cpuP95Ms.toFixed(1)} ms · slow frames ${stats.slowFrames}/120\nGPU p95 ${gpu.p95Ms?.toFixed(1) ?? '—'} / max ${gpu.maxMs?.toFixed(1) ?? '—'} ms · pending ${gpu.pending}\nMouse: ${mouseInput === 'raw' ? 'raw input' : 'standard input'}\nGPU: ${space.renderer.info.memory.geometries} geometries / ${space.renderer.info.memory.textures} textures\n${space.drawCalls} draw calls · pool ${space.targets.length}/${space.maxPasses - 1}\nPortals: ${(space.portalPixels / 1e6).toFixed(2)} Mpixels / frame\nTransitions ${game.transitions}\n\n${game.world.balls.map(b => `${b.id}: ${b.socket ? b.socket.room + b.socket.side : 'inventory'}`).join('\n')}\n\n${connections(game.world).map(c => `${c.color}: ${c.ends.map(e => e.room + e.side).join(' ↔ ')}`).join('\n')}`;
     }
   }
 }
@@ -376,7 +373,7 @@ try {
     finishLoading();
   });
   // Development-only inspection surface for reproducible browser acceptance checks.
-  if (import.meta.env.DEV) Object.assign(window, { __samewhere: { game, space, sound, sync, reset, undo, pause, timing, mouseLook, mouseEvent, get fps() { return fps; }, get mouseInput() { return mouseInput; } } });
+  if (import.meta.env.DEV) Object.assign(window, { __samewhere: { game, space, sound, sync, reset, pause, timing, mouseLook, mouseEvent, get fps() { return fps; }, get mouseInput() { return mouseInput; } } });
 } catch (error) {
   console.error(error); $('error').hidden = false;
   $('error').textContent = 'Could not start 3D. Use a desktop browser with WebGL 2 and hardware acceleration.';

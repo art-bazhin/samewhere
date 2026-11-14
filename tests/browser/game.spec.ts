@@ -108,7 +108,8 @@ test('initial ball placement, actual mouse pick/place, and both shared pedestal 
   const a = ROOMS.A.pedestals.find(p => p.controls === 'A')!;
   expect(await aim(page, 'A', 0, a.x, a.z + 1.25)).toEqual({ room: 'A', side: 0 });
   await page.mouse.down(); await page.mouse.up(); await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(0);
-  await page.keyboard.press('KeyZ'); await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(1);
+  expect(await aim(page, 'A', 0, a.x, a.z + 1.25)).toEqual({ room: 'A', side: 0 });
+  await page.mouse.down(); await page.mouse.up(); await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(1);
   await page.keyboard.press('KeyR'); await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(0);
   await pose(page, -2.8, 3, -Math.PI / 4, -0.36);
   await page.screenshot({ path: 'test-results/02-room.png' });
@@ -545,7 +546,7 @@ test('the complete layout reaches the H hub and all seven pedestals work with na
   expect(await page.evaluate(() => window.__samewhere.game.world.balls.length)).toBe(4);
   await page.screenshot({ path: 'test-results/room-G.png' });
 
-  const atHub = await page.evaluate(() => ({ world: window.__samewhere.game.snapshot().world, history: window.__samewhere.game.history.length }));
+  const atHubBalls = await page.evaluate(() => window.__samewhere.game.snapshot().world.balls);
   await operate('E', 0); // Borrow one ball to exercise every control in the hub.
   for (const room of ROOM_IDS) {
     const side = await page.evaluate(({ room, sides }) => {
@@ -561,11 +562,8 @@ test('the complete layout reaches the H hub and all seven pedestals work with na
     await expect(page.locator('#inventory .held[data-color=red]')).toHaveCount(1);
   }
   await operate('E', 0);
-  const hubActions = await page.evaluate(history => window.__samewhere.game.history.length - history, atHub.history);
-  for (let i = 0; i < hubActions; i++) await page.keyboard.press('KeyZ');
-  expect(await page.evaluate(() => window.__samewhere.game.world)).toEqual(atHub.world);
-  await page.keyboard.press('KeyZ'); expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('E');
-  await page.keyboard.press('KeyZ'); expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('F');
+  expect(await page.evaluate(() => window.__samewhere.game.world.balls)).toEqual(atHubBalls);
+  await enter(0, 'E'); await enter(0, 'F');
   await page.keyboard.press('KeyR'); expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('A');
   expect(await page.evaluate(() => window.__samewhere.game.world.balls.map((ball: any) => ball.socket?.room))).toEqual(['B', 'B', 'C', 'C']);
   expect(errors).toEqual([]);

@@ -27,7 +27,7 @@ test('arbitrary packets and reversals preserve full movement at different render
   }
 });
 
-test('reset discards pending motion so it cannot turn the camera after undo, pause or an automatic sweep', () => {
+test('reset discards pending motion so it cannot turn the camera after reset, pause or an automatic sweep', () => {
   const look = new MouseLook(); look.push(100, -50); look.reset();
   assert.deepEqual(look.consume(), { x: 0, y: 0 });
   look.push(-3, 5);

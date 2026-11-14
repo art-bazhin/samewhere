@@ -158,29 +158,19 @@ export function validateWorld(world: WorldState) {
 export class Game {
   world: WorldState;
   player: PlayerState;
-  history: Snapshot[] = [];
   transitions = 0;
   constructor() {
     const state = initialState();
     this.world = state.world; this.player = state.player;
   }
   snapshot(): Snapshot { return structuredClone({ world: this.world, player: this.player }); }
-  remember(snapshot = this.snapshot()) {
-    this.history.push(snapshot);
-    if (this.history.length > 256) this.history.shift();
-  }
   restore(snapshot: Snapshot) {
     const state = structuredClone(snapshot);
     validateWorld(state.world);
     this.world = state.world; this.player = state.player;
   }
-  undo() {
-    const last = this.history.pop();
-    if (!last) return false;
-    this.restore(last); return true;
-  }
   reset() {
-    this.restore(initialState()); this.history = []; this.transitions = 0;
+    this.restore(initialState()); this.transitions = 0;
   }
   selectColor(color: BallColor) {
     this.world.selected = inventoryCount(this.world, color) ? color : this.world.balls.find(ball => !ball.socket)?.color ?? color;
@@ -191,7 +181,6 @@ export class Game {
     const existing = ballAt(this.world, socket);
     const available = this.world.balls.find(b => !b.socket && b.color === this.world.selected);
     if (!existing && !available) return null;
-    this.remember();
     if (existing) { existing.socket = null; this.world.selected = existing.color; }
     else available!.socket = { ...socket };
     this.selectColor(this.world.selected);
@@ -252,12 +241,6 @@ export class Game {
         const seam = WALL_THICKNESS / 2;
         if (open && d0 <= seam && d1 > seam) {
           const from = { room: room.id, side };
-          const t = (seam - d0) / (d1 - d0);
-          const boundary = { x: old.x + (next.x - old.x) * t, z: old.z + (next.z - old.z) * t };
-          const before = this.snapshot();
-          before.player.x = boundary.x - n.x * (WALL_THICKNESS / 2 + PLAYER_RADIUS + 0.035);
-          before.player.z = boundary.z - n.z * (WALL_THICKNESS / 2 + PLAYER_RADIUS + 0.035);
-          this.remember(before);
           const exit = room.id === 'A' && this.world.gallery && isGalleryExit(this.world.gallery, this.world.gallery.cell, side);
           if (!exit) {
             next = transformPoint(next, from, to);
@@ -322,10 +305,6 @@ export class Game {
     const clearance = DOOR_WIDTH / 2 - PLAYER_RADIUS;
     if (Math.abs(lateral) <= clearance) {
       if (depth < 0) {
-        const before = this.snapshot();
-        before.player.x = p.x + n.x * (PLAYER_RADIUS + .035);
-        before.player.z = p.z + n.z * (PLAYER_RADIUS + .035);
-        this.remember(before);
         gallery.outside = false; gallery.cell = { x: last.x, z: last.z }; this.transitions++;
       }
     } else if (depth < PLAYER_RADIUS) {

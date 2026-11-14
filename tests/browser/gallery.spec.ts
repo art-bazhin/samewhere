@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 
-test('0 shortcuts prepare the square gallery with four balls in hand and can be undone', async ({ page }) => {
+test('0 shortcuts prepare the square gallery with four balls in hand and R resets it', async ({ page }) => {
   await page.goto('/?dev=1'); await page.waitForFunction(() => !!window.__samewhere?.space);
   await page.evaluate(() => window.__samewhere.space.ready);
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
@@ -14,7 +14,7 @@ test('0 shortcuts prepare the square gallery with four balls in hand and can be 
       markings: space.rooms.A.markings.filter((marking: any) => marking.shown.value === 1).length, gallery: game.world.gallery };
   });
   expect(ready).toEqual({ room: 'A', balls: true, markings: 4, gallery: null });
-  await page.keyboard.press('KeyZ');
+  await page.keyboard.press('KeyR');
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
   await page.keyboard.press('Numpad0');
   await page.evaluate(async () => {
@@ -115,8 +115,6 @@ test('EXIT signs follow a fixed route regardless of the camera and stay continuo
       pose(side, -.45); game.move({ x: -n.x * .6, z: -n.z * .6 }); app.sync(); space.render();
       check(!game.world.gallery.outside, 'Returning did not restore the last gallery room');
       check(galleryExitAt(game.world.gallery, game.world.gallery.cell) === route.at(-1)!.side, 'Returning backwards lost the old EXIT');
-      game.undo(); app.sync(); space.render();
-      check(galleryExitAt(game.world.gallery, game.world.gallery.cell) === null, 'Undo did not restore the gallery position');
     } finally { space.renderer.render = render; }
     check(views.size > route.length, 'Recursive views did not exercise different gallery rooms');
     app.reset(); space.render();

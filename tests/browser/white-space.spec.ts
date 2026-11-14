@@ -97,15 +97,16 @@ test('9 prepares the final EXIT into unlit white space, with a continuous crossi
     const pick = space.pick(), lights = space.whiteSpace.scene.children.filter((object: any) => object.isLight).length;
     game.move({ x: -n.x * 4, z: -n.z * 4 }); sync(); capture();
     const returned = !game.world.gallery.outside && game.world.gallery.cell.x === last.x && game.world.gallery.cell.z === last.z;
-    game.undo(); sync(); const undoOutside = game.world.gallery.outside;
-    return { entrance: entrance.center, outside, forward: forward.white, back: back.white, pick, lights, returned, undoOutside,
+    // Exit again through the same door to trigger the ending after checking the return.
+    game.move({ x: n.x * 2, z: n.z * 2 }); sync();
+    return { entrance: entrance.center, outside, forward: forward.white, back: back.white, pick, lights, returned,
       seamMean: difference / (before.pixels.length / 4 * 3),
       images: [{ name: 'exit-entrance.png', data: entrance.image }, { name: 'exit-forward.png', data: forward.image }, { name: 'exit-back.png', data: back.image }] };
   });
   for (const image of result.images) await writeFile(info.outputPath(image.name), Buffer.from(image.data.split(',')[1], 'base64'));
   expect(result.entrance).toEqual([255, 255, 255]); expect(result.outside).toBe(true);
   expect(result.forward).toBe(1); expect(result.back).toBe(1);
-  expect(result.lights).toBe(0); expect(result.pick).toBeNull(); expect(result.returned).toBe(true); expect(result.undoOutside).toBe(true);
+  expect(result.lights).toBe(0); expect(result.pick).toBeNull(); expect(result.returned).toBe(true);
   expect(result.seamMean).toBeLessThan(.3);
   await page.locator('#play-again').click({ timeout: 20_000 });
   await expect(page.locator('#ending-screen')).toBeHidden();
@@ -114,7 +115,7 @@ test('9 prepares the final EXIT into unlit white space, with a continuous crossi
   expect(await page.evaluate(() => window.__samewhere.game.world.gallery.outside)).toBe(false);
   await page.keyboard.press('KeyR');
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
-  await page.keyboard.press('Digit9'); await page.keyboard.press('KeyZ');
+  await page.keyboard.press('Digit9'); await page.keyboard.press('KeyR');
   expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
   expect(errors).toEqual([]);
 });
