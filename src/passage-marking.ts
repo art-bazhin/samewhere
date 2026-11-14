@@ -13,7 +13,7 @@ export function passageMarking(base: THREE.MeshStandardMaterial, goal: PassageGo
     const b = points[(i + 1) % points.length];
     const start = a.clone().lerp(b, -.025 - .012 * Math.sin(i * 7));
     const end = b.clone().lerp(a, -.03 - .012 * Math.cos(i * 11));
-    return `inkDistance = min(inkDistance, markerStroke(p, ${vector(start)}, ${vector(end)}));`;
+    return `inkCoverage = max(inkCoverage, markerStroke(p, ${vector(start)}, ${vector(end)}));`;
   }).join('\n');
   const color = new THREE.Color(goal.color === 'red' ? 0xc92530 : 0x2466c9);
   const pigment = `vec3(${color.r.toFixed(6)}, ${color.g.toFixed(6)}, ${color.b.toFixed(6)})`;
@@ -36,15 +36,21 @@ export function passageMarking(base: THREE.MeshStandardMaterial, goal: PassageGo
         float cut = along - across * .35;
         float cornerRadius = .0015;
         vec2 d = vec2(abs(across) - width, max(-cut, cut - strokeLength)) + cornerRadius;
-        return min(max(d.x, d.y), 0.) + length(max(d, vec2(0.))) - cornerRadius;
+        float distance = min(max(d.x, d.y), 0.) + length(max(d, vec2(0.))) - cornerRadius;
+        float edgeAA = max(.5 * fwidth(distance), .000001);
+        float rounded = 1. - smoothstep(-edgeAA, edgeAA, distance);
+        // Filter both edges of a thin stroke, using derivatives before abs/min can cancel them.
+        float acrossAA = max(fwidth(across), .000001), cutAA = max(fwidth(cut), .000001);
+        float sides = clamp((width - across) / acrossAA + .5, 0., 1.) - clamp((-width - across) / acrossAA + .5, 0., 1.);
+        float ends = clamp((strokeLength - cut) / cutAA + .5, 0., 1.) - clamp(-cut / cutAA + .5, 0., 1.);
+        return mix(rounded, sides * ends, smoothstep(.5, 1., acrossAA / (2. * width)));
       }\n` + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
       vec2 p = markingPosition.xy - vec2(${(-DOOR_WIDTH / 2 - .4).toFixed(6)}, 1.65);
-      float inkDistance = 100.; ${strokes}
-      float inkAA = max(fwidth(inkDistance), .0001);
-      float ink = passageMarkingShown * (1. - smoothstep(-inkAA, inkAA, inkDistance)) * step(-.0001, markingPosition.z);
+      float inkCoverage = 0.; ${strokes}
+      float ink = passageMarkingShown * inkCoverage * step(-.0001, markingPosition.z);
       diffuseColor.rgb = mix(diffuseColor.rgb, ${inkColor}, ink);`);
   };
-  material.customProgramCacheKey = () => `${key}:passage-marking:${goal.to}:${goal.color}`;
+  material.customProgramCacheKey = () => `${key}:passage-marking:coverage:${goal.to}:${goal.color}`;
   return { material, shown };
 }
