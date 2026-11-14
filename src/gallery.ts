@@ -3,13 +3,13 @@ export interface GallerySign extends GalleryCell { side: number }
 export interface GalleryState { cell: GalleryCell; signs: GallerySign[]; outside: boolean }
 
 const STEPS = [{ x: 0, z: -1 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: -1, z: 0 }];
-// S5 → E5 → S5 → E10 → five north-east steps → E12.
+// S5 → E5 → S5 → E10 → five north-east steps → E5 → S7.
 // On the diagonal: red on the left, blue on the right.
 // Sides: N=0, E=1, S=2, W=3.
 const RUNS = [
   [2, 5], [1, 5], [2, 5], [1, 10],
   ...Array.from({ length: 5 }, (_, step) => [step % 2, 1]),
-  [1, 12],
+  [1, 5], [2, 7],
 ];
 
 export function galleryNeighbor(cell: GalleryCell, side: number): GalleryCell {

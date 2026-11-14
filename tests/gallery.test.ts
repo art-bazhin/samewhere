@@ -8,8 +8,8 @@ test('EXIT routes turn by 90 degrees, never reverse through the entrance, and ne
   assert.equal(new Set(signs.map(sign => `${sign.x},${sign.z}`)).size, signs.length);
   assert.deepEqual(signs.map(sign => sign.side), [
     ...Array(5).fill(2), ...Array(5).fill(1), ...Array(5).fill(2), ...Array(10).fill(1),
-    0, 1, 0, 1, 0, ...Array(12).fill(1),
-  ], 'The route must follow the approved turns and finish with twelve straight crossings');
+    0, 1, 0, 1, 0, ...Array(5).fill(1), ...Array(7).fill(2),
+  ], 'The route must follow the approved turns and finish with a right turn into seven southward crossings');
   for (const [index, sign] of signs.entries()) {
     assert.equal(galleryExitAt(gallery, sign), sign.side);
     if (!index) continue;
