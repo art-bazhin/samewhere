@@ -270,3 +270,5 @@ More rooms, shapes, and pedestal positions can be added through `ROOMS` configur
 Copyright © 2026 Artem Bazhin. All rights reserved.
 
 Public access to this repository does not grant permission to redistribute the game or reuse its source code or original assets in other projects. See [COPYRIGHT](COPYRIGHT) for details. Third-party components retain their own licenses.
+
+The full license notices for Three.js and GameAnalytics are in [THIRD_PARTY_NOTICES.txt](public/THIRD_PARTY_NOTICES.txt). Vite copies this file unchanged to the root of `dist/` in every build, including archives prepared for itch.io and GitHub Pages deployments.
