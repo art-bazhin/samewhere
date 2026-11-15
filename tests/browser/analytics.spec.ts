@@ -31,7 +31,7 @@ test('milestones survive reload and exclude the pause menu; drawings have separa
   expect(await page.evaluate(() => window.__samewhere.analytics.snapshot())).toEqual(paused);
   await page.locator('#resume-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   expect(await page.evaluate(() => window.__samewhere.analyticsEvents.find(({ event }: any) => event.endsWith(':run_resumed')).value))
-    .toBe(Math.round(paused.activeMs / 1000));
+    .toBe(Math.floor(paused.activeMs / 1000));
   await page.evaluate(() => { const { game, sync } = window.__samewhere; game.world.passageProgress = 1; sync(); sync(); });
   const events = await page.evaluate(() => window.__samewhere.analyticsEvents);
   expect(events.filter(({ event }: any) => event.endsWith(':room_5_visited'))).toHaveLength(0);

@@ -28,7 +28,7 @@ Each milestone sends one Design event:
 v1:<milestone>
 ```
 
-The numeric `value` is cumulative active time since the beginning of this run, rounded to the nearest whole second. Clock readings are rounded to whole milliseconds before calculating elapsed time; rounding readings rather than each frame's duration avoids accumulating rounding errors across checkpoints. Dynamic measurements are never part of an event identifier.
+The numeric `value` is cumulative active time since the beginning of this run, rounded down to completed whole seconds. Clock readings and loaded accumulated time are rounded down to whole milliseconds; rounding readings rather than each frame's duration avoids accumulating rounding errors across checkpoints. Dynamic measurements are never part of an event identifier.
 
 Room labels describe their shapes: `3` triangle, `4` square, `5` pentagon, `6` hexagon, `X` cross, `Y` three-way room, and `H` hub. A label always identifies the room itself, including in `symbol_room` events, regardless of the symbol drawn there.
 

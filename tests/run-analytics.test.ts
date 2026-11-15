@@ -43,7 +43,7 @@ test('milestones send only cumulative thinking time once, excluding pauses', () 
   advance(1250); game.player.room = 'B'; game.transitions = 1; tracker.observe(game);
   assert.equal(value('room_5_visited'), 1);
   advance(500); game.player.room = 'C'; tracker.observe(game);
-  assert.equal(value('room_6_visited'), 2);
+  assert.equal(value('room_6_visited'), 1);
   tracker.setPlaying(false); advance(60_000); tracker.setPlaying(true);
   advance(2250); game.player.room = 'D'; game.transitions = 5; tracker.observe(game);
   assert.equal(value('room_3_visited'), 4);
@@ -273,13 +273,13 @@ test('the timer calculates and saves whole milliseconds without losing time acro
   tracker.reset(); tracker.play(game); tracker.setPlaying(true);
   for (let i = 1; i <= 100; i++) {
     now = 0.2 + i * 0.2;
-    assert.equal(tracker.snapshot()!.activeMs, Math.round(now) - Math.round(0.2));
+    assert.equal(tracker.snapshot()!.activeMs, Math.floor(now) - Math.floor(0.2));
   }
   tracker.setPlaying(false); now = 1000.8; tracker.setPlaying(true);
   now = 1010.9; tracker.setPlaying(false);
   assert.equal(tracker.snapshot()!.activeMs, 30);
   const loaded = readRunAnalytics({ version: 1, activeMs: 30.7, reached: ['run_started'] })!;
-  assert.equal(loaded.activeMs, 31);
+  assert.equal(loaded.activeMs, 30);
   const resumed = new RunAnalytics(loaded, () => {}, true, () => now);
   resumed.play(game); resumed.setPlaying(true); now = 1012.3;
   assert.equal(resumed.snapshot()!.activeMs, 32);
