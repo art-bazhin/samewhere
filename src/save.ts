@@ -1,5 +1,6 @@
 import { FINAL_PASSAGE_GOALS, Game, initialState, PASSAGE_GOALS, ROOM_IDS, validateWorld, type Snapshot } from './world';
 import { galleryRoute } from './gallery';
+import { readRunAnalytics, type RunAnalyticsState } from './run-analytics';
 
 export const SAVE_KEY = 'samewhere.save';
 export function hasSave(storage?: Pick<Storage, 'getItem'>): boolean {
@@ -13,6 +14,7 @@ interface SavedGame {
   transitions: number;
   music: number[];
   soundEnabled: boolean;
+  analytics?: RunAnalyticsState;
 }
 
 function validateSnapshot({ world, player }: Snapshot) {
@@ -44,14 +46,15 @@ export function loadSave(storage?: Pick<Storage, 'getItem'>): SavedGame | null {
         !saved.music.every(index => Number.isInteger(index) && index >= 0 && index < 6)) return null;
     validateSnapshot(saved.state);
     const { version, state, transitions, music, soundEnabled } = saved;
-    return { version, state, transitions, music, soundEnabled };
+    const analytics = readRunAnalytics(saved.analytics);
+    return { version, state, transitions, music, soundEnabled, ...(analytics && { analytics }) };
   } catch { return null; }
 }
 
-export function saveGame(game: Game, music: Iterable<number>, soundEnabled: boolean, storage?: Pick<Storage, 'setItem'>) {
+export function saveGame(game: Game, music: Iterable<number>, soundEnabled: boolean, storage?: Pick<Storage, 'setItem'>, analytics?: RunAnalyticsState) {
   try {
     const saved: SavedGame = { version: 1, state: { world: game.world, player: game.player },
-      transitions: game.transitions, music: [...music], soundEnabled };
+      transitions: game.transitions, music: [...music], soundEnabled, ...(analytics && { analytics }) };
     (storage ?? localStorage).setItem(SAVE_KEY, JSON.stringify(saved));
   } catch { /* Play can continue when storage is blocked or full. */ }
 }

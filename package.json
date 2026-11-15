@@ -17,6 +17,7 @@
     "profile:hub": "node scripts/profile-hub.mjs"
   },
   "dependencies": {
+    "gameanalytics": "5.0.0",
     "three": "^0.180.0"
   },
   "devDependencies": {

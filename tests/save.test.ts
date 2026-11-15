@@ -78,3 +78,14 @@ test('blocked storage and quota errors do not interrupt play', () => {
   assert.equal(loadSave(storage), null);
   assert.doesNotThrow(() => saveGame(new Game(), [0], true, storage));
 });
+
+test('analytics checkpoints survive saving, while damaged analytics do not discard game progress', () => {
+  const game = new Game(), storage = memoryStorage();
+  const analytics = { version: 1 as const, activeMs: 42_000, reached: ['run_started', 'room_4_visited', 'symbol_connection_5_opened'] };
+  saveGame(game, [0], true, storage, analytics);
+  assert.deepEqual(loadSave(storage)!.analytics, analytics);
+  const saved = JSON.parse(storage.getItem(SAVE_KEY)!);
+  saved.analytics.activeMs = -1; storage.setItem(SAVE_KEY, JSON.stringify(saved));
+  assert.deepEqual(loadSave(storage)!.state, game.snapshot());
+  assert.equal(loadSave(storage)!.analytics, undefined);
+});

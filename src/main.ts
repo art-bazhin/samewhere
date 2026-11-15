@@ -8,6 +8,8 @@ import { SurfaceTextures } from './surface-textures';
 import { hasSave, loadSave, saveGame } from './save';
 import { LoadingProgress } from './loading-progress';
 import { loadSettings, saveSettings } from './settings';
+import { RunAnalytics } from './run-analytics';
+import { createGameAnalyticsSink } from './game-analytics';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const devMode = new URLSearchParams(location.search).get('dev') === '1';
@@ -37,12 +39,18 @@ const loading = new LoadingProgress(value => { $<HTMLProgressElement>('loading-p
 const gameReady = loading.task();
 const sound = new Sound(loading);
 const saved = loadSave();
+const analytics = new RunAnalytics(saved?.analytics, createGameAnalyticsSink({
+  enabled: import.meta.env.PROD && !devMode,
+  gameKey: import.meta.env.VITE_GAMEANALYTICS_GAME_KEY ?? '',
+  secretKey: import.meta.env.VITE_GAMEANALYTICS_SECRET_KEY ?? '',
+  build: import.meta.env.VITE_GAMEANALYTICS_BUILD ?? '',
+}), !devMode);
 if (saved) {
   game.restore(saved.state); game.transitions = saved.transitions;
   sound.music.active.clear(); saved.music.forEach(index => sound.music.active.add(index));
   sound.enabled = saved.soundEnabled;
   // Rewrite legacy saves without their accumulated action snapshots.
-  saveGame(game, sound.music.active, sound.enabled);
+  saveGame(game, sound.music.active, sound.enabled, undefined, analytics.snapshot());
 }
 const timing = new FrameTiming();
 const mouseLook = new MouseLook();
@@ -69,7 +77,7 @@ const keys = new Set<string>();
 $('resume-button').hidden = !started;
 
 function autosave(existingOnly = false) {
-  if (started && !sweep && (!existingOnly || hasSave())) saveGame(game, sound.music.active, sound.enabled);
+  if (started && !sweep && (!existingOnly || hasSave())) saveGame(game, sound.music.active, sound.enabled, undefined, analytics.snapshot());
 }
 const saveTimer = window.setInterval(() => { if (locked && !ended && !document.hidden) autosave(); }, 1000);
 
@@ -103,6 +111,7 @@ function updateHUD() {
 function sync() {
   space.sync(); space.pick(); updateHUD();
   if (started) sound.music.update(game.player.room, game.world.passageProgress);
+  if (started && !ended) analytics.observe(game);
   autosave();
 }
 function stopSweep() {
@@ -118,10 +127,11 @@ function reset() {
   ended = false; endingScreen.hidden = true; $('hud').hidden = false;
   $('overlay').hidden = locked; document.body.classList.toggle('paused', !locked);
   stopSweep(); mouseLook.reset(); debugRoomIndex = 0;
-  game.reset(); sound.music.reset(); sound.setPaused(!locked); sync();
+  game.reset(); analytics.reset(); sound.music.reset(); sound.setPaused(!locked); sync();
 }
 function finishGame() {
   if (ended) return;
+  analytics.observe(game); analytics.setPlaying(false);
   ended = true; keys.clear(); stopSweep(); mouseLook.reset(); dialogs.forEach(dialog => dialog.close());
   $('hud').hidden = true; $('overlay').hidden = true;
   document.body.classList.remove('paused');
@@ -162,6 +172,7 @@ function updatePauseMenu() {
   $('menu-content').inert = !paused || document.body.classList.contains('loading');
 }
 function pause() {
+  analytics.setPlaying(false);
   fullscreenResume = false; playCancelled = true;
   if (document.pointerLockElement) document.exitPointerLock(); else updatePauseMenu();
 }
@@ -249,8 +260,10 @@ document.addEventListener('pointerlockchange', () => {
   mouseLook.reset();
   if (!locked) stopSweep();
   timing.reset();
-  updatePauseMenu();
   if (locked && !started) started = true;
+  if (locked && !ended) analytics.play(game);
+  analytics.setPlaying(locked && !ended && !document.hidden && !sweep);
+  updatePauseMenu();
   if (!locked) $('resume-button').hidden = !started;
   autosave(!locked);
 });
@@ -302,7 +315,7 @@ document.addEventListener('keyup', event => keys.delete(event.code));
 window.addEventListener('blur', () => { keys.clear(); if (!fullscreenResume) pause(); });
 document.addEventListener('visibilitychange', () => {
   hudTime = performance.now(); timing.reset();
-  if (document.hidden) { keys.clear(); autosave(true); if (!fullscreenResume) pause(); }
+  if (document.hidden) { analytics.setPlaying(false); keys.clear(); autosave(true); if (!fullscreenResume) pause(); }
 });
 canvas.addEventListener('click', () => {
   if (!locked || sweep || ended) return;
@@ -318,6 +331,7 @@ function frame(time: number) {
   if (disposed) return;
   requestAnimationFrame(frame);
   const dt = Math.min((time - previousTime) / 1000, 0.1); previousTime = time;
+  analytics.setPlaying(locked && !ended && !document.hidden && !sweep);
   if (document.hidden) return;
   const frameStart = performance.now();
   if (locked && !ended) {
@@ -345,7 +359,7 @@ function frame(time: number) {
     const socket = space.pick();
     crosshair.classList.toggle('available', !!socket && (!!ballAt(game.world, socket) || inventoryCount(game.world, game.world.selected) > 0));
     sound.music.update(game.player.room, game.world.passageProgress);
-    if (game.transitions !== transitions) autosave();
+    if (game.transitions !== transitions) { analytics.observe(game); autosave(); }
   }
   if (locked && !ended && game.world.gallery?.outside) finishGame();
   space.render();
@@ -373,7 +387,7 @@ try {
     finishLoading();
   });
   // Development-only inspection surface for reproducible browser acceptance checks.
-  if (import.meta.env.DEV) Object.assign(window, { __samewhere: { game, space, sound, sync, reset, pause, timing, mouseLook, mouseEvent, get fps() { return fps; }, get mouseInput() { return mouseInput; } } });
+  if (import.meta.env.DEV) Object.assign(window, { __samewhere: { game, space, sound, sync, reset, pause, analytics, timing, mouseLook, mouseEvent, get fps() { return fps; }, get mouseInput() { return mouseInput; } } });
 } catch (error) {
   console.error(error); $('error').hidden = false;
   $('error').textContent = 'Could not start 3D. Use a desktop browser with WebGL 2 and hardware acceleration.';
@@ -381,6 +395,7 @@ try {
   finishLoading();
 }
 window.addEventListener('pagehide', event => {
+  analytics.setPlaying(false);
   stopSweep(); autosave(true);
   if (event.persisted) { pause(); return; }
   clearInterval(saveTimer); disposed = true; space?.dispose(); sound.dispose();
