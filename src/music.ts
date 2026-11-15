@@ -8,9 +8,10 @@ const LOOP_SECONDS = 2419200 / 44100, LOOP_HEAD_SECONDS = 1, LOOP_CROSSFADE = .2
 const SHORT_FADE = .005, LAYER_FADE = 15, ENDING_FADE = 12;
 const BASE_GAIN = 10 ** (-10 / 20);
 
+/** Start a ramp at the current audio time, preserving the level of any interrupted fade. */
 export function fadeGain(gain: AudioParam, target: number, time: number, duration: number) {
   const value = gain.value;
-  gain.cancelAndHoldAtTime(time);
+  gain.cancelScheduledValues(time);
   // An explicit starting point prevents a first ramp from starting at context time zero.
   gain.setValueAtTime(value, time);
   gain.linearRampToValueAtTime(target, time + duration);

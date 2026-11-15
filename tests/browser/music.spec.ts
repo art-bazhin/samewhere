@@ -1,5 +1,43 @@
 import { test, expect } from '@playwright/test';
 
+test('audio works without cancelAndHoldAtTime and interrupted fades preserve their current level', async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.addInitScript(() => { Object.defineProperty(AudioParam.prototype, 'cancelAndHoldAtTime', { value: undefined, configurable: true }); });
+  await page.goto('/'); await expect(page.locator('#loading-screen')).toBeHidden();
+  await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.__samewhere.sound.context.state)).toBe('running');
+  for (const value of [0, 10 ** (-5 / 20)]) {
+    await page.keyboard.press('KeyM');
+    await expect.poll(() => page.evaluate(() => window.__samewhere.sound.output.gain.value)).toBeCloseTo(value, 6);
+  }
+  await page.evaluate(() => { const { game, sync } = window.__samewhere; game.player.room = 'B'; sync(); });
+  await expect.poll(() => page.evaluate(() => window.__samewhere.sound.music.layers[1].gain.gain.value)).toBeGreaterThan(0);
+  await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
+  await page.locator('#resume-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.__samewhere.sound.pauseGain.gain.value)).toBe(1);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => window.__samewhere.sound.context.state)).toBe('running');
+
+  // Render an interrupted fade to check the signal, including the sample at the join.
+  const envelope = await page.evaluate(async () => {
+    const path = '/src/music.ts', { fadeGain } = await import(path);
+    const rate = 8000, middle = 1.024, context = new OfflineAudioContext(1, rate * 3, rate);
+    const source = context.createConstantSource(), gain = context.createGain();
+    gain.gain.value = 0; source.connect(gain).connect(context.destination); source.start();
+    fadeGain(gain.gain, 1, 0, middle * 2);
+    const paused = context.suspend(middle), rendering = context.startRendering(); await paused;
+    fadeGain(gain.gain, 0, context.currentTime, middle);
+    await context.resume(); const samples = (await rendering).getChannelData(0), join = Math.round(middle * rate);
+    return { levels: [.256, .512, .768, 1.024, 1.28, 1.536, 1.792, 2.048, 2.5].map(time => samples[Math.round(time * rate)]),
+      jump: Math.abs(samples[join] - samples[join - 1]) };
+  });
+  const expected = [.125, .25, .375, .5, .375, .25, .125, 0, 0];
+  // The held AudioParam value may come from the last sample before suspension.
+  envelope.levels.forEach((value, index) => expect(Math.abs(value - expected[index])).toBeLessThan(1 / (8000 * 2.048) + 1e-7));
+  expect(envelope.jump).toBeLessThan(.0001);
+  expect(errors).toEqual([]);
+});
+
 test('six music stems share a seamless clock and unlock only at the specified milestones', async ({ page }) => {
   test.setTimeout(90_000);
   const errors: string[] = [];
