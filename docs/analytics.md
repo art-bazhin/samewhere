@@ -11,14 +11,21 @@ Copy `.env.example` to `.env.local` and fill in:
 ```dotenv
 VITE_GAMEANALYTICS_GAME_KEY=your_sdk_game_key
 VITE_GAMEANALYTICS_SECRET_KEY=your_sdk_secret_key
-VITE_GAMEANALYTICS_BUILD=release_identifier
+# Optional override; defaults to the current Git commit for production builds.
+VITE_GAMEANALYTICS_BUILD=
 ```
 
 `.env.local` is ignored by Git. These are the game's event-ingestion credentials, not account or administrative API tokens. Both SDK keys are included in the downloadable browser bundle, as required by the browser SDK.
 
-For GitHub Pages, set repository or `github-pages` environment secrets named `GAMEANALYTICS_GAME_KEY` and `GAMEANALYTICS_SECRET_KEY`. The existing deployment workflow supplies them to Vite and uses the Git commit as the build identifier. Configuring these secrets does not deploy the game; deployment remains a manual workflow action. For a manually prepared itch.io build, the local environment variables supply the same settings. Build identifiers are capped at the SDK's 32-character limit.
+For GitHub Pages, set repository or `github-pages` environment secrets named `GAMEANALYTICS_GAME_KEY` and `GAMEANALYTICS_SECRET_KEY`. The existing deployment workflow supplies them to Vite and uses the Git commit as the build identifier. Configuring these secrets does not deploy the game; deployment remains a manual workflow action.
+
+For a manually prepared itch.io build, the local environment variables supply the SDK keys. Vite automatically uses the current Git commit as the production build identifier when `VITE_GAMEANALYTICS_BUILD` is empty or unset; builds from a source archive without Git fall back to the version in `package.json`. An explicit environment value or `.env.local` value overrides the default, for example `itch-1.0.0`. The SDK caps build identifiers at 32 characters. Local Vite development defaults to `local` and never sends data.
 
 Official references: [JavaScript setup](https://docs.gameanalytics.com/event-tracking-and-integrations/sdks-and-collection-api/open-source-sdks/javascript/), [Design events](https://docs.gameanalytics.com/events-metrics-and-filtering/event-types/design-events/).
+
+## Player-facing notice
+
+Use the English text in [ANALYTICS.txt](../public/ANALYTICS.txt) for the itch.io page's analytics notice. It describes gameplay and session data, the generated player identifier, technical information and browser storage, and links to GameAnalytics' privacy notice. Vite also copies this file to the root of `dist/` so it travels with the game.
 
 ## Milestones
 

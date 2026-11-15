@@ -1,0 +1,13 @@
+samewhere. — Analytics notice
+
+samewhere. uses GameAnalytics to understand how players progress through the
+game. It sends gameplay milestones and cumulative active play time, session
+data, a randomly generated player identifier stored in your browser, and
+technical information such as browser, operating system and approximate
+location derived from the connection's IP address.
+
+Your game save and settings are stored in your browser. Clearing browser data
+removes them and can reset the analytics identifier.
+
+GameAnalytics privacy notice:
+https://www.gameanalytics.com/trust/privacy-notice

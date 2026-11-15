@@ -6,7 +6,9 @@ Built with Three.js, TypeScript, and Vite; geometry and sound are generated proc
 
 The visual style evokes an empty office: yellow wallpaper with a small repeating pattern, beige carpet, a suspended ceiling with a 65 × 65 cm grid, and rectangular fluorescent panels. Geometry stays simple, without guide lines on walls or pedestals. Nearby rooms have no fog or color filter. Distant rooms gradually darken between 48 and 68 m, retaining their hues until they disappear. Lighting creates contrast and draws warmth from the environment itself; the menu slightly blurs the scene.
 
-The wallpaper, carpet, cast-concrete pedestal, and mineral ceiling-tile textures were created for Samewhere with the built-in `image_gen` tool; the thin T-bar ceiling grid is added in code. The generation prompts (with references to other fictional settings omitted) and material scales are recorded in the [material sources](public/materials/sources.json). The game does not contact external services.
+The wallpaper, carpet, cast-concrete pedestal, and mineral ceiling-tile textures were created for Samewhere with the built-in `image_gen` tool; the thin T-bar ceiling grid is added in code. The generation prompts (with references to other fictional settings omitted) and material scales are recorded in the [material sources](public/materials/sources.json).
+
+With SDK keys configured, release builds use GameAnalytics to measure sessions, gameplay milestones and active play time. Game saves and settings are stored in the browser. See the [player-facing analytics notice](public/ANALYTICS.txt) and [integration documentation](docs/analytics.md).
 
 ## Getting started
 
