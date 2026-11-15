@@ -41,9 +41,11 @@ test('preparing a new run and observing its room does not send a start before pl
 test('milestones send only cumulative thinking time once, excluding pauses', () => {
   const { tracker, game, events, advance, value } = fixture();
   advance(1250); game.player.room = 'B'; game.transitions = 1; tracker.observe(game);
-  assert.equal(value('room_5_visited'), 1.25);
+  assert.equal(value('room_5_visited'), 1);
+  advance(500); game.player.room = 'C'; tracker.observe(game);
+  assert.equal(value('room_6_visited'), 2);
   tracker.setPlaying(false); advance(60_000); tracker.setPlaying(true);
-  advance(2750); game.player.room = 'D'; game.transitions = 5; tracker.observe(game);
+  advance(2250); game.player.room = 'D'; game.transitions = 5; tracker.observe(game);
   assert.equal(value('room_3_visited'), 4);
   for (let i = 0; i < 20; i++) tracker.observe(game);
   assert.equal(events.filter(([event]) => event === 'v1:room_3_visited').length, 1);
@@ -263,6 +265,24 @@ test('reload preserves time and reached milestones; menu resumes do not create e
   resumed.reset(); resumed.play(game);
   assert.equal(events.filter(([event]) => event.endsWith(':run_started')).length, 2);
   assert.equal(resumed.snapshot()!.activeMs, 0);
+});
+
+test('the timer calculates and saves whole milliseconds without losing time across frequent checkpoints', () => {
+  let now = 0.2;
+  const game = new Game(), tracker = new RunAnalytics(undefined, () => {}, true, () => now);
+  tracker.reset(); tracker.play(game); tracker.setPlaying(true);
+  for (let i = 1; i <= 100; i++) {
+    now = 0.2 + i * 0.2;
+    assert.equal(tracker.snapshot()!.activeMs, Math.round(now) - Math.round(0.2));
+  }
+  tracker.setPlaying(false); now = 1000.8; tracker.setPlaying(true);
+  now = 1010.9; tracker.setPlaying(false);
+  assert.equal(tracker.snapshot()!.activeMs, 30);
+  const loaded = readRunAnalytics({ version: 1, activeMs: 30.7, reached: ['run_started'] })!;
+  assert.equal(loaded.activeMs, 31);
+  const resumed = new RunAnalytics(loaded, () => {}, true, () => now);
+  resumed.play(game); resumed.setPlaying(true); now = 1012.3;
+  assert.equal(resumed.snapshot()!.activeMs, 32);
 });
 
 test('legacy runs are not given invented start times; dev runs and failed senders cannot affect play', () => {

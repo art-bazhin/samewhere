@@ -28,7 +28,7 @@ Each milestone sends one Design event:
 v1:<milestone>
 ```
 
-The numeric `value` is cumulative active seconds since the beginning of this run. Dynamic measurements are never part of an event identifier.
+The numeric `value` is cumulative active time since the beginning of this run, rounded to the nearest whole second. Clock readings are rounded to whole milliseconds before calculating elapsed time; rounding readings rather than each frame's duration avoids accumulating rounding errors across checkpoints. Dynamic measurements are never part of an event identifier.
 
 Room labels describe their shapes: `3` triangle, `4` square, `5` pentagon, `6` hexagon, `X` cross, `Y` three-way room, and `H` hub. A label always identifies the room itself, including in `symbol_room` events, regardless of the symbol drawn there.
 
@@ -62,7 +62,7 @@ Milestones follow actual game state, without enforcing an analytics-only order. 
 
 Active time includes thinking while stationary. Menus, hidden tabs, loading, and the ending animation are excluded.
 
-The existing save contains a small `analytics` checkpoint: schema version, accumulated milliseconds, and a bounded list of reached milestone names. Resuming preserves the timer and deduplication; `NEW GAME` and `PLAY AGAIN` reset them. Saves created before this feature remain playable but do not emit timed milestones until a new run begins, because their original start time is unknown. Invalid analytics metadata is ignored without discarding the saved world.
+The existing save contains a small `analytics` checkpoint: schema version, accumulated whole milliseconds, and a bounded list of reached milestone names. Resuming preserves the timer and deduplication; `NEW GAME` and `PLAY AGAIN` reset them. Saves created before this feature remain playable but do not emit timed milestones until a new run begins, because their original start time is unknown. Invalid analytics metadata is ignored without discarding the saved world.
 
 The SDK separately manages its generated player identifier and offline event queue in browser storage. SDK 5.0.0 bounds its event/session storage at approximately 2,000 entries. Our initialization queue is limited to 128 events in memory. Delivery is best-effort; the game never waits for telemetry.
 

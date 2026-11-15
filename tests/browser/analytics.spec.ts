@@ -23,13 +23,15 @@ test('milestones survive reload and exclude the pause menu; drawings have separa
   expect(await page.evaluate(() => window.__samewhere.analyticsEvents.filter(({ event }: any) => event.endsWith(':room_5_visited')))).toHaveLength(1);
   await page.keyboard.press('Escape'); await expect(page.locator('#overlay')).toBeVisible();
   const paused = await page.evaluate(() => window.__samewhere.analytics.snapshot());
+  expect(Number.isInteger(paused.activeMs)).toBe(true);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('samewhere.save')!).analytics.activeMs)).toBe(paused.activeMs);
   await page.waitForTimeout(300);
   expect(await page.evaluate(() => window.__samewhere.analytics.snapshot())).toEqual(paused);
   await page.reload(); await expect(page.locator('#loading-screen')).toBeHidden(); await capture(page);
   expect(await page.evaluate(() => window.__samewhere.analytics.snapshot())).toEqual(paused);
   await page.locator('#resume-button').click(); await expect(page.locator('#overlay')).toBeHidden();
   expect(await page.evaluate(() => window.__samewhere.analyticsEvents.find(({ event }: any) => event.endsWith(':run_resumed')).value))
-    .toBe(Math.round(paused.activeMs) / 1000);
+    .toBe(Math.round(paused.activeMs / 1000));
   await page.evaluate(() => { const { game, sync } = window.__samewhere; game.world.passageProgress = 1; sync(); sync(); });
   const events = await page.evaluate(() => window.__samewhere.analyticsEvents);
   expect(events.filter(({ event }: any) => event.endsWith(':room_5_visited'))).toHaveLength(0);
@@ -129,6 +131,7 @@ test('the real SDK sends gameplay milestones at the correct stage after its sess
   expect(result.atThreshold).toEqual({ outside: false, completionEvents: 0 });
   expect(result.beforeExit).toBe(0); expect(result.outside).toBe(true); expect(result.exitEvents).toBe(1);
   expect(result.expected.every(({ event }: any) => /^v1:[^:]+$/.test(event))).toBe(true);
+  expect(result.expected.every(({ value }: any) => Number.isInteger(value))).toBe(true);
   await expect.poll(() => initialized).toBe(true);
   expect(received).toEqual([]); release();
   await expect.poll(() => received.filter(event => event.category === 'design'), { timeout: 15_000 }).toHaveLength(result.expected.length);

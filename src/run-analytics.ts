@@ -28,7 +28,7 @@ export function readRunAnalytics(value: unknown): RunAnalyticsState | undefined 
       new Set(state.reached).size !== state.reached.length) return;
   const { reached } = state;
   if (!reached.every(item => MILESTONES.includes(item)) || (reached.length > 0 && !reached.includes('run_started'))) return;
-  return { version: 1, activeMs: state.activeMs, reached: [...reached] };
+  return { version: 1, activeMs: Math.round(state.activeMs), reached: [...reached] };
 }
 
 /** One small checkpoint per run, independent of the network and SDK session clock. */
@@ -50,11 +50,11 @@ export class RunAnalytics {
   }
   setPlaying(playing: boolean) {
     if (!this.state || playing === (this.activeSince !== null)) return;
-    this.checkpoint(); this.activeSince = playing ? this.now() : null;
+    this.checkpoint(); this.activeSince = playing ? Math.round(this.now()) : null;
   }
   private checkpoint() {
     if (!this.state || this.activeSince === null) return;
-    const now = this.now();
+    const now = Math.round(this.now());
     this.state.activeMs += Math.max(0, now - this.activeSince); this.activeSince = now;
   }
   snapshot(): RunAnalyticsState | undefined {
@@ -90,7 +90,7 @@ export class RunAnalytics {
   private measure(milestone: string) {
     if (!this.state) return;
     // Design events expose one numeric value in the free GameAnalytics UI.
-    try { this.send(`v1:${milestone}`, Math.round(this.state.activeMs) / 1000); }
+    try { this.send(`v1:${milestone}`, Math.round(this.state.activeMs / 1000)); }
     catch { /* Telemetry must never interrupt gameplay. */ }
   }
 }
