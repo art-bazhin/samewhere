@@ -13,8 +13,8 @@ export interface Connection { color: BallColor; ends: [SocketRef, SocketRef] }
 export interface PassageGoal { from: SocketRef; to: RoomId; color: BallColor }
 export const PASSAGE_GOALS: PassageGoal[] = [
   { from: { room: 'G', side: 3 }, to: 'B', color: 'red' },
-  { from: { room: 'B', side: 2 }, to: 'D', color: 'blue' },
-  { from: { room: 'D', side: 1 }, to: 'A', color: 'red' },
+  { from: { room: 'B', side: 2 }, to: 'E', color: 'blue' },
+  { from: { room: 'E', side: 1 }, to: 'A', color: 'red' },
 ];
 export const FINAL_PASSAGE_GOALS: PassageGoal[] = [
   { from: { room: 'A', side: 0 }, to: 'A', color: 'red' },

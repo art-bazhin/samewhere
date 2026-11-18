@@ -51,7 +51,7 @@ test('the complete drawing chain reveals in order and ends with four simultaneou
     const initial = capture(PASSAGE_GOALS[0]);
     check(initial.colored > 100, 'The hub drawing must be present from the start');
     images.push({ name: 'marker-G3.png', data: initial.data });
-    for (const room of ['C', 'E', 'F']) check(space.rooms[room].markings.length === 0, `An obsolete drawing remains in ${room}`);
+    for (const room of ['C', 'D', 'F']) check(space.rooms[room].markings.length === 0, `An obsolete drawing remains in ${room}`);
     check(space.rooms.A.markings.length === 4 && space.rooms.A.markings.every((m: any) => m.shown.value === 0), 'Final drawings leaked into the starting room');
     for (const [stage, goal] of PASSAGE_GOALS.entries()) {
       clear();

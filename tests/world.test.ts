@@ -104,9 +104,9 @@ test('other hub exits, rooms and colors still open ordinary passages without com
 test('the pentagon goal waits for the hub goal and rejects other exits, rooms and colors', () => {
   const premature = new Game(); premature.world.balls.forEach(ball => { ball.socket = null; });
   premature.world.selected = 'blue';
-  premature.interact({ room: 'B', side: 2 }); premature.interact({ room: 'D', side: 0 });
+  premature.interact({ room: 'B', side: 2 }); premature.interact({ room: 'E', side: 0 });
   assert.equal(premature.world.passageProgress, 0);
-  for (const [color, side, room] of [['red', 2, 'D'], ['blue', 1, 'D'], ['blue', 2, 'F']] as const) {
+  for (const [color, side, room] of [['red', 2, 'E'], ['blue', 1, 'E'], ['blue', 2, 'F']] as const) {
     const game = new Game();
     game.interact({ room: 'B', side: 2 }); game.interact({ room: 'G', side: 3 });
     assert.equal(game.world.passageProgress, 1);

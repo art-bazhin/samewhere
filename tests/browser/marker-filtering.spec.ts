@@ -13,7 +13,7 @@ test('distant marker strokes retain coverage through reduction, oblique views an
     const results: { kind: string; distance: number; angle: number; ratios: number[]; error: number }[] = [];
     renderer.clippingPlanes = [];
     for (const [kind, room, side, centerX, ink] of [['text', 'A', 2, 1.95, 'messageInk'], ['pentagon', 'G', 3, -1.3, 'ink'],
-      ['triangle', 'B', 2, -1.3, 'ink'], ['square', 'D', 1, -1.3, 'ink']] as const) {
+      ['Y', 'B', 2, -1.3, 'ink'], ['square', 'E', 1, -1.3, 'ink']] as const) {
       const scene = space.rooms[room].scene, wall = space.rooms[room].walls[side], frame = wall.solid.parent;
       const material = wall.solid.children[0].material, before = material.onBeforeCompile.bind(material), key = material.customProgramCacheKey();
       space.rooms[room].markings.forEach((marking: any) => { marking.shown.value = 1; });
