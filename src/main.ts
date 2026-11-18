@@ -43,13 +43,12 @@ const analytics = new RunAnalytics(saved?.analytics, createGameAnalyticsSink({
   enabled: import.meta.env.PROD && !devMode,
   gameKey: import.meta.env.VITE_GAMEANALYTICS_GAME_KEY ?? '',
   secretKey: import.meta.env.VITE_GAMEANALYTICS_SECRET_KEY ?? '',
-  build: import.meta.env.VITE_GAMEANALYTICS_BUILD ?? '',
 }), !devMode);
 if (saved) {
   game.restore(saved.state); game.transitions = saved.transitions;
   sound.music.active.clear(); saved.music.forEach(index => sound.music.active.add(index));
   sound.enabled = saved.soundEnabled;
-  // Rewrite legacy saves without their accumulated action snapshots.
+  // Persist the validated save and sanitized analytics checkpoint.
   saveGame(game, sound.music.active, sound.enabled, undefined, analytics.snapshot());
 }
 const timing = new FrameTiming();

@@ -1,7 +1,8 @@
 import type { AnalyticsSink } from './run-analytics';
+import { GAME_VERSION } from './version';
 
 export type AnalyticsCommand = (command: string, ...args: unknown[]) => void;
-export interface AnalyticsConfig { enabled: boolean; gameKey: string; secretKey: string; build: string }
+export interface AnalyticsConfig { enabled: boolean; gameKey: string; secretKey: string }
 
 // SDK 5.0.0's ESM default is its command API; its declarations incorrectly describe a class.
 const loadSdk = async () => (await import('gameanalytics')).default as unknown as AnalyticsCommand;
@@ -32,7 +33,7 @@ export function createGameAnalyticsSink(config: AnalyticsConfig, load: () => Pro
       } };
       command('setEnabledInfoLog', false); command('setEnabledVerboseLog', false);
       command('enableHealthEvent', false);
-      command('configureBuild', (config.build || 'local').slice(0, 32));
+      command('configureBuild', String(GAME_VERSION));
       command('addRemoteConfigsListener', listener);
       command('initialize', config.gameKey, config.secretKey);
     }).catch(() => { disabled = true; pending.length = 0; });

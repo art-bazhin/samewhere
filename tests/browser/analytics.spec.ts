@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { GAME_VERSION } from '../../src/version';
 
 async function capture(page: import('@playwright/test').Page) {
   await page.evaluate(() => {
@@ -37,7 +38,7 @@ test('milestones survive reload and exclude the pause menu; drawings have separa
   expect(events.filter(({ event }: any) => event.endsWith(':room_5_visited'))).toHaveLength(0);
   expect(events.filter(({ event }: any) => event.endsWith(':symbol_connection_5_opened'))).toHaveLength(1);
   expect(events.filter(({ event }: any) => event.endsWith(':symbol_room_5_visited'))).toHaveLength(1);
-  expect(events.every(({ event }: any) => /^v1:[^:]+$/.test(event))).toBe(true);
+  expect(events.every(({ event }: any) => new RegExp(`^v${GAME_VERSION}:[^:]+$`).test(event))).toBe(true);
   expect(errors).toEqual([]);
 });
 
@@ -62,15 +63,15 @@ test('the real SDK sends gameplay milestones at the correct stage after its sess
   await page.evaluate(async () => {
     const path = '/src/game-analytics.ts', { createGameAnalyticsSink } = await import(path);
     const app = window.__samewhere; app.analyticsEvents = [];
-    const send = createGameAnalyticsSink({ enabled: true, gameKey: 'a'.repeat(32), secretKey: 'b'.repeat(40), build: 'browser-test' });
+    const send = createGameAnalyticsSink({ enabled: true, gameKey: 'a'.repeat(32), secretKey: 'b'.repeat(40) });
     app.analytics.send = (event: string, value: number) => { app.analyticsEvents.push({ event, value }); send(event, value); };
   });
   await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(async version => {
     const path = '/src/world.ts', { PASSAGE_GOALS, FINAL_PASSAGE_GOALS, portalPosition, wallNormal } = await import(path);
     const app = window.__samewhere, { game, sync } = app;
     const roomLabels: Record<string, string> = { A: '4', B: '5', C: '6', D: '3', E: 'Y', F: 'X', G: 'H' };
-    const count = (milestone: string) => app.analyticsEvents.filter(({ event }: any) => event === `v1:${milestone}`).length;
+    const count = (milestone: string) => app.analyticsEvents.filter(({ event }: any) => event === `v${version}:${milestone}`).length;
     function collect() { for (const ball of game.world.balls) if (ball.socket) { game.interact(ball.socket); sync(); } }
     function place(color: string, room: string, side: number) {
       game.selectColor(color);
@@ -121,7 +122,7 @@ test('the real SDK sends gameplay milestones at the correct stage after its sess
     game.move({ x: n.x * .1, z: n.z * .1 }); sync();
     return { early, goals, finalCollection, repeatedCollection: count('all_balls_in_4'), wrongColors, beforeLastBall, completedPattern, repeatedPattern, beforeExit, ordinaryDoor, atThreshold,
       outside: game.world.gallery.outside, exitEvents: count('game_completed'), expected: [...app.analyticsEvents] };
-  });
+  }, GAME_VERSION);
   expect(result.early).toEqual({ progress: 0, collectionEvents: 0, completionEvents: 0, gallery: null });
   expect(result.goals).toEqual([1, 2, 3].map(progress => ({ progress, opened: 1, beforeVisit: 0, afterVisit: 1, collectionEvents: 0 })));
   expect(result.finalCollection).toBe(1); expect(result.repeatedCollection).toBe(1);
@@ -130,13 +131,13 @@ test('the real SDK sends gameplay milestones at the correct stage after its sess
   expect(result.ordinaryDoor).toEqual({ outside: false, completionEvents: 0 });
   expect(result.atThreshold).toEqual({ outside: false, completionEvents: 0 });
   expect(result.beforeExit).toBe(0); expect(result.outside).toBe(true); expect(result.exitEvents).toBe(1);
-  expect(result.expected.every(({ event }: any) => /^v1:[^:]+$/.test(event))).toBe(true);
+  expect(result.expected.every(({ event }: any) => new RegExp(`^v${GAME_VERSION}:[^:]+$`).test(event))).toBe(true);
   expect(result.expected.every(({ value }: any) => Number.isInteger(value))).toBe(true);
   await expect.poll(() => initialized).toBe(true);
   expect(received).toEqual([]); release();
   await expect.poll(() => received.filter(event => event.category === 'design'), { timeout: 15_000 }).toHaveLength(result.expected.length);
   expect(received.filter(event => event.category === 'design').map(event => ({ event: event.event_id, value: event.value, build: event.build })))
-    .toEqual(result.expected.map((event: any) => ({ ...event, build: 'browser-test' })));
+    .toEqual(result.expected.map((event: any) => ({ ...event, build: String(GAME_VERSION) })));
   expect(errors).toEqual([]);
 });
 

@@ -11,17 +11,21 @@ Copy `.env.example` to `.env.local` and fill in:
 ```dotenv
 VITE_GAMEANALYTICS_GAME_KEY=your_sdk_game_key
 VITE_GAMEANALYTICS_SECRET_KEY=your_sdk_secret_key
-# Optional override; defaults to the current Git commit for production builds.
-VITE_GAMEANALYTICS_BUILD=
 ```
 
 `.env.local` is ignored by Git. These are the game's event-ingestion credentials, not account or administrative API tokens. Both SDK keys are included in the downloadable browser bundle, as required by the browser SDK.
 
-For GitHub Pages, set repository or `github-pages` environment secrets named `GAMEANALYTICS_GAME_KEY` and `GAMEANALYTICS_SECRET_KEY`. The existing deployment workflow supplies them to Vite and uses the Git commit as the build identifier. Configuring these secrets does not deploy the game; deployment remains a manual workflow action.
+For GitHub Pages, set repository or `github-pages` environment secrets named `GAMEANALYTICS_GAME_KEY` and `GAMEANALYTICS_SECRET_KEY`. The existing deployment workflow supplies them to Vite. Configuring these secrets does not deploy the game; deployment remains a manual workflow action.
 
-For a manually prepared itch.io build, the local environment variables supply the SDK keys. Vite automatically uses the current Git commit as the production build identifier when `VITE_GAMEANALYTICS_BUILD` is empty or unset; builds from a source archive without Git fall back to the version in `package.json`. An explicit environment value or `.env.local` value overrides the default, for example `itch-1.0.0`. The SDK caps build identifiers at 32 characters. Local Vite development defaults to `local` and never sends data.
+For a manually prepared itch.io build, the local environment variables supply the SDK keys. Both itch.io and GitHub Pages use the shared game version as GameAnalytics' Build. There is no build override or Git-derived identifier. Local Vite development never sends data.
 
 Official references: [JavaScript setup](https://docs.gameanalytics.com/event-tracking-and-integrations/sdks-and-collection-api/open-source-sdks/javascript/), [Design events](https://docs.gameanalytics.com/events-metrics-and-filtering/event-types/design-events/).
+
+## Shared game version
+
+`GAME_VERSION` in [src/version.ts](../src/version.ts) is the single version used by the save, its analytics checkpoint, event names and the SDK's Build. It is currently **2**: saves and checkpoints contain `version: 2`, events start with `v2:`, and Build is `2`.
+
+Increment it when a game or analytics change should reset progress and begin a separate analytics cohort. Cosmetic updates can keep the same version. On loading a save with a different or missing version, the game deletes that save and offers a new game with fresh progress, music milestones and active time. Mouse sensitivity and the SDK's own browser storage are left intact. There is no migration or aliasing of old event names; previously submitted events remain in GameAnalytics under their original names and Build.
 
 ## Player-facing notice
 
@@ -32,7 +36,7 @@ Use the English text in [ANALYTICS.txt](../public/ANALYTICS.txt) for the itch.io
 Each milestone sends one Design event:
 
 ```text
-v1:<milestone>
+v2:<milestone>
 ```
 
 The numeric `value` is cumulative active time since the beginning of this run, rounded down to completed whole seconds. Clock readings and loaded accumulated time are rounded down to whole milliseconds; rounding readings rather than each frame's duration avoids accumulating rounding errors across checkpoints. Dynamic measurements are never part of an event identifier.
@@ -50,10 +54,10 @@ Room labels describe their shapes: `3` triangle, `4` square, `5` pentagon, `6` h
 | `room_Y_visited` | First presence in the Y-shaped room |
 | `room_H_visited` | First presence in the H-shaped hub |
 | `symbol_connection_5_opened` | Complete H socket 3 → room 5 in red |
-| `symbol_connection_3_opened` | Complete room 5 socket 2 → room 3 in blue, after the first goal |
-| `symbol_connection_4_opened` | Complete room 3 socket 1 → room 4 in red, after the second goal |
-| `symbol_room_5_visited` | First presence in room 5 after its triangle drawing appears |
-| `symbol_room_3_visited` | First presence in room 3 after its square drawing appears |
+| `symbol_connection_Y_opened` | Complete room 5 socket 2 → room Y in blue, after the first goal |
+| `symbol_connection_4_opened` | Complete room Y socket 1 → room 4 in red, after the second goal |
+| `symbol_room_5_visited` | First presence in room 5 after its Y drawing appears |
+| `symbol_room_Y_visited` | First presence in room Y after its square drawing appears |
 | `symbol_room_4_visited` | First presence in room 4 after the four final drawings appear; also the music milestone for returning to the square room |
 | `all_balls_in_4` | After the entire symbol chain is completed, player is in room 4 and every ball is either held or in a socket in room 4. Earlier experimental collection does not mark or consume this milestone. |
 | `room_4_pattern_completed` | Correct simultaneous four-ball pattern completed inside room 4 after the entire symbol chain |
@@ -69,7 +73,7 @@ Milestones follow actual game state, without enforcing an analytics-only order. 
 
 Active time includes thinking while stationary. Menus, hidden tabs, loading, and the ending animation are excluded.
 
-The existing save contains a small `analytics` checkpoint: schema version, accumulated whole milliseconds, and a bounded list of reached milestone names. Resuming preserves the timer and deduplication; `NEW GAME` and `PLAY AGAIN` reset them. Saves created before this feature remain playable but do not emit timed milestones until a new run begins, because their original start time is unknown. Invalid analytics metadata is ignored without discarding the saved world.
+The save contains a small `analytics` checkpoint: the shared game version, accumulated whole milliseconds, and a bounded list of reached milestone names. Resuming a compatible save preserves the timer and deduplication; `NEW GAME` and `PLAY AGAIN` reset them. Unknown checkpoint milestone names are individually discarded while valid names and active time survive. Invalid timing or structurally damaged analytics metadata is ignored without discarding the saved world; missing timing metadata does not invent a new start time for an ongoing run. An incompatible save version resets the entire saved run as described above.
 
 The SDK separately manages its generated player identifier and offline event queue in browser storage. SDK 5.0.0 bounds its event/session storage at approximately 2,000 entries. Our initialization queue is limited to 128 events in memory. Delivery is best-effort; the game never waits for telemetry.
 

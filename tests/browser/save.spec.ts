@@ -1,15 +1,16 @@
 import { test, expect } from '@playwright/test';
 import { Game } from '../../src/world';
+import { GAME_VERSION } from '../../src/version';
 
 const savedGame = () => {
   const { game, sound } = window.__samewhere;
   return { state: game.snapshot(), transitions: game.transitions, music: [...sound.music.active], soundEnabled: sound.enabled };
 };
 
-test('loading a legacy save immediately removes its history without losing progress', async ({ page }) => {
+test('loading a current-version save immediately removes obsolete history without losing progress', async ({ page }) => {
   const game = new Game(); game.interact({ room: 'B', side: 0 });
   Object.assign(game.player, { x: 1.25, z: 3, yaw: .3, pitch: -.2 });
-  const current = { version: 1, state: game.snapshot(), transitions: 7, music: [0, 1], soundEnabled: false };
+  const current = { version: GAME_VERSION, state: game.snapshot(), transitions: 7, music: [0, 1], soundEnabled: false };
   const legacy = { ...current, history: Array(256).fill(current.state) };
   await page.addInitScript(save => localStorage.setItem('samewhere.save', JSON.stringify(save)), legacy);
   await page.goto('/'); await expect(page.locator('#loading-screen')).toBeHidden();
@@ -22,6 +23,34 @@ test('loading a legacy save immediately removes its history without losing progr
     const app = window.__samewhere;
     return ['history', 'remember', 'undo'].some(key => key in app.game) || 'undo' in app;
   })).toBe(false);
+});
+
+test('an old save resets world, music and analytics but preserves mouse sensitivity', async ({ page }) => {
+  const initial = new Game().snapshot(), game = new Game();
+  game.player.room = 'G'; game.world.passageProgress = 2;
+  const old = { version: GAME_VERSION - 1, state: game.snapshot(), transitions: 30, music: [0, 1, 2], soundEnabled: false,
+    analytics: { version: GAME_VERSION - 1, activeMs: 900_000, reached: ['run_started', 'room_H_visited', 'symbol_room_3_visited'] } };
+  await page.addInitScript(save => {
+    localStorage.setItem('samewhere.save', JSON.stringify(save));
+    localStorage.setItem('samewhere.settings', JSON.stringify({ lookSensitivity: 2.3 }));
+  }, old);
+  await page.goto('/'); await expect(page.locator('#loading-screen')).toBeHidden();
+  await expect(page.locator('#resume-button')).toBeHidden();
+  expect(await page.evaluate(savedGame)).toEqual({ state: initial, transitions: 0, music: [0], soundEnabled: true });
+  expect(await page.evaluate(() => localStorage.getItem('samewhere.save'))).toBeNull();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('samewhere.settings')!))).toEqual({ lookSensitivity: 2.3 });
+  await page.evaluate(() => {
+    const app = window.__samewhere; app.analyticsEvents = [];
+    app.analytics.send = (event: string, value: number) => app.analyticsEvents.push({ event, value });
+  });
+  await page.locator('#play-button').click(); await expect(page.locator('#overlay')).toBeHidden();
+  const result = await page.evaluate(() => ({ save: JSON.parse(localStorage.getItem('samewhere.save')!), events: window.__samewhere.analyticsEvents }));
+  expect(result.save.version).toBe(GAME_VERSION); expect(result.save.analytics.version).toBe(GAME_VERSION);
+  expect(result.save.analytics.reached).toEqual(['run_started', 'room_4_visited']);
+  expect(result.events).toEqual([
+    { event: `v${GAME_VERSION}:run_started`, value: 0 },
+    { event: `v${GAME_VERSION}:room_4_visited`, value: 0 },
+  ]);
 });
 
 for (const paused of [false, true]) {

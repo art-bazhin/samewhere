@@ -2,10 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, FINAL_PASSAGE_GOALS, PASSAGE_GOALS } from '../src/world';
 import { hasSave, loadSave, saveGame, SAVE_KEY } from '../src/save';
+import { GAME_VERSION } from '../src/version';
+import { loadSettings, saveSettings } from '../src/settings';
+import type { RunAnalyticsState } from '../src/run-analytics';
 
 function memoryStorage() {
   const entries = new Map<string, string>();
-  return { getItem: (key: string) => entries.get(key) ?? null, setItem: (key: string, value: string) => { entries.set(key, value); } };
+  return { getItem: (key: string) => entries.get(key) ?? null,
+    setItem: (key: string, value: string) => { entries.set(key, value); }, removeItem: (key: string) => { entries.delete(key); } };
 }
 
 test('a save restores position, balls, selected color, progress and audio milestones', () => {
@@ -16,6 +20,7 @@ test('a save restores position, balls, selected color, progress and audio milest
   game.transitions = 7;
   saveGame(game, [0, 1, 2, 3], false, storage);
   const saved = loadSave(storage)!;
+  assert.equal(saved.version, GAME_VERSION);
   assert.deepEqual(saved.state, game.snapshot());
   assert.equal('history' in JSON.parse(storage.getItem(SAVE_KEY)!), false);
   assert.equal(saved.transitions, 7); assert.deepEqual(saved.music, [0, 1, 2, 3]); assert.equal(saved.soundEnabled, false);
@@ -36,7 +41,7 @@ test('the EXIT gallery and completed ending survive serialization', () => {
   }
 });
 
-test('legacy history is discarded without rejecting the current saved state', () => {
+test('obsolete history is discarded without rejecting the current-version saved state', () => {
   const game = new Game(), storage = memoryStorage();
   game.interact({ room: 'B', side: 0 }); saveGame(game, [0, 1], false, storage);
   const current = storage.getItem(SAVE_KEY)!;
@@ -51,9 +56,26 @@ test('legacy history is discarded without rejecting the current saved state', ()
   }
 });
 
+test('incompatible saves are removed with their analytics while settings and SDK storage survive', () => {
+  const game = new Game(), storage = memoryStorage();
+  game.player.room = 'G'; game.world.passageProgress = 2; game.transitions = 30;
+  saveSettings({ lookSensitivity: 2.3 }, storage);
+  storage.setItem('sdk-storage', 'keep');
+  for (const version of [GAME_VERSION - 1, GAME_VERSION + 1, undefined]) {
+    saveGame(game, [0, 1, 2], false, storage, { version: GAME_VERSION, activeMs: 42_000, reached: ['run_started', 'room_H_visited'] });
+    const saved = JSON.parse(storage.getItem(SAVE_KEY)!); saved.version = version;
+    storage.setItem(SAVE_KEY, JSON.stringify(saved));
+    assert.equal(loadSave(storage), null);
+    assert.equal(storage.getItem(SAVE_KEY), null);
+    assert.equal(hasSave(storage), false);
+    assert.deepEqual(loadSettings(storage), { lookSensitivity: 2.3 });
+    assert.equal(storage.getItem('sdk-storage'), 'keep');
+  }
+});
+
 test('missing, damaged, incompatible and invalid saves fall back to a new game', () => {
   const storage = memoryStorage(); assert.equal(loadSave(storage), null);
-  for (const json of ['{', 'null', '{}', '{"version":2}']) {
+  for (const json of ['{', 'null', '{}', JSON.stringify({ version: GAME_VERSION + 1 })]) {
     storage.setItem(SAVE_KEY, json); assert.equal(loadSave(storage), null);
   }
   const changes = [
@@ -73,7 +95,7 @@ test('missing, damaged, incompatible and invalid saves fall back to a new game',
 });
 
 test('blocked storage and quota errors do not interrupt play', () => {
-  const storage = { getItem(): string | null { throw new Error('Blocked'); }, setItem() { throw new Error('Quota exceeded'); } };
+  const storage = { getItem(): string | null { throw new Error('Blocked'); }, setItem() { throw new Error('Quota exceeded'); }, removeItem() { throw new Error('Blocked'); } };
   assert.equal(hasSave(storage), false);
   assert.equal(loadSave(storage), null);
   assert.doesNotThrow(() => saveGame(new Game(), [0], true, storage));
@@ -81,7 +103,7 @@ test('blocked storage and quota errors do not interrupt play', () => {
 
 test('analytics checkpoints survive saving, while damaged analytics do not discard game progress', () => {
   const game = new Game(), storage = memoryStorage();
-  const analytics = { version: 1 as const, activeMs: 42_000, reached: ['run_started', 'room_4_visited', 'symbol_connection_5_opened'] };
+  const analytics: RunAnalyticsState = { version: GAME_VERSION, activeMs: 42_000, reached: ['run_started', 'room_4_visited', 'symbol_connection_5_opened'] };
   saveGame(game, [0], true, storage, analytics);
   assert.deepEqual(loadSave(storage)!.analytics, analytics);
   const saved = JSON.parse(storage.getItem(SAVE_KEY)!);

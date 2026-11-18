@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { Game, FINAL_PASSAGE_GOALS, PASSAGE_GOALS, portalPosition, ROOM_IDS, wallNormal } from '../src/world';
 import { MILESTONES, readRunAnalytics, RunAnalytics } from '../src/run-analytics';
 import { createGameAnalyticsSink, type AnalyticsCommand } from '../src/game-analytics';
+import { GAME_VERSION } from '../src/version';
 
 const roomLabels = { A: '4', B: '5', C: '6', D: '3', E: 'Y', F: 'X', G: 'H' } as const;
+const eventId = (milestone: string) => `v${GAME_VERSION}:${milestone}`;
 
 function fixture() {
   let now = 0;
@@ -12,7 +14,7 @@ function fixture() {
   const tracker = new RunAnalytics(undefined, (event, value) => events.push([event, value]), true, () => now);
   const advance = (ms: number) => { now += ms; };
   tracker.reset(); tracker.play(game); tracker.setPlaying(true);
-  const value = (milestone: string) => events.find(([event]) => event === `v1:${milestone}`)?.[1];
+  const value = (milestone: string) => events.find(([event]) => event === eventId(milestone))?.[1];
   return { tracker, game, events, advance, value };
 }
 
@@ -33,8 +35,8 @@ test('preparing a new run and observing its room does not send a start before pl
   assert.equal(events.length, 0); assert.deepEqual(tracker.snapshot()!.reached, []);
   tracker.play(game); tracker.play(game);
   assert.deepEqual(events, [
-    'v1:run_started',
-    'v1:room_4_visited',
+    eventId('run_started'),
+    eventId('room_4_visited'),
   ]);
 });
 
@@ -48,8 +50,8 @@ test('milestones send only cumulative thinking time once, excluding pauses', () 
   advance(2250); game.player.room = 'D'; game.transitions = 5; tracker.observe(game);
   assert.equal(value('room_3_visited'), 4);
   for (let i = 0; i < 20; i++) tracker.observe(game);
-  assert.equal(events.filter(([event]) => event === 'v1:room_3_visited').length, 1);
-  assert.ok(events.every(([event]) => /^v1:[^:]+$/.test(event)));
+  assert.equal(events.filter(([event]) => event === eventId('room_3_visited')).length, 1);
+  assert.ok(events.every(([event]) => new RegExp(`^v${GAME_VERSION}:[^:]+$`).test(event)));
   assert.equal(tracker.snapshot()!.activeMs, 4000);
 });
 
@@ -59,9 +61,9 @@ test('each room has a first visit and newly revealed drawings require a separate
     game.player.room = room; game.transitions++; tracker.observe(game);
     assert.equal(value(`room_${roomLabels[room]}_visited`), 0);
   }
-  assert.deepEqual(events.filter(([event]) => /^v1:room_[3456XYH]_visited$/.test(event)).map(([event]) => event).sort(), [
-    'v1:room_3_visited', 'v1:room_4_visited', 'v1:room_5_visited', 'v1:room_6_visited',
-    'v1:room_X_visited', 'v1:room_Y_visited', 'v1:room_H_visited',
+  assert.deepEqual(events.filter(([event]) => new RegExp(`^v${GAME_VERSION}:room_[3456XYH]_visited$`).test(event)).map(([event]) => event).sort(), [
+    eventId('room_3_visited'), eventId('room_4_visited'), eventId('room_5_visited'), eventId('room_6_visited'),
+    eventId('room_X_visited'), eventId('room_Y_visited'), eventId('room_H_visited'),
   ].sort());
   assert.equal(value('symbol_room_5_visited'), undefined);
   for (const [index, goal] of PASSAGE_GOALS.entries()) {
@@ -78,7 +80,7 @@ test('each room has a first visit and newly revealed drawings require a separate
     advance(1000); game.player.room = goal.to; game.transitions++; tracker.observe(game);
     assert.equal(value(`symbol_room_${roomLabels[goal.to]}_visited`), index * 2 + 2);
     game.player.room = 'G'; tracker.observe(game); game.player.room = goal.to; tracker.observe(game);
-    assert.equal(events.filter(([event]) => event === `v1:symbol_room_${roomLabels[goal.to]}_visited`).length, 1);
+    assert.equal(events.filter(([event]) => event === eventId(`symbol_room_${roomLabels[goal.to]}_visited`)).length, 1);
   }
 });
 
@@ -134,7 +136,7 @@ test('a newly revealed drawing is recorded if the player is already in its room,
   assert.equal(value('symbol_room_5_visited'), 1);
   const resumed = new RunAnalytics(tracker.snapshot(), (event, value) => events.push([event, value]));
   resumed.play(game); resumed.observe(game);
-  assert.equal(events.filter(([event]) => event === 'v1:symbol_room_5_visited').length, 1);
+  assert.equal(events.filter(([event]) => event === eventId('symbol_room_5_visited')).length, 1);
 });
 
 test('the square pattern milestone requires the entire symbol chain and the fourth correctly placed ball', () => {
@@ -154,13 +156,13 @@ test('the square pattern milestone requires the entire symbol chain and the four
     }
     if (completed < PASSAGE_GOALS.length) {
       assert.equal(game.world.passageProgress, completed); assert.equal(game.world.gallery, null);
-      assert.equal(events.filter(([event]) => event === 'v1:room_4_pattern_completed').length, 0);
+      assert.equal(events.filter(([event]) => event === eventId('room_4_pattern_completed')).length, 0);
     } else {
       assert.equal(game.world.passageProgress, PASSAGE_GOALS.length + 1); assert.ok(game.world.gallery);
       assert.equal(value('room_4_pattern_completed'), 4);
       game.interact({ room: 'A', side: 3 }); tracker.observe(game);
       place(game, tracker, 'blue', 'A', 3); tracker.observe(game);
-      assert.equal(events.filter(([event]) => event === 'v1:room_4_pattern_completed').length, 1);
+      assert.equal(events.filter(([event]) => event === eventId('room_4_pattern_completed')).length, 1);
     }
   }
 });
@@ -183,7 +185,7 @@ test('wrong final colors and a correct pattern assembled outside A do not send c
   assert.equal(value('room_4_pattern_completed'), undefined);
   place(game, tracker, 'blue', 'A', 3);
   assert.ok(game.world.gallery);
-  assert.equal(events.filter(([event]) => event === 'v1:room_4_pattern_completed').length, 1);
+  assert.equal(events.filter(([event]) => event === eventId('room_4_pattern_completed')).length, 1);
 });
 
 test('early collection does not consume the final collection milestone before the entire symbol chain', () => {
@@ -206,7 +208,7 @@ test('early collection does not consume the final collection milestone before th
   place(game, tracker, 'red', 'A', 0);
   game.player.room = 'G'; tracker.observe(game); game.player.room = 'A'; tracker.observe(game);
   collect(game, tracker); tracker.observe(game);
-  assert.equal(events.filter(([event]) => event === 'v1:all_balls_in_4').length, 1);
+  assert.equal(events.filter(([event]) => event === eventId('all_balls_in_4')).length, 1);
 });
 
 test('final collection includes balls already placed in A, and the completed pattern and exit are distinct', () => {
@@ -248,7 +250,7 @@ test('ordinary gallery doors and approaching the final threshold do not send gam
   assert.equal(gallery.outside, true); assert.equal(value('game_completed'), 1);
   game.move({ x: -n.x * .1, z: -n.z * .1 }); tracker.observe(game);
   game.move({ x: n.x * .1, z: n.z * .1 }); tracker.observe(game);
-  assert.equal(events.filter(([event]) => event === 'v1:game_completed').length, 1);
+  assert.equal(events.filter(([event]) => event === eventId('game_completed')).length, 1);
 });
 
 test('reload preserves time and reached milestones; menu resumes do not create extra resume events', () => {
@@ -278,14 +280,14 @@ test('the timer calculates and saves whole milliseconds without losing time acro
   tracker.setPlaying(false); now = 1000.8; tracker.setPlaying(true);
   now = 1010.9; tracker.setPlaying(false);
   assert.equal(tracker.snapshot()!.activeMs, 30);
-  const loaded = readRunAnalytics({ version: 1, activeMs: 30.7, reached: ['run_started'] })!;
+  const loaded = readRunAnalytics({ version: GAME_VERSION, activeMs: 30.7, reached: ['run_started'] })!;
   assert.equal(loaded.activeMs, 30);
   const resumed = new RunAnalytics(loaded, () => {}, true, () => now);
   resumed.play(game); resumed.setPlaying(true); now = 1012.3;
   assert.equal(resumed.snapshot()!.activeMs, 32);
 });
 
-test('legacy runs are not given invented start times; dev runs and failed senders cannot affect play', () => {
+test('missing timing metadata is not invented; dev runs and failed senders cannot affect play', () => {
   const game = new Game(), events: string[] = [];
   const legacy = new RunAnalytics(undefined, event => events.push(event));
   legacy.play(game); legacy.setPlaying(true); legacy.observe(game); assert.equal(legacy.snapshot(), undefined);
@@ -298,14 +300,31 @@ test('legacy runs are not given invented start times; dev runs and failed sender
 });
 
 test('telemetry checkpoints validate their size, milestone names, uniqueness and clock', () => {
-  for (const value of [null, {}, { version: 1, activeMs: -1, reached: [] }, { version: 1, activeMs: Infinity, reached: [] },
-    { version: 1, activeMs: 0, reached: ['unknown'] }, { version: 1, activeMs: 0, reached: ['room_5_visited'] },
-    { version: 1, activeMs: 0, reached: Array(100).fill('run_started') }]) assert.equal(readRunAnalytics(value), undefined);
-  const saved = { version: 1, activeMs: 1000, reached: [...MILESTONES] };
+  for (const value of [null, {}, { version: GAME_VERSION - 1, activeMs: 1000, reached: ['run_started'] },
+    { version: GAME_VERSION, activeMs: -1, reached: [] }, { version: GAME_VERSION, activeMs: Infinity, reached: [] },
+    { version: GAME_VERSION, activeMs: 0, reached: ['unknown'] }, { version: GAME_VERSION, activeMs: 0, reached: ['room_5_visited'] },
+    { version: GAME_VERSION, activeMs: 0, reached: ['run_started', ...Array.from({ length: 128 }, (_, i) => `unknown_${i}`)] },
+    { version: GAME_VERSION, activeMs: 0, reached: Array(100).fill('run_started') }]) assert.equal(readRunAnalytics(value), undefined);
+  const saved = { version: GAME_VERSION, activeMs: 1000, reached: [...MILESTONES] };
   assert.deepEqual(readRunAnalytics(saved), saved);
+  assert.deepEqual(readRunAnalytics({ ...saved, reached: [...MILESTONES, 'unknown'] }), saved);
 });
 
-const config = { enabled: true, gameKey: 'a'.repeat(32), secretKey: 'b'.repeat(40), build: 'test' };
+test('unknown milestone names do not discard valid timing, deduplication or later events', () => {
+  const loaded = readRunAnalytics({ version: GAME_VERSION, activeMs: 42_000,
+    reached: ['run_started', 'room_4_visited', 'symbol_connection_3_opened', 'symbol_room_3_visited'] })!;
+  assert.deepEqual(loaded.reached, ['run_started', 'room_4_visited']);
+  assert.equal(loaded.activeMs, 42_000);
+  const game = new Game(), events: [string, number][] = [];
+  let now = 100_000;
+  const tracker = new RunAnalytics(loaded, (event, value) => events.push([event, value]), true, () => now);
+  tracker.play(game); tracker.setPlaying(true); now += 2000;
+  game.player.room = 'B'; tracker.observe(game);
+  assert.deepEqual(events, [[eventId('run_resumed'), 42], [eventId('room_5_visited'), 44]]);
+  assert.deepEqual(tracker.snapshot()!.reached, ['run_started', 'room_4_visited', 'room_5_visited']);
+});
+
+const config = { enabled: true, gameKey: 'a'.repeat(32), secretKey: 'b'.repeat(40) };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
 test('SDK events wait for asynchronous session initialization, then drain in order', async () => {
@@ -318,6 +337,7 @@ test('SDK events wait for asynchronous session initialization, then drain in ord
   const send = createGameAnalyticsSink(config, async () => command);
   send('first', 0); send('second', 10); await tick();
   assert.ok(calls.some(([name]) => name === 'initialize'));
+  assert.deepEqual(calls.filter(([name]) => name === 'configureBuild').map(([, args]) => args), [[String(GAME_VERSION)]]);
   assert.equal(calls.filter(([name]) => name === 'addDesignEvent').length, 0);
   ready!(); send('third', 15);
   assert.deepEqual(calls.filter(([name]) => name === 'addDesignEvent').map(([, args]) => args), [['first', 0], ['second', 10], ['third', 15]]);

@@ -55,7 +55,6 @@ jobs:
         env:
           VITE_GAMEANALYTICS_GAME_KEY: ${{ secrets.GAMEANALYTICS_GAME_KEY }}
           VITE_GAMEANALYTICS_SECRET_KEY: ${{ secrets.GAMEANALYTICS_SECRET_KEY }}
-          VITE_GAMEANALYTICS_BUILD: ${{ github.sha }}
 
       - name: Include copyright notice
         run: cp COPYRIGHT dist/COPYRIGHT

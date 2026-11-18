@@ -1,6 +1,7 @@
 import { FINAL_PASSAGE_GOALS, Game, initialState, PASSAGE_GOALS, ROOM_IDS, validateWorld, type Snapshot } from './world';
 import { galleryRoute } from './gallery';
 import { readRunAnalytics, type RunAnalyticsState } from './run-analytics';
+import { GAME_VERSION } from './version';
 
 export const SAVE_KEY = 'samewhere.save';
 export function hasSave(storage?: Pick<Storage, 'getItem'>): boolean {
@@ -9,7 +10,7 @@ export function hasSave(storage?: Pick<Storage, 'getItem'>): boolean {
 }
 
 interface SavedGame {
-  version: 1;
+  version: typeof GAME_VERSION;
   state: Snapshot;
   transitions: number;
   music: number[];
@@ -37,11 +38,13 @@ function validateSnapshot({ world, player }: Snapshot) {
 }
 
 /** Invalid or unavailable browser storage must never prevent a new game. */
-export function loadSave(storage?: Pick<Storage, 'getItem'>): SavedGame | null {
+export function loadSave(storage?: Pick<Storage, 'getItem' | 'removeItem'>): SavedGame | null {
   try {
-    const saved: SavedGame = JSON.parse((storage ?? localStorage).getItem(SAVE_KEY) ?? 'null');
-    if (!saved || saved.version !== 1 ||
-        !Number.isSafeInteger(saved.transitions) || saved.transitions < 0 || typeof saved.soundEnabled !== 'boolean' ||
+    const source = storage ?? localStorage;
+    const saved: SavedGame = JSON.parse(source.getItem(SAVE_KEY) ?? 'null');
+    if (!saved) return null;
+    if (saved.version !== GAME_VERSION) { source.removeItem(SAVE_KEY); return null; }
+    if (!Number.isSafeInteger(saved.transitions) || saved.transitions < 0 || typeof saved.soundEnabled !== 'boolean' ||
         !Array.isArray(saved.music) || !saved.music.includes(0) || new Set(saved.music).size !== saved.music.length ||
         !saved.music.every(index => Number.isInteger(index) && index >= 0 && index < 6)) return null;
     validateSnapshot(saved.state);
@@ -53,7 +56,7 @@ export function loadSave(storage?: Pick<Storage, 'getItem'>): SavedGame | null {
 
 export function saveGame(game: Game, music: Iterable<number>, soundEnabled: boolean, storage?: Pick<Storage, 'setItem'>, analytics?: RunAnalyticsState) {
   try {
-    const saved: SavedGame = { version: 1, state: { world: game.world, player: game.player },
+    const saved: SavedGame = { version: GAME_VERSION, state: { world: game.world, player: game.player },
       transitions: game.transitions, music: [...music], soundEnabled, ...(analytics && { analytics }) };
     (storage ?? localStorage).setItem(SAVE_KEY, JSON.stringify(saved));
   } catch { /* Play can continue when storage is blocked or full. */ }

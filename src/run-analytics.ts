@@ -1,4 +1,5 @@
 import { PASSAGE_GOALS, ROOM_IDS, type Game, type RoomId } from './world';
+import { GAME_VERSION } from './version';
 
 const ROOM_LABELS: Record<RoomId, string> = {
   A: '4', B: '5', C: '6', D: '3', E: 'Y', F: 'X', G: 'H',
@@ -13,7 +14,7 @@ export const MILESTONES = [
 ] as const;
 
 export interface RunAnalyticsState {
-  version: 1;
+  version: typeof GAME_VERSION;
   activeMs: number;
   reached: string[];
 }
@@ -23,12 +24,13 @@ export type AnalyticsSink = (event: string, value: number) => void;
 export function readRunAnalytics(value: unknown): RunAnalyticsState | undefined {
   if (!value || typeof value !== 'object') return;
   const state = value as RunAnalyticsState;
-  if (state.version !== 1 || !Number.isFinite(state.activeMs) || state.activeMs < 0 ||
-      !Array.isArray(state.reached) || state.reached.length > MILESTONES.length ||
+  if (state.version !== GAME_VERSION || !Number.isFinite(state.activeMs) || state.activeMs < 0 ||
+      !Array.isArray(state.reached) || state.reached.length > 128 ||
       new Set(state.reached).size !== state.reached.length) return;
-  const { reached } = state;
-  if (!reached.every(item => MILESTONES.includes(item)) || (reached.length > 0 && !reached.includes('run_started'))) return;
-  return { version: 1, activeMs: Math.floor(state.activeMs), reached: [...reached] };
+  if (state.reached.length > 0 && !state.reached.includes('run_started')) return;
+  // Version mismatches reset the whole save; unknown names alone must not disable tracking.
+  const reached = state.reached.filter(item => MILESTONES.includes(item));
+  return { version: GAME_VERSION, activeMs: Math.floor(state.activeMs), reached };
 }
 
 /** One small checkpoint per run, independent of the network and SDK session clock. */
@@ -45,7 +47,7 @@ export class RunAnalytics {
     this.state = enabled ? readRunAnalytics(saved) : undefined;
   }
   reset() {
-    this.state = this.enabled ? { version: 1, activeMs: 0, reached: [] } : undefined;
+    this.state = this.enabled ? { version: GAME_VERSION, activeMs: 0, reached: [] } : undefined;
     this.activeSince = null; this.announced = false;
   }
   setPlaying(playing: boolean) {
@@ -90,7 +92,7 @@ export class RunAnalytics {
   private measure(milestone: string) {
     if (!this.state) return;
     // Design events expose one numeric value in the free GameAnalytics UI.
-    try { this.send(`v1:${milestone}`, Math.floor(this.state.activeMs / 1000)); }
+    try { this.send(`v${GAME_VERSION}:${milestone}`, Math.floor(this.state.activeMs / 1000)); }
     catch { /* Telemetry must never interrupt gameplay. */ }
   }
 }
