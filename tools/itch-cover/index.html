@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>samewhere. — обложка itch.io</title>
+    <link rel="stylesheet" href="../../src/style.css" />
+    <style>
+      body {
+        min-width: 678px;
+        min-height: 100vh;
+        padding: 24px;
+        overflow: auto;
+        display: grid;
+        place-content: center;
+        gap: 16px;
+        background: #202020;
+      }
+
+      .cover {
+        /* Размер обложки и параметры для ручной подстройки. */
+        --cover-width: 630px;
+        --cover-height: 500px;
+        --background-x: 50%;
+        --background-y: 50%;
+        --blur: 6px;
+        --logo-x: 50%;
+        --logo-y: 50%;
+        --logo-scale: 4;
+        --logo-color: var(--paper);
+        --logo-shadow: 0 1px 6px #000c;
+
+        position: relative;
+        width: var(--cover-width);
+        height: var(--cover-height);
+        overflow: hidden;
+        isolation: isolate;
+      }
+
+      .cover-background {
+        position: absolute;
+        /* Запас вокруг кадра убирает прозрачные края фильтра размытия. */
+        inset: calc(-3 * var(--blur));
+        background: url("./screenshot.jpg") var(--background-x) var(--background-y) / cover;
+        filter: blur(var(--blur));
+      }
+
+      .cover-logo {
+        /* Шрифт, насыщенность и трекинг — из стилей игрового меню. */
+        left: var(--logo-x);
+        top: var(--logo-y);
+        bottom: auto;
+        color: var(--logo-color);
+        text-shadow: var(--logo-shadow);
+        font-size: 25px;
+        transform: translate(-50%, -50%) scale(var(--logo-scale));
+        transform-origin: center;
+      }
+
+      .cover-size {
+        margin: 0;
+        color: #aaa;
+        font: 12px/1.5 Arial, sans-serif;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="cover" role="img" aria-label="Обложка samewhere. для itch.io">
+      <div class="cover-background" aria-hidden="true"></div>
+      <div class="menu-brand wordmark cover-logo" aria-hidden="true">samewhere<span class="wordmark-dot">.</span></div>
+    </div>
+    <p class="cover-size">630 × 500 px</p>
+  </body>
+</html>
