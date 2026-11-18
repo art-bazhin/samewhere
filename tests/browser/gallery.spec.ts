@@ -23,7 +23,7 @@ test('0 shortcuts prepare the square gallery with four balls in hand and R reset
     for (const goal of FINAL_PASSAGE_GOALS) { game.world.selected = goal.color; game.interact(goal.from); }
     sync(); space.render();
   });
-  expect(await page.evaluate(() => window.__samewhere.game.world.gallery.signs.length)).toBe(42);
+  expect(await page.evaluate(() => window.__samewhere.game.world.gallery.signs.length)).toBe(30);
   await page.keyboard.press('Digit0');
   expect(await page.evaluate(() => {
     const { game, space } = window.__samewhere; space.render();
@@ -70,7 +70,7 @@ test('EXIT signs follow a fixed route regardless of the camera and stay continuo
       app.sync(); space.render();
     }
     const initial = capture(), gallery = game.world.gallery;
-    check(gallery?.signs.length === 42, 'The completed pattern did not start the EXIT route');
+    check(gallery?.signs.length === 30, 'The completed pattern did not start the EXIT route');
     check(initial.green > 100, 'The first EXIT did not appear while the player was looking at it');
     const route = structuredClone(gallery.signs), routeJSON = JSON.stringify(route);
     pose(route[0].side, portalDistance('A'), .12); app.sync(); space.render();

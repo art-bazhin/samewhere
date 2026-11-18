@@ -219,7 +219,7 @@ test('final collection includes balls already placed in A, and the completed pat
   game.world.balls[0].socket = null;
   for (const goal of FINAL_PASSAGE_GOALS) { game.selectColor(goal.color); game.interact(goal.from); tracker.observe(game); }
   assert.equal(value('room_4_pattern_completed'), 1); assert.equal(value('game_completed'), undefined);
-  advance(2000); game.world.gallery!.outside = true; game.transitions += 42; tracker.observe(game);
+  advance(2000); game.world.gallery!.outside = true; game.transitions += game.world.gallery!.signs.length; tracker.observe(game);
   assert.equal(value('game_completed'), 3);
 });
 

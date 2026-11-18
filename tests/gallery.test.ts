@@ -4,10 +4,10 @@ import { galleryExitAt, galleryNeighbor, galleryRoute, isGalleryExit } from '../
 
 test('EXIT routes turn by 90 degrees, never reverse through the entrance, and never revisit a room', () => {
   const signs = galleryRoute(), gallery = { cell: { x: 0, z: 0 }, signs, outside: false };
-  assert.equal(signs.length, 42);
+  assert.equal(signs.length, 30);
   assert.equal(new Set(signs.map(sign => `${sign.x},${sign.z}`)).size, signs.length);
   assert.deepEqual(signs.map(sign => sign.side), [
-    ...Array(5).fill(2), ...Array(5).fill(1), ...Array(5).fill(2), ...Array(7).fill(1),
+    ...Array(5).fill(2), ...Array(5).fill(1),
     0, 1, 0, 1, 0, ...Array(5).fill(1), ...Array(10).fill(2),
   ], 'The route must follow the approved turns and finish with a right turn into ten southward crossings');
   for (const [index, sign] of signs.entries()) {

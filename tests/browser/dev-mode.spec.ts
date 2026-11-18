@@ -37,7 +37,7 @@ for (const url of ['/', '/?dev=0', '/?dev=1']) {
       await expect(page.locator('#inventory .held')).toHaveCount(4);
       expect(await page.evaluate(() => window.__samewhere.game.player.room)).toBe('A');
       await page.keyboard.press('Digit9');
-      expect(await page.evaluate(() => window.__samewhere.game.world.gallery.signs.length)).toBe(42);
+      expect(await page.evaluate(() => window.__samewhere.game.world.gallery.signs.length)).toBe(30);
       await page.keyboard.press('KeyR');
       expect(await page.evaluate(() => window.__samewhere.game.snapshot())).toEqual(initial);
       const changed = await page.evaluate(() => {
